@@ -1,0 +1,72 @@
+package moe.chenxy.oppopods.ipc
+
+import java.io.File
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
+import org.junit.Test
+
+class Phase5ArchitectureTest {
+    private fun source(relative: String): String? {
+        val paths = listOf(File(relative), File("app/$relative"))
+        return paths.firstOrNull(File::isFile)?.readText()
+    }
+
+    @Test
+    fun `bluetooth runtime owns one session manager and versioned receiver`() {
+        val source = source(
+            "src/main/java/moe/chenxy/oppopods/runtime/bluetoothprocess/" +
+                "BluetoothProcessRuntimeHost.kt",
+        )
+        assumeTrue(source != null)
+
+        assertTrue(source!!.contains("HeadphoneSessionManager(registry, scope)"))
+        assertTrue(source.contains("ACTION_HEADPHONE_COMMAND"))
+        assertTrue(source.contains("HeadphoneSnapshotPayload.from"))
+        assertFalse(source.contains("BluetoothSocket"))
+    }
+
+    @Test
+    fun `snapshot bridge is installed in app milink xiaomi and settings consumers`() {
+        val app = source("src/main/java/moe/chenxy/oppopods/OppoPodsApp.kt")
+        val upstream = source(
+            "src/main/java/moe/chenxy/oppopods/hook/BluetoothUpstreamHeadsetHook.kt",
+        )
+        val milink = source(
+            "src/main/java/moe/chenxy/oppopods/hook/milink/MiLinkServiceHook.kt",
+        )
+        val settings = source(
+            "src/main/java/moe/chenxy/oppopods/hook/SettingsHeadsetHook.kt",
+        )
+        listOf(app, upstream, milink, settings).forEach {
+            assumeTrue(it != null)
+            assertTrue(it!!.contains("HeadphoneIpcEventBridge.register"))
+        }
+    }
+
+    @Test
+    fun `snapshot bridge preserves parcelable legacy battery contract`() {
+        val bridge = source(
+            "src/main/java/moe/chenxy/oppopods/ipc/HeadphoneIpcEventBridge.kt",
+        )
+        assumeTrue(bridge != null)
+
+        assertTrue(bridge!!.contains("BatteryParams("))
+        assertTrue(bridge.contains("PodParams("))
+        assertTrue(bridge.contains("\"status\","))
+    }
+
+    @Test
+    fun `legacy controller delegates session authority to runtime host`() {
+        val controller = source(
+            "src/main/java/moe/chenxy/oppopods/pods/RfcommController.kt",
+        )
+        assumeTrue(controller != null)
+
+        assertTrue(controller!!.contains("BluetoothProcessRuntimeHost.connect"))
+        assertTrue(controller.contains("BluetoothProcessRuntimeHost.execute"))
+        assertFalse(controller.contains("private var session:"))
+        assertFalse(controller.contains("OppoDriverProvider("))
+        assertFalse(controller.contains("AndroidSppTransportFactory("))
+    }
+}

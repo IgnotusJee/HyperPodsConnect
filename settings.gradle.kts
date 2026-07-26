@@ -26,5 +26,6 @@ plugins {
 rootProject.name = "OppoPods"
 include(":app")
 include(":core")
+include(":engine")
 include(":protocol:oppo")
 include(":transport:android")

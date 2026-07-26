@@ -5,10 +5,12 @@ import android.util.Log
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import java.util.concurrent.CopyOnWriteArraySet
+import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
 
 class OppoPodsApp : Application(), XposedServiceHelper.OnServiceListener {
     override fun onCreate() {
         super.onCreate()
+        HeadphoneIpcEventBridge.register(this)
         XposedServiceHelper.registerListener(this)
     }
 

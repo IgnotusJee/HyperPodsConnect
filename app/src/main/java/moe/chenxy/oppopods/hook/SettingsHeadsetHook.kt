@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import moe.chenxy.oppopods.BuildConfig
+import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
@@ -369,6 +370,7 @@ object SettingsHeadsetHook : HookContext() {
     private fun registerStatusReceiver(ctx: Context?) {
         if (ctx == null || receiverRegistered) return
         context = ctx.applicationContext ?: ctx
+        HeadphoneIpcEventBridge.register(context ?: ctx)
         loadState()
         val filter = IntentFilter().apply {
             addAction(OppoPodsAction.ACTION_PODS_CONNECTED)
@@ -417,6 +419,7 @@ object SettingsHeadsetHook : HookContext() {
             }
         }, filter, Context.RECEIVER_EXPORTED)
         receiverRegistered = true
+        context?.let(HeadphoneIpcEventBridge::requestSnapshot)
         requestBluetoothStatus("receiver-register")
         Log.d(TAG, "registered status receiver context=$context")
     }

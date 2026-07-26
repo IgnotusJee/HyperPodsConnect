@@ -14,6 +14,7 @@ import android.os.Parcel
 import java.lang.reflect.Method
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
+import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
 import moe.chenxy.oppopods.pods.RfcommController
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
@@ -160,6 +161,7 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
     private fun registerStatusReceiver(ctx: Context?) {
         if (ctx == null || receiverRegistered) return
         context = ctx.applicationContext ?: ctx
+        HeadphoneIpcEventBridge.register(context ?: ctx)
         val filter = IntentFilter().apply {
             addAction(OppoPodsAction.ACTION_PODS_CONNECTED)
             addAction(OppoPodsAction.ACTION_PODS_DISCONNECTED)
@@ -205,6 +207,7 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
             }
         }, filter, Context.RECEIVER_EXPORTED)
         receiverRegistered = true
+        context?.let(HeadphoneIpcEventBridge::requestSnapshot)
         context?.sendBroadcast(Intent(OppoPodsAction.ACTION_REFRESH_STATUS).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)

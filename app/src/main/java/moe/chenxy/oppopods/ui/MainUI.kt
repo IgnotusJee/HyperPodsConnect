@@ -48,6 +48,7 @@ import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.config.PodImagePrefs
 import moe.chenxy.oppopods.config.PodImageResource
+import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
 import moe.chenxy.oppopods.pods.GameModeImplementation
 import moe.chenxy.oppopods.pods.NoiseControlMode
 import moe.chenxy.oppopods.pods.WearState
@@ -365,6 +366,7 @@ fun MainUI(
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         }, Context.RECEIVER_EXPORTED)
 
+        HeadphoneIpcEventBridge.requestSnapshot(context)
         sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_PODS_UI_INIT)
 
         onDispose {

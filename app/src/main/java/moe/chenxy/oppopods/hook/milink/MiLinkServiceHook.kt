@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
+import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
 import moe.chenxy.oppopods.hook.HookContext
 import moe.chenxy.oppopods.hook.Log
 import moe.chenxy.oppopods.hook.callMethod
@@ -175,6 +176,7 @@ object MiLinkServiceHook : HookContext() {
     private fun registerStatusReceiver(ctx: Context?) {
         if (ctx == null || receiverRegistered) return
         context = ctx.applicationContext ?: ctx
+        HeadphoneIpcEventBridge.register(context ?: ctx)
         val filter = IntentFilter().apply {
             addAction(OppoPodsAction.ACTION_PODS_CONNECTED)
             addAction(OppoPodsAction.ACTION_PODS_DISCONNECTED)
@@ -220,6 +222,7 @@ object MiLinkServiceHook : HookContext() {
             }
         }, filter, Context.RECEIVER_EXPORTED)
         receiverRegistered = true
+        context?.let(HeadphoneIpcEventBridge::requestSnapshot)
         context?.sendBroadcast(Intent(OppoPodsAction.ACTION_PODS_UI_INIT).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)

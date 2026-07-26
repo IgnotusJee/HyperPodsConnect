@@ -17,13 +17,16 @@
 
 Phase 0（基线与保护网）、Phase 1（`:core` 与通用领域模型）、Phase 2（提取 OPPO
 流式协议）、Phase 3（提取通用 SPP transport）、Phase 4（建立 OPPO Session 和功能
-模块）**已完成**。下一阶段是 Phase 5：引入 engine 和版本化 IPC。
+模块）、Phase 5（引入 engine 和版本化 IPC）**已完成**。下一阶段是 Phase 6：
+UI 与 HyperOS 去品牌化。
 
-模块结构目前是 `:app`、`:core`、`:protocol:oppo`、`:transport:android`。
-`:core` 与 `:protocol:oppo` 都是纯 Kotlin/JVM 模块，编译期即无法触及 Android、
-Xposed 与 Compose。运行路径仍保留 `RfcommController` 作为旧广播与 HyperOS 集成的
-兼容 facade；真实 socket 生命周期与字节收发由 `SppTransport` 管理，拆包/粘包、握手、
-能力发现、初始同步、状态归约和功能命令则由 `:protocol:oppo` 的 `OppoSession` 管理。
+模块结构目前是 `:app`、`:core`、`:engine`、`:protocol:oppo`、
+`:transport:android`。`:core`、`:engine` 与 `:protocol:oppo` 都是纯 Kotlin/JVM
+模块，编译期即无法触及 Android、Xposed 与 Compose。蓝牙进程中的
+`BluetoothProcessRuntimeHost` 是唯一真实会话 authority，由 `:engine` 的
+`HeadphoneSessionManager` 管理 driver、generation、重连和统一 snapshot。
+`RfcommController` 仅保留为旧广播与 HyperOS 集成的兼容 facade；App、MiLink 和
+小米蓝牙进程通过版本化 IPC 恢复相同快照，不会各自建立蓝牙会话。
 
 协议 fixture 位于仓库根的 `testdata/`，由 `:app` 与 `:protocol:oppo` 共享，
 新旧两套实现对着同一份真机证据校验。
@@ -132,6 +135,26 @@ OPPO Enco Air5s 上完成真机回归：Session 通过 OPPO RFCOMM channel 5 收
 功能表与低延迟状态；旧游戏模式广播可触发低延迟开启并恢复原值，两次操作均到达
 `DEVICE_ACCEPTED` 后再由批量状态回读进入 `READ_BACK_CONFIRMED`。全工程 158 个单元
 测试、`lintDebug`、debug/release assemble 全部通过。
+
+## Phase 5 的落点
+
+新增纯 Kotlin/JVM 的 `:engine`，其中 `DriverRegistry` 负责无副作用的驱动识别，
+`HeadphoneSessionManager` 负责唯一 active session、连接 generation、有限指数重连、
+状态/操作收集和迟到事件隔离。每份 `HeadphoneSnapshot` 同时携带设备、profile、
+connection、领域 state 和最近 operation，成为各进程恢复状态的唯一来源。
+
+蓝牙进程中的 `BluetoothProcessRuntimeHost` 持有唯一 manager，并通过 version 2
+command/event IPC 接收命令、发布完整 JSON snapshot。App、MiLink、小米蓝牙和 Settings
+侧安装事件桥；旧 `OppoPodsAction` 仍可双向工作，Parcelable 电量/耳机 DTO 也被保留，
+因此迁移期旧 UI 与 HyperOS 接入无需同时改完。
+
+2026-07-27 在 Xiaomi 13 Pro（Android 16 / API 36、LSPosed 2.1.1 API 102）与
+OPPO Enco Air5s 上完成真机闭环：App 连续冷启动三次时蓝牙进程 PID 与 RFCOMM 建连
+时间戳均不变，界面可仅凭统一快照恢复电量、ANC、低延迟、空间声、EQ 与型号；
+version 2 命令和旧游戏模式广播均完成
+QUEUED → SENT → TRANSPORT_ACKNOWLEDGED → DEVICE_ACCEPTED → READ_BACK_CONFIRMED，
+并恢复原值。全工程 176 个单元测试零失败，`lintDebug`、debug/release assemble 与
+`git diff --check` 均通过。
 
 ## 安全边界
 

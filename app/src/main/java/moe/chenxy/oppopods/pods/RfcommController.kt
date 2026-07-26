@@ -15,42 +15,33 @@ import android.media.MediaRouter2
 import android.media.RouteDiscoveryPreference
 import android.os.SystemClock
 import java.util.concurrent.Executor
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import moe.chenxy.headphones.core.device.DeviceCandidate
-import moe.chenxy.headphones.core.device.DeviceId
-import moe.chenxy.headphones.core.device.DeviceIdentity
-import moe.chenxy.headphones.core.device.TransportKind
-import moe.chenxy.headphones.core.device.VendorId
-import moe.chenxy.headphones.core.driver.DriverSessionContext
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.BatteryState
 import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.HeadphoneState
+import moe.chenxy.headphones.core.feature.WearComponent
 import moe.chenxy.headphones.core.feature.NoiseControlMode as CoreNoiseControlMode
 import moe.chenxy.headphones.core.feature.SpatialAudioMode as CoreSpatialAudioMode
 import moe.chenxy.headphones.core.operation.FeatureCommand
+import moe.chenxy.headphones.core.operation.OperationEvent
 import moe.chenxy.headphones.core.session.DisconnectCause
 import moe.chenxy.headphones.core.session.SessionState
+import moe.chenxy.headphones.engine.HeadphoneSnapshot
 import moe.chenxy.headphones.protocol.oppo.compatibility.OppoCompatibilityOverrides
 import moe.chenxy.headphones.protocol.oppo.compatibility.OppoCompatibilityRegistry
 import moe.chenxy.headphones.protocol.oppo.compatibility.OppoLowLatencyStrategy
 import moe.chenxy.headphones.protocol.oppo.feature.OppoAncEncoding
-import moe.chenxy.headphones.protocol.oppo.feature.OppoComponent
-import moe.chenxy.headphones.protocol.oppo.feature.OppoWearState
-import moe.chenxy.headphones.protocol.oppo.session.OppoDriverProvider
-import moe.chenxy.headphones.protocol.oppo.session.OppoSession
 import moe.chenxy.headphones.protocol.oppo.session.OppoSessionEvent
-import moe.chenxy.headphones.transport.android.AndroidSppTransportFactory
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.hook.Log
+import moe.chenxy.oppopods.runtime.bluetoothprocess.BluetoothProcessRuntimeHost
 import moe.chenxy.oppopods.utils.MediaControl
 import moe.chenxy.oppopods.utils.SystemApisUtils
 import moe.chenxy.oppopods.utils.SystemApisUtils.setIconVisibility
@@ -70,7 +61,6 @@ import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
 @SuppressLint("MissingPermission", "StaticFieldLeak")
 object RfcommController {
     private const val TAG = "OppoPods-RfcommController"
-    private const val AUTO_RECONNECT_DELAY_MS = 120_000L
     private const val APP_UI_ACTIVE_TIMEOUT_MS = 75_000L
 
     private var mContext: Context? = null
@@ -118,18 +108,9 @@ object RfcommController {
     )
 
     private val lifecycleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var connectionJob: Job? = null
-    private var reconnectJob: Job? = null
-    private var sessionCloseJob: Job? = null
-    private var sessionConnectionJob: Job? = null
-    private var sessionStateJob: Job? = null
-    private var sessionEventJob: Job? = null
-    private var sessionOperationJob: Job? = null
-    private val reconnectAttempts = AtomicInteger(0)
     private var reconnectPending = false
-
-    @Volatile
-    private var session: OppoSession? = null
+    private var lastEngineState = HeadphoneState()
+    private var readyGeneration = -1L
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -231,16 +212,19 @@ object RfcommController {
         } else {
             cachedDeviceName.takeIf(String::isNotEmpty)
         },
-        connected = isConnected && session?.connection?.value is SessionState.Ready,
-        connecting = connectionJob?.isActive == true,
+        connected = isConnected &&
+            BluetoothProcessRuntimeHost.snapshot.value?.connection is SessionState.Ready,
+        connecting = BluetoothProcessRuntimeHost.snapshot.value?.connection?.isActive == true,
         reconnectPending = reconnectPending,
     )
 
     private fun currentConnectionState(): String = when {
-        isConnected && session?.connection?.value is SessionState.Ready &&
+        isConnected &&
+            BluetoothProcessRuntimeHost.snapshot.value?.connection is SessionState.Ready &&
             ::currentBatteryParams.isInitialized -> "connected"
-        connectionJob?.isActive == true || reconnectPending -> "connecting"
-        isConnected && session?.connection?.value?.isActive == true -> "connecting"
+        reconnectPending -> "connecting"
+        isConnected && BluetoothProcessRuntimeHost.snapshot.value?.connection?.isActive == true ->
+            "connecting"
         else -> "disconnected"
     }
 
@@ -250,9 +234,6 @@ object RfcommController {
         prefs: SharedPreferences,
         appRequested: Boolean = false,
     ) {
-        connectionJob?.cancel()
-        reconnectJob?.cancel()
-        closeSessionOnly()
         mContext = context
         mDevice = device
         mPrefs = prefs
@@ -291,125 +272,101 @@ object RfcommController {
         mediaRouter = MediaRouter2.getInstance(context)
         startRoutesScan()
         isConnected = true
+        reconnectPending = false
+        lastEngineState = HeadphoneState()
         changeUIConnectionState("connecting")
-        connectRfcomm(initialDelayMs = 500L)
-    }
-
-    private fun connectRfcomm(initialDelayMs: Long = 0L) {
-        connectionJob?.cancel()
-        connectionJob = lifecycleScope.launch {
-            sessionCloseJob?.join()
-            if (initialDelayMs > 0) delay(initialDelayMs)
-            if (!isConnected || !::mDevice.isInitialized) return@launch
-            reconnectPending = false
-
-            val candidate = DeviceCandidate(
-                identity = DeviceIdentity(
-                    id = DeviceId.fromAddress(mDevice.address),
-                    vendorId = VendorId.OPPO,
-                    primaryAddress = mDevice.address,
-                ),
-                displayName = mDevice.name ?: cachedDeviceName,
-                bonded = mDevice.bondState == BluetoothDevice.BOND_BONDED,
-                advertisedUuids = mDevice.uuids?.map { it.uuid.toString() }?.toSet().orEmpty(),
-                availableTransports = setOf(TransportKind.CLASSIC_SPP),
-            )
-            val provider = OppoDriverProvider(sessionOverrides())
-            val created = provider.createSession(
-                DriverSessionContext(candidate, AndroidSppTransportFactory(mDevice)),
-            ) as OppoSession
-            session = created
-            attachSession(created)
-            created.connect()
-
-            when (val result = created.connection.value) {
-                is SessionState.Ready -> {
-                    reconnectAttempts.set(0)
-                    reconnectPending = false
-                    Log.d(TAG, "OPPO session ready generation=${result.generationId}")
-                    RfcommLog.i(mContext, TAG, "session ready generation=${result.generationId}")
-                    if (autoGameModeEnabled) enableGameModeOnConnect()
-                }
-                is SessionState.Failed -> {
-                    Log.e(TAG, "OPPO session connect failed: ${result.detail.orEmpty()}")
-                    RfcommLog.e(mContext, TAG, "connect failed: ${result.detail.orEmpty()}")
-                    changeUIConnectionState("error")
-                    scheduleReconnect("session connect failed")
-                }
-                else -> {
-                    changeUIConnectionState("error")
-                    scheduleReconnect("session did not become ready")
-                }
-            }
-        }
-    }
-
-    private fun attachSession(created: OppoSession) {
-        cancelSessionCollectors()
-        sessionConnectionJob = lifecycleScope.launch {
-            created.connection.collect { connection ->
-                if (session !== created) return@collect
-                when (connection) {
-                    is SessionState.Ready -> changeUIConnectionState(
-                        if (::currentBatteryParams.isInitialized) "connected" else "connecting",
-                    )
-                    is SessionState.Failed -> {
-                        changeUIConnectionState("error")
-                        if (isConnected && connectionJob?.isActive != true) {
-                            scheduleReconnect("session failure: ${connection.cause}")
-                        }
-                    }
-                    else -> Unit
-                }
-            }
-        }
-        sessionStateJob = lifecycleScope.launch {
-            var previous = HeadphoneState()
-            created.state.collect { state ->
-                if (session !== created) return@collect
-                publishStateChanges(previous, state)
-                previous = state
-            }
-        }
-        sessionEventJob = lifecycleScope.launch {
-            created.events.collect { event ->
-                if (session !== created) return@collect
-                when (event) {
-                    is OppoSessionEvent.RawChunk ->
-                        RfcommLog.d(
-                            mContext,
-                            "RFCOMM/RX",
-                            event.bytes.toHexString(HexFormat.UpperCase),
-                        )
-                    is OppoSessionEvent.WearReport -> handleWearReport(event.values)
-                    is OppoSessionEvent.SmartAncLevel -> {
-                        val ordinal = legacyNoiseMode(event.mode).ordinal
-                        if (ordinal != currentSmartAncLevel) {
-                            currentSmartAncLevel = ordinal
-                            changeUISmartAncLevel(ordinal)
-                        }
-                    }
-                    is OppoSessionEvent.UnknownMessage ->
-                        Log.d(TAG, "Unknown OPPO message: ${event.message}")
-                    is OppoSessionEvent.Message -> Unit
-                }
-            }
-        }
-        sessionOperationJob = lifecycleScope.launch {
-            created.operations.collect { event ->
-                RfcommLog.d(
-                    mContext,
-                    "OPERATION",
-                    "${event.requestId.value} ${event.command.featureId} ${event.phase}" +
-                        event.detail?.let { " $it" }.orEmpty(),
+        lifecycleScope.launch {
+            delay(500)
+            if (isConnected) {
+                BluetoothProcessRuntimeHost.connect(
+                    context,
+                    device,
+                    sessionOverrides(),
                 )
             }
         }
     }
 
+    fun onEngineSnapshot(snapshot: HeadphoneSnapshot) {
+        if (!::mDevice.isInitialized || snapshot.deviceId.value !=
+            moe.chenxy.headphones.core.device.DeviceId.fromAddress(mDevice.address).value
+        ) return
+        val previous = lastEngineState
+        lastEngineState = snapshot.state
+        publishStateChanges(previous, snapshot.state)
+        when (val connection = snapshot.connection) {
+            is SessionState.Ready -> {
+                reconnectPending = false
+                changeUIConnectionState(
+                    if (::currentBatteryParams.isInitialized) "connected" else "connecting",
+                )
+                if (readyGeneration != snapshot.generationId) {
+                    readyGeneration = snapshot.generationId
+                    Log.d(TAG, "engine session ready generation=${snapshot.generationId}")
+                    RfcommLog.i(mContext, TAG, "session ready generation=${snapshot.generationId}")
+                    if (autoGameModeEnabled) lifecycleScope.launch { enableGameModeOnConnect() }
+                }
+            }
+            is SessionState.Reconnecting -> {
+                reconnectPending = true
+                changeUIConnectionState("connecting")
+            }
+            is SessionState.Failed -> {
+                reconnectPending = connection.canRetry
+                Log.e(TAG, "engine session failed: ${connection.detail.orEmpty()}")
+                RfcommLog.e(mContext, TAG, "session failed: ${connection.detail.orEmpty()}")
+                changeUIConnectionState("error")
+            }
+            is SessionState.Idle -> if (!isConnected) changeUIConnectionState("disconnected")
+            else -> if (isConnected) changeUIConnectionState("connecting")
+        }
+    }
+
+    @OptIn(ExperimentalStdlibApi::class)
+    fun onOppoSessionEvent(event: OppoSessionEvent) {
+        when (event) {
+            is OppoSessionEvent.RawChunk ->
+                RfcommLog.d(
+                    mContext,
+                    "RFCOMM/RX",
+                    event.bytes.toHexString(HexFormat.UpperCase),
+                )
+            is OppoSessionEvent.WearReport -> Unit
+            is OppoSessionEvent.SmartAncLevel -> {
+                val ordinal = legacyNoiseMode(event.mode).ordinal
+                if (ordinal != currentSmartAncLevel) {
+                    currentSmartAncLevel = ordinal
+                    changeUISmartAncLevel(ordinal)
+                }
+            }
+            is OppoSessionEvent.UnknownMessage ->
+                Log.d(TAG, "Unknown OPPO message: ${event.message}")
+            is OppoSessionEvent.Message -> Unit
+        }
+    }
+
+    fun onEngineOperation(event: OperationEvent) {
+        RfcommLog.d(
+            mContext,
+            "OPERATION",
+            "${event.requestId.value} ${event.command.featureId} ${event.phase}" +
+                event.detail?.let { " $it" }.orEmpty(),
+        )
+    }
+
     private fun publishStateChanges(previous: HeadphoneState, current: HeadphoneState) {
         if (current.batteries.isNotEmpty() && current.batteries != previous.batteries) {
             handleBatteryChanged(current.batteries)
+        }
+        if (current.wearing != previous.wearing) {
+            val oldWear = currentWearStatus
+            currentWearStatus = WearStatus(
+                left = current.wearing[WearComponent.LEFT]?.toLegacyWearState(),
+                right = current.wearing[WearComponent.RIGHT]?.toLegacyWearState(),
+                case = oldWear.case,
+            )
+            changeUIWearStatus(currentWearStatus)
+            showIslandForWearStatusChange(oldWear, currentWearStatus)
         }
         current.noiseControl.confirmed?.let { value ->
             if (value != previous.noiseControl.confirmed) {
@@ -456,31 +413,18 @@ object RfcommController {
         }
     }
 
-    private fun handleWearReport(values: Map<OppoComponent, OppoWearState>) {
-        fun OppoWearState.legacy(): WearState = when (this) {
-            OppoWearState.DISCONNECTED -> WearState.DISCONNECTED
-            OppoWearState.IN_CASE -> WearState.IN_CASE
-            OppoWearState.REMOVED -> WearState.REMOVED
-            OppoWearState.WEARING -> WearState.WEARING
+    private fun moe.chenxy.headphones.core.feature.WearState.toLegacyWearState(): WearState =
+        when (this) {
+            moe.chenxy.headphones.core.feature.WearState.WEARING -> WearState.WEARING
+            moe.chenxy.headphones.core.feature.WearState.REMOVED -> WearState.REMOVED
+            moe.chenxy.headphones.core.feature.WearState.IN_CASE -> WearState.IN_CASE
+            moe.chenxy.headphones.core.feature.WearState.UNKNOWN -> WearState.DISCONNECTED
         }
-        val update = WearStatus(
-            left = values[OppoComponent.LEFT]?.legacy(),
-            right = values[OppoComponent.RIGHT]?.legacy(),
-            case = values[OppoComponent.CASE]?.legacy(),
-        )
-        val previous = currentWearStatus
-        currentWearStatus = mergeWearStatus(previous, update)
-        changeUIWearStatus(currentWearStatus)
-        showIslandForWearStatusChange(previous, currentWearStatus)
-    }
 
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
         isConnected = false
-        connectionJob?.cancel()
-        reconnectJob?.cancel()
-        reconnectAttempts.set(0)
         reconnectPending = false
-        closeSessionOnly(DisconnectCause.REQUESTED)
+        BluetoothProcessRuntimeHost.disconnectAsync(DisconnectCause.REQUESTED)
 
         mContext?.let {
             stopRoutesScan()
@@ -510,64 +454,11 @@ object RfcommController {
         MediaControl.mContext = null
     }
 
-    private fun scheduleReconnect(reason: String, immediate: Boolean = false) {
-        if (!isConnected || !::mDevice.isInitialized || mContext == null) return
-        if (!immediate && reconnectPending) return
-        RfcommLog.w(mContext, TAG, "schedule reconnect reason=$reason immediate=$immediate")
-        closeSessionOnly()
-        reconnectPending = true
-        if (immediate) {
-            if (connectionJob?.isActive == true) return
-            reconnectJob?.cancel()
-            reconnectJob = null
-            connectRfcomm()
-            return
-        }
-        if (reconnectJob?.isActive == true) return
-        val attempt = reconnectAttempts.incrementAndGet()
-        reconnectJob = lifecycleScope.launch {
-            delay(AUTO_RECONNECT_DELAY_MS)
-            reconnectJob = null
-            Log.d(TAG, "RFCOMM reconnect attempt=$attempt reason=$reason")
-            connectRfcomm()
-        }
-    }
-
-    private fun closeSessionOnly(cause: DisconnectCause = DisconnectCause.SUPERSEDED) {
-        val closing = session
-        session = null
-        cancelSessionCollectors()
-        sessionCloseJob = lifecycleScope.launch {
-            closing?.disconnect(cause)
-        }
-    }
-
-    private fun cancelSessionCollectors() {
-        sessionConnectionJob?.cancel()
-        sessionStateJob?.cancel()
-        sessionEventJob?.cancel()
-        sessionOperationJob?.cancel()
-        sessionConnectionJob = null
-        sessionStateJob = null
-        sessionEventJob = null
-        sessionOperationJob = null
-    }
-
     private fun launchCommand(command: FeatureCommand, reason: String) {
         lifecycleScope.launch {
-            val active = session
-            if (active == null) {
-                scheduleReconnect("$reason without session", immediate = true)
-                return@launch
-            }
-            val result = active.execute(command)
+            val result = BluetoothProcessRuntimeHost.execute(command)
             if (!result.succeeded) {
                 Log.w(TAG, "$reason failed: ${result.failure} ${result.detail.orEmpty()}")
-                if (result.failure == moe.chenxy.headphones.core.operation.FailureReason.NOT_CONNECTED ||
-                    result.failure == moe.chenxy.headphones.core.operation.FailureReason.TRANSPORT_ERROR
-                ) {
-                    scheduleReconnect("$reason transport failure", immediate = true)
-                }
             }
         }
     }
@@ -578,12 +469,11 @@ object RfcommController {
     private suspend fun enableGameModeOnConnect() {
         delay(500)
         repeat(3) { attempt ->
-            val active = session ?: return
             if (!isConnected) return
             val started = SystemClock.elapsedRealtime()
-            val result = active.execute(FeatureCommand.SetLowLatency(true))
+            val result = BluetoothProcessRuntimeHost.execute(FeatureCommand.SetLowLatency(true))
             if (result.succeeded) return
-            active.refresh(setOf(FeatureId.LOW_LATENCY))
+            BluetoothProcessRuntimeHost.refresh(setOf(FeatureId.LOW_LATENCY))
             delay(if (attempt == 0) 700 else 1_500)
             if (lastGameModeStatusUpdateMs >= started && currentGameMode) return
         }
@@ -642,21 +532,11 @@ object RfcommController {
     }
 
     fun queryBattery() {
-        lifecycleScope.launch {
-            session?.refresh(setOf(FeatureId.BATTERY))
-                ?: scheduleReconnect("battery query without session", immediate = true)
-        }
+        BluetoothProcessRuntimeHost.refreshAsync(setOf(FeatureId.BATTERY))
     }
 
     fun queryStatus(immediateReconnect: Boolean = true) {
-        lifecycleScope.launch {
-            val active = session
-            if (active == null) {
-                scheduleReconnect("status query without session", immediateReconnect)
-            } else {
-                active.refresh()
-            }
-        }
+        BluetoothProcessRuntimeHost.refreshAsync()
     }
 
     @OptIn(ExperimentalStdlibApi::class)
@@ -675,8 +555,9 @@ object RfcommController {
         val bytes = normalized.hexToByteArray()
         lifecycleScope.launch {
             RfcommLog.i(mContext, "RFCOMM/DEBUG", "send ${bytes.size} bytes")
-            session?.sendDebugFrame(bytes)
-                ?: scheduleReconnect("debug send without session", immediate = true)
+            if (!BluetoothProcessRuntimeHost.sendDebugFrame(bytes)) {
+                RfcommLog.e(mContext, "RFCOMM/DEBUG", "raw HEX denied: no active OPPO session")
+            }
         }
     }
 
@@ -697,7 +578,7 @@ object RfcommController {
         },
     )
 
-    private fun currentCompatibility() = session?.compatibility ?: OppoCompatibilityRegistry.resolve(
+    private fun currentCompatibility() = OppoCompatibilityRegistry.resolve(
         if (::mDevice.isInitialized) mDevice.name ?: cachedDeviceName else cachedDeviceName,
         sessionOverrides(),
     )

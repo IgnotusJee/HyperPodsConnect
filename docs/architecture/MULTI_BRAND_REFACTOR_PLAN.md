@@ -928,7 +928,36 @@ parser。Session 是 OPPO 协议运行时的唯一所有者，负责 SPP transpo
 - 旧广播继续工作；
 - `RfcommController` 不再包含协议常量和 parser。
 
-### Phase 5：引入 engine 和版本化 IPC
+### Phase 5：引入 engine 和版本化 IPC（已完成，2026-07-27）
+
+新增纯 Kotlin/JVM 的 `:engine`。`DriverRegistry` 汇总各厂商 provider 的检测证据，
+`HeadphoneSessionManager` 统一管理唯一 active session、连接 generation、有限指数
+重连、状态/操作收集和完整快照。新连接会显式关闭被替代会话，所有 collector 都同时
+按 generation 与 session identity 过滤，因此旧连接迟到的状态和操作事件不能污染
+新会话。
+
+`com.android.bluetooth` 中的 `BluetoothProcessRuntimeHost` 是唯一真实蓝牙控制
+authority。App、MiLink、小米蓝牙与 Settings 只通过 version 2 command/event 广播
+收发命令和完整 snapshot；App Activity 重建只请求当前快照，不会重建 socket 或
+Session。旧 `OppoPodsAction` 由双向 bridge 继续兼容，包含旧 UI 依赖的
+`BatteryParams`/`PodParams` Parcelable。
+
+验证记录：
+
+- `:core` 23 个、`:engine` 11 个、`:protocol:oppo` 34 个、
+  `:transport:android` 16 个、`:app` 92 个测试全部通过，共 176 个测试；
+- engine 测试覆盖同设备连接去重、设备切换、旧 generation 状态/操作隔离、完整快照、
+  stale disconnect、有限重连与不可重试失败；IPC 测试覆盖全部 `FeatureCommand`
+  round-trip、非法/未知消息拒绝与完整 snapshot round-trip；
+- `lintDebug`、debug/release assemble、`git diff --check` 与架构约束全部通过；
+- Xiaomi 13 Pro（Android 16 / API 36、LSPosed 2.1.1 API 102）连接
+  OPPO Enco Air5s 后，App 连续三次 force-stop/cold-start 前后蓝牙进程 PID 均为
+  5870，RFCOMM channel 5 的 CONNECTED 时间戳保持为 00:46:27.727，证明 App 重启仅
+  恢复 snapshot、没有重建蓝牙连接；
+- App 可从统一 snapshot 恢复左右耳电量、ANC、低延迟、空间声、EQ 与型号；version 2
+  命令及旧游戏模式 action 均完成
+  QUEUED → SENT → TRANSPORT_ACKNOWLEDGED → DEVICE_ACCEPTED →
+  READ_BACK_CONFIRMED，并在验证后恢复低延迟原值。
 
 改动：
 

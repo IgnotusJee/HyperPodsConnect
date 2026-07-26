@@ -85,6 +85,7 @@ configurations.configureEach {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":engine"))
     implementation(project(":protocol:oppo"))
     implementation(project(":transport:android"))
     implementation(libs.coreKtx)

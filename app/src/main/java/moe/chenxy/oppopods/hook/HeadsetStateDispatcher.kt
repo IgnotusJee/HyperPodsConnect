@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.os.Handler
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.pods.RfcommController
+import moe.chenxy.oppopods.runtime.bluetoothprocess.BluetoothProcessRuntimeHost
 import moe.chenxy.oppopods.utils.SystemApisUtils.setIconVisibility
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
 
@@ -21,7 +22,10 @@ object HeadsetStateDispatcher : HookContext() {
     override fun onHook() {
         runCatching {
             hookAfter(findMethod("com.android.bluetooth.btservice.AdapterService", "onCreate")) {
-                registerAppRequestReceiver(instance as? Context)
+                (instance as? Context)?.let {
+                    BluetoothProcessRuntimeHost.initialize(it)
+                    registerAppRequestReceiver(it)
+                }
             }
         }.onFailure {
             Log.w("OppoPods", "AdapterService.onCreate hook skipped", it)
