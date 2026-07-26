@@ -125,7 +125,17 @@ request ID、device ID、vendor ID 或操作结果，这是 Phase 5 迁移时必
   AGP 9.1.0 + 本机 Android SDK）下运行 33 个测试，0 失败；
 - 已验证：`:app:assembleDebug` 与 `:app:assembleRelease` 构建通过，release
   构建中 raw HEX 门禁依赖的 `BuildConfig.DEBUG` 为编译期 false；
-- 待完成：上述真机 fixtures，为 Phase 0 关闭前的唯一剩余验收项。采集方案见
-  `docs/reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md`，执行侧的
-  环境与安全门禁已实现于 `tools/bluetooth-capture/capture.ps1`（M0）。该门禁当前
-  报告两项用户前置未完成：目标机未安装 HeyMelody 16.7.1，且 HCI snoop 未启用。
+- 部分完成：**首份真机 fixture 已入库**，见
+  `app/src/test/resources/fixtures/oppo/device-capture/encoair5s-cold-init.hex`
+  及同名 metadata。采集于 OPPO Enco Air5s + HeyMelody 16.7.1 + Android 16，
+  HCI 与 Frida 双链路字节级互证（7 个 TX payload 一致，时间偏移离散 5 毫秒）。
+  `DeviceCaptureRegressionTest` 的 8 项回归全部通过，其中包含真机分片流经
+  `OppoFrameStreamDecoder` 的逐字节还原验证。
+
+真机侧已闭合：`0x0100` capability、`0x0200/0x0205` 通知握手、`0x0204` 电量与佩戴
+主动通知。仍未闭合：固件版本、`0x0106` 电量查询、EQ 全链路、ANC 设置与回读，
+以及 Air5s 空间声开关的真实行为。因此 Phase 0 尚不能整体标记完成。
+
+已发现的实现差异：官方 App 的 `0x010C` ANC 查询发送 payload `03 01`，设备回
+`01 03 01 00 00`；本项目发送 `01 01` 且 parser 扫描 `01 01` 标记，无法解出真机
+响应。该差异已由回归测试显式记录，定性需要一次 ANC 模式切换抓包。

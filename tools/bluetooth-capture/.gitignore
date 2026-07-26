@@ -2,4 +2,4 @@
 _agent.js
 _agent.js.map
 agent/node_modules/
-collector/__pycache__/
+__pycache__/

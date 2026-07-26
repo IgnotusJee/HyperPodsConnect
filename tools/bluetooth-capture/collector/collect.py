@@ -46,6 +46,7 @@ class Collector:
         self.pid_after = None
         self.health = None
         self.stopping = False
+        self.spawned = False
 
     def _on_message(self, message, data):
         if message["type"] == "send":
@@ -65,6 +66,16 @@ class Collector:
     def resolve_target(self):
         if self.args.package in PROCESS_DENYLIST:
             raise SystemExit(f"拒绝注入系统进程：{self.args.package}")
+
+        if self.args.spawn:
+            # Cold-init handshakes finish within a second of the app connecting,
+            # long before an attach can land, so catching them needs the process
+            # gated at startup. This necessarily changes the PID, which is why it
+            # is opt-in and the PID-stability check is skipped below.
+            self.pid_before = self.device.spawn([self.args.package])
+            self.spawned = True
+            print(f"已 spawn 并门控 {self.args.package} pid={self.pid_before}")
+            return
 
         pids = self._pids_for_package()
         if not pids:
@@ -105,13 +116,28 @@ class Collector:
         self.script.on("message", self._on_message)
         self.script.load()
 
-        # The agent installs hooks synchronously during load, so health is
-        # meaningful immediately. Treating a failed health check as fatal keeps
-        # a half-armed agent from producing a capture that looks complete.
-        self.health = self.script.exports_sync.health()
+        if self.spawned:
+            # At the spawn gate the Java VM is not initialised yet, so
+            # Java.perform() queues its callback instead of running inline and
+            # the hooks are not in place at load time. Resuming lets the VM come
+            # up; the queued callback then runs long before app code can open a
+            # socket, so nothing is missed by resuming first.
+            self.device.resume(self.pid_before)
+            print("已恢复目标进程，等待 Java VM 与 hook 就绪")
+
+        self.health = self._await_health()
         print(json.dumps(self.health, ensure_ascii=False, indent=2))
         if not self.health.get("ready"):
             raise SystemExit("agent 未就绪，拒绝进入采集：" + str(self.health.get("errors")))
+
+    def _await_health(self, timeout=15.0):
+        """Attach mode is ready at load; spawn mode needs the VM to come up."""
+        deadline = time.time() + timeout
+        health = self.script.exports_sync.health()
+        while not health.get("ready") and time.time() < deadline:
+            time.sleep(0.25)
+            health = self.script.exports_sync.health()
+        return health
 
     def mark(self, label, phase):
         try:
@@ -192,7 +218,12 @@ class Collector:
     def finish(self, self_test_ok=None):
         self.writer.close()
         summary = self.writer.summary()
-        survived = self.pid_after is not None and self.pid_after == self.pid_before
+        # In spawn mode the PID is new by construction, so "unchanged" is not the
+        # health signal; surviving the session is.
+        if self.spawned:
+            survived = self.pid_after is not None
+        else:
+            survived = self.pid_after is not None and self.pid_after == self.pid_before
 
         self.session.merge({
             "fridaCollector": {
@@ -235,6 +266,8 @@ def main():
     parser.add_argument("--duration", type=int, default=0, help="秒；0 表示直到 Ctrl-C")
     parser.add_argument("--self-test", action="store_true",
                         help="attach 后验证 payload 采集链路，不产生任何射频操作")
+    parser.add_argument("--spawn", action="store_true",
+                        help="spawn 并门控目标以捕获冷启动握手；会改变 PID，仅在需要 cold-init 时使用")
     args = parser.parse_args()
 
     if not os.path.exists(args.agent):

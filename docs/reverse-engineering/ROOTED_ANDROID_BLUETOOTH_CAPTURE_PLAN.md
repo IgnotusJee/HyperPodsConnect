@@ -770,17 +770,30 @@ pcapng，Wireshark 与 TShark 均可正常打开，协议层级解析为 59 帧 
 
 实现要点见 9.1 与 9.2；实测确认的三项约束记录在 9.4。
 
-### M3：OPPO Phase 0 fixture
+### M3：OPPO Phase 0 fixture（部分交付，2026-07-26）
 
 交付：
 
-- HeyMelody 版本签名检查；
-- OPPO 语义 Hook；
-- Air 5s cold-init/battery/ANC/EQ；
-- 脱敏 fixture 和 metadata；
-- 现有 JVM parser 回归。
+- HeyMelody 版本签名检查（preflight 强制比对 16.7.1）；
+- OPOv1 帧重组与内层解码（`analysis/oppo_frames.py`）；
+- Frida 与 HCI 字节级关联（`analysis/correlate.py`）；
+- 脱敏与命令清单（`analysis/sanitize.py`）；
+- 首份 device-capture fixture 与 metadata 入库；
+- `DeviceCaptureRegressionTest` 8 项 JVM 回归。
 
-验收：Phase 0 文档要求的四类真机证据闭环完成。
+验收状态：
+
+- **已闭合**：`0x0100` capability、`0x0200 -> 0x8200 -> 0x0205 -> 0x8205`
+  通知握手、`0x0204` 电量与佩戴主动通知。三者均在 HCI 与 Frida 两条独立链路上
+  字节级一致。
+- **未闭合**：固件版本（UI 与协议双来源均未取得）、`0x0106/0x8106` 电量查询、
+  EQ 全链路、`0x0404/0x8404` ANC 设置与每模式回读、Air5s 空间声开关真实行为。
+
+未闭合项都需要在采集期间对官方 App 做具体 UI 操作（切换 ANC 模式、切换 EQ 预设），
+属于 3.2 划归用户完成的物理/交互动作。
+
+冷启动握手必须用 `--spawn` 门控采集：握手在 App 连接后一秒内完成，attach 永远来不及。
+spawn 会改变 PID，因此该模式与 M2 的 PID 稳定性验收互斥，是显式选项。
 
 ### M4：Sony 协议发现
 

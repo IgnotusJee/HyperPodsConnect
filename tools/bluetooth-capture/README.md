@@ -10,8 +10,8 @@ M3 OPPO fixture）尚未实现。
 | --- | --- |
 | M0 环境和安全门禁 | 已交付，已在目标机实测通过 |
 | M1 HCI 自动提取 | 已交付，已对一条真实 LE 连接完成验收 |
-| M2 通用 Frida transport collector | 已交付，attach/detach 与 payload 链路已验收；HCI 关联待硬件 |
-| M3 OPPO Phase 0 fixture | 未开始 |
+| M2 通用 Frida transport collector | 已交付并全部验收，含 Frida/HCI 字节级关联 |
+| M3 OPPO Phase 0 fixture | 部分交付：冷启动握手、电量与佩戴通知已闭合；ANC/EQ/固件待采 |
 | M4 Sony 协议发现 | 未开始 |
 | M5 白名单 UI 自动化 | 未开始 |
 
@@ -95,6 +95,35 @@ python .\collector\collect.py --package com.sony.songpal.mdr --session-id selfte
 ```
 
 退出码非 0 表示进程未存活、PID 变化或自检失败，该会话不可用作证据。
+
+冷启动握手在 App 连接后一秒内就完成，attach 永远来不及，必须 spawn 门控（会改变
+PID，故为显式选项）：
+
+```powershell
+python .\collector\collect.py --package com.heytap.headset --session-id cold --duration 50 --spawn
+```
+
+### 分析与脱敏（M3）
+
+按连接句柄把 Frida 事件与 HCI 做字节级关联：
+
+```powershell
+python .\analysis\correlate.py --session D:\HeadphoneCaptures\<id> --handles 6
+```
+
+匹配以 payload 字节为主键，时间只作旁证：偏移中位数应等于 btsnoop 时钟偏移，
+离散度应在毫秒级。离散度大说明匹配是巧合，工具会告警。
+
+重组 OPOv1 帧、输出命令清单并生成脱敏 fixture：
+
+```powershell
+python .\analysis\sanitize.py --session D:\HeadphoneCaptures\<id> --handles 6 --model EncoAir5s --firmware <fw> --scenario cold-init
+```
+
+含个人信息的帧会被**整帧剔除**而不是就地涂改——半脱敏的帧看起来仍像完整证据。
+实测中多设备连接列表相关帧返回真实蓝牙设备名，属于此类。
+
+产物落在会话的 `sanitized/`，复制进仓库仍是人工步骤，需人工复核。
 
 主要参数：`-OutputRoot`（默认 `D:\HeadphoneCaptures`）、`-FridaHome`、`-Tshark`、
 `-ExpectedFridaVersion`、`-FridaPort`、`-MinFreeGiB`。默认值对应当前工作机，换机时覆盖。

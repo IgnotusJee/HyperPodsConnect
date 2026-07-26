@@ -1,0 +1,40 @@
+# device-capture fixture: OPPO Enco Air5s / cold-init
+#
+# 真机抓包，非 official-source 静态推导。采集元数据见同名 .metadata.md。
+# 含个人信息的帧（多设备连接列表返回真实设备名）已在脱敏阶段整帧剔除。
+
+# TX 0x0100 capability query, seq=0
+AA 07 00 00 00 01 00 00 00
+
+# RX 0x8100 capability response, seq=0, status=0x00 + 8 字节能力位图
+AA 10 00 00 00 81 00 09 00 00 FF 75 52 EA A4 0E 07 0F
+
+# TX 0x0200 notification capability query, seq=2
+AA 07 00 00 00 02 02 00 00
+
+# RX 0x8200 notification capability response, seq=2, status=0, count=9, 9 个 ID
+AA 12 00 00 00 82 02 0B 00 00 09 01 02 03 04 08 0B F1 F2 F3
+
+# TX 0x0205 batch notification subscribe, seq=0x1B, count=9
+AA 11 00 00 05 02 1B 0A 00 09 F1 F2 F3 01 02 03 04 08 0B
+
+# RX 0x8205 batch subscribe response, seq=0x1B, status=0, 9 组 (id, 状态)
+AA 1B 00 00 05 82 1B 14 00 00 09 F1 00 F2 00 F3 02 01 00 02 00 03 00 04 02 08 02 0B 02
+
+# TX 0x010C ANC query, seq=0x23, payload=03 01
+# 注意：官方 App 查询字段为 03 01，本项目实现发送的是 01 01
+AA 09 00 00 0C 01 23 02 00 03 01
+
+# RX 0x810C ANC response, seq=0x23, payload=01 03 01 00 00
+AA 0C 00 00 0C 81 23 05 00 01 03 01 00 00
+
+# RX 0x0204 notification: battery report, seq=0x08
+# type=01, count=02, (01,0x64) (02,0x64) -> 左右各 100%，未充电，无仓组件
+AA 0D 00 00 04 02 08 06 00 01 02 01 64 02 64
+
+# RX 0x0204 notification: wear status, seq=0x07
+# type=02, count=03, (01,05) (02,05) (03,04)
+AA 0F 00 00 04 02 07 08 00 02 03 01 05 02 05 03 04
+
+# TX 0x8204 notification event ack, seq=0x0C
+AA 09 00 00 04 82 0C 02 00 00 F2

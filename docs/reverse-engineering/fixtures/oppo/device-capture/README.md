@@ -1,5 +1,12 @@
 # OPPO device-capture fixtures
 
+> **Accepted fixtures now live in
+> `app/src/test/resources/fixtures/oppo/device-capture/`** so the JVM regression
+> tests can load them directly. Keeping a second copy here would let the two
+> drift apart, so this directory holds only the conventions and the metadata
+> template. The official-source / device-capture separation is unchanged; it is
+> now expressed by two sibling directories under the test resources root.
+
 This directory is reserved for sanitized, real-device captures. Do not copy raw
 HCI snoops, real Bluetooth addresses, account data, tokens, or firmware binaries
 into the repository.
