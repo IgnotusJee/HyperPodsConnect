@@ -1,0 +1,26 @@
+# device-capture fixture: OPPO Enco Air5s / 空间声开关（feature 0x1B）
+#
+# 真机抓包，双耳佩戴中，官方 App「音质音效 -> OPPO 空间音效 -> 模式切换」页面。
+# 固件 163.163.102。
+#
+# 结论：Air 5s **确实支持**空间声开关，且本项目 Enums.spatialSoundSwitchPacket
+# 构造的包与官方 App 除设备分配的 seq 外字节完全一致。
+
+# TX 0x0403 set，payload = <featureId> <value>，featureId=0x1B，关闭
+AA 09 00 00 03 04 24 02 00 1B 00
+# RX 0x8403 set response，单字节状态，成功为 0x00
+AA 08 00 00 03 84 24 01 00 00
+
+# TX 0x0403 set，打开
+AA 09 00 00 03 04 26 02 00 1B 01
+# RX 0x8403 set response
+AA 08 00 00 03 84 26 01 00 00
+
+# TX 0x0403 set，再次关闭
+AA 09 00 00 03 04 28 02 00 1B 00
+# RX 0x8403 set response
+AA 08 00 00 03 84 28 01 00 00
+
+# 每次 set 之后官方 App 都会重新批量查询状态作为回读。
+# 注意本机查询 12 项（count=0x0C），特征表与本项目 Enums.QUERY_STATUS 的 11 项不同。
+AA 14 00 00 0D 01 25 0D 00 0C 05 04 0B 11 18 06 1B 1D 1E 27 28 37
