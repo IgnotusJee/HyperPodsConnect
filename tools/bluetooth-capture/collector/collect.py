@@ -182,6 +182,25 @@ class Collector:
                     return blob.read(event["payloadBytes"])
         return None
 
+    # Read-only queries this project sends in production but the official app
+    # never does, so passive capture cannot show whether the device answers.
+    READ_PROBES = {
+        "battery": ("aa0700000601f00000", "0x0106 电量查询"),
+        "anc": ("aa0900000c01f002000101", "0x010C ANC 查询，选择符 01 01"),
+    }
+
+    def probe(self, names):
+        for name in names:
+            frame, label = self.READ_PROBES[name]
+            self.mark(f"probe-{name}", "BEGIN")
+            result = self.script.exports_sync.probe_read(frame)
+            if not result.get("sent"):
+                print(f"探针 {label} 未发送：{result.get('reason')}", file=sys.stderr)
+            else:
+                print(f"探针已发送：{label}")
+            time.sleep(4)
+            self.mark(f"probe-{name}", "END")
+
     def run(self):
         deadline = time.time() + self.args.duration if self.args.duration else None
 
@@ -268,6 +287,8 @@ def main():
                         help="attach 后验证 payload 采集链路，不产生任何射频操作")
     parser.add_argument("--spawn", action="store_true",
                         help="spawn 并门控目标以捕获冷启动握手；会改变 PID，仅在需要 cold-init 时使用")
+    parser.add_argument("--probe", action="append", choices=sorted(Collector.READ_PROBES),
+                        help="发送指定的白名单只读查询；可重复。不接受任意字节")
     args = parser.parse_args()
 
     if not os.path.exists(args.agent):
@@ -281,6 +302,8 @@ def main():
         collector.attach()
         if args.self_test:
             self_test_ok = collector.self_test()
+        if args.probe:
+            collector.probe(args.probe)
         collector.run()
     finally:
         collector.detach()

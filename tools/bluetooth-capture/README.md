@@ -88,6 +88,17 @@ raw/frida-events.jsonl   事件流，payload 以 offset + SHA-256 引用
 raw/frida-events.bin     原始 payload，按事件顺序拼接，字节级保真
 ```
 
+对官方 App 从不发送的命令，被动抓包只能证明"没人发过"，不能证明"发了没用"。为此提供
+白名单**只读**探针，用本项目生产代码构造的相同包主动发出：
+
+```powershell
+python .\collector\collect.py --package com.heytap.headset --session-id probe --duration 25 --probe battery --probe anc
+```
+
+这不是 raw console：agent 端只接受两条固定的只读查询帧，其余一律拒绝，且不含任何写
+命令。seq 固定 `0xF0`，远离官方 App 当时的 seq 区间，避免设备的响应被 App 误当成对
+自己某个未决请求的答复。
+
 验证采集链路本身是否正常（构造一个纯数据对象触发 hook，不产生任何射频操作）：
 
 ```powershell

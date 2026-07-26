@@ -142,6 +142,62 @@ function hookAlreadyLoadedStreamClasses(Throwable: any): void {
     emit("spp.preloaded.scan", { scanned: names.length, classes: names });
 }
 
+/**
+ * Sends one read-only query on the app's existing socket.
+ *
+ * This is the only place the agent writes anything. It exists because two
+ * commands this project sends in production are never sent by the official app,
+ * so passive capture can never show whether the device answers them. The plan's
+ * safety policy allows read commands on an identified, capability-confirmed
+ * device; it does not allow a general raw console, so the frame must match one
+ * of the allowlisted read queries below and nothing else.
+ *
+ * Writes go through the same stream the app owns. The sequence byte is chosen
+ * far from the app's current range so an unsolicited response cannot be mistaken
+ * for a reply to one of its own outstanding requests.
+ */
+const READ_PROBE_ALLOWLIST = new Set([
+    "aa0700000601f00000",       // 0x0106 battery query, empty payload
+    "aa0900000c01f002000101",   // 0x010C ANC query, selector 01 01
+]);
+
+export function sendReadProbe(hex: string): { sent: boolean; reason?: string } {
+    const normalized = hex.replace(/\s/g, "").toLowerCase();
+    if (!READ_PROBE_ALLOWLIST.has(normalized)) {
+        return { sent: false, reason: "frame is not an allowlisted read query" };
+    }
+
+    // Java bytes are signed, so anything above 0x7F has to cross over as negative.
+    const bytes: number[] = [];
+    for (let i = 0; i < normalized.length; i += 2) {
+        const value = parseInt(normalized.substring(i, i + 2), 16);
+        bytes.push(value > 0x7f ? value - 0x100 : value);
+    }
+
+    let result: { sent: boolean; reason?: string } = { sent: false, reason: "no connected socket found" };
+    Java.perform(() => {
+        Java.choose("android.bluetooth.BluetoothSocket", {
+            onMatch(socket: any) {
+                try {
+                    if (!socket.isConnected()) return;
+                    const stream = socket.getOutputStream();
+                    if (stream === null) return;
+                    emit("probe.send", { frame: normalized, byteCount: bytes.length });
+                    stream.write(bytes, 0, bytes.length);
+                    stream.flush();
+                    result = { sent: true };
+                    return "stop";
+                } catch (error) {
+                    emitError("sendReadProbe", error);
+                    result = { sent: false, reason: String(error) };
+                }
+            },
+            onComplete() {},
+        });
+    });
+    return result;
+}
+
 export function installRfcommHooks(): void {
     const BluetoothSocket = Java.use("android.bluetooth.BluetoothSocket");
     const Throwable = Java.use("java.lang.Throwable");

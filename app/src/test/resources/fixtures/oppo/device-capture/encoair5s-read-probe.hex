@@ -1,0 +1,27 @@
+# device-capture fixture: OPPO Enco Air5s / 只读探针
+#
+# 真机抓包，固件 163.163.102，双耳佩戴。
+#
+# 这两条命令官方 App 从不发送，因此被动抓包永远无法证明设备是否支持。本组数据由
+# tools/bluetooth-capture 的白名单只读探针主动发出，命令内容与本项目生产代码
+# 逐字节相同，seq 固定 0xF0（本项目默认值），远离官方 App 当时的 seq 区间。
+#
+# 双链路互证：四个帧同时出现在 App 的 BluetoothSocket 流与原始 btsnoop 字节中。
+
+# --- 0x0106 电量查询：设备支持 ---
+
+# TX，等同 OppoPackets.buildPacket(Cmd.QUERY_BATTERY)
+AA 07 00 00 06 01 F0 00 00
+
+# RX 0x8106，seq 回显 0xF0，payload = status 00 + count 02 + (01,0x64) (02,0x64)
+# 即左右各 100%、未充电、无仓组件
+AA 0D 00 00 06 81 F0 06 00 00 02 01 64 02 64
+
+# --- 0x010C ANC 查询，选择符 01 01：设备支持 ---
+
+# TX，等同 OppoPackets.buildPacket(Cmd.QUERY_ANC_MODE, payload = 01 01)
+AA 09 00 00 0C 01 F0 02 00 01 01
+
+# RX 0x810C，seq 回显 0xF0，payload = status 00 + 01 01 10 00
+# 01 01 后的 10 00 即深度降噪，与当时 App 显示的"降噪 / 深度降噪"一致
+AA 0C 00 00 0C 81 F0 05 00 00 01 01 10 00

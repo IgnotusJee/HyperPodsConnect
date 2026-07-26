@@ -9,7 +9,7 @@
 
 import Java from "frida-java-bridge";
 import { emit, emitError, initClock } from "./common";
-import { installRfcommHooks } from "./generic-rfcomm";
+import { installRfcommHooks, sendReadProbe } from "./generic-rfcomm";
 import { installGattHooks } from "./generic-gatt";
 
 interface HealthReport {
@@ -104,6 +104,14 @@ rpc.exports = {
      *
      * Output is tagged selfTest so it can never be mistaken for device evidence.
      */
+    /**
+     * Sends one allowlisted read-only query so a command the official app never
+     * issues can still be tested against the device. Rejects anything else; this
+     * is not a raw console.
+     */
+    probeRead(hex: string): { sent: boolean; reason?: string } {
+        return sendReadProbe(hex);
+    },
     selfTest(byteValues: number[]): boolean {
         let ok = false;
         Java.perform(() => {
