@@ -1,0 +1,63 @@
+# device-capture fixture: OPPO Enco Air5s / anc + eq
+#
+# 真机抓包，耳机处于佩戴状态。采集元数据见同名 .metadata.md。
+# 含个人信息的帧已在脱敏阶段整帧剔除。
+
+# --- ANC 设置：三种模式，payload 为 01 01 <mode> ---
+
+# TX 0x0404 ANC set 关闭，seq=0x42
+AA 0A 00 00 04 04 42 03 00 01 01 01
+# RX 0x8404 set response，status=0x00
+AA 08 00 00 04 84 42 01 00 00
+
+# TX 0x0404 ANC set 通透，seq=0x45
+AA 0A 00 00 04 04 45 03 00 01 01 04
+# RX 0x8404 set response，status=0x00
+AA 08 00 00 04 84 45 01 00 00
+
+# TX 0x0404 ANC set 降噪，seq=0x48
+AA 0A 00 00 04 04 48 03 00 01 01 02
+# RX 0x8404 set response，status=0x00
+AA 08 00 00 04 84 48 01 00 00
+
+# --- ANC 状态通知：0x0204 报告类型 0x03，其后 01 01 <v1> <v2> ---
+
+# 通透
+AA 0C 00 00 04 02 2D 05 00 03 01 01 00 01
+# 深度降噪
+AA 0C 00 00 04 02 31 05 00 03 01 01 10 00
+# 关闭
+AA 0C 00 00 04 02 33 05 00 03 01 01 08 00
+
+# --- ANC 查询：官方 App 查询字段 02 03 / 02 04，响应回显查询字段 ---
+
+# TX 0x010C query，payload=02 03
+AA 09 00 00 0C 01 43 02 00 02 03
+# RX 0x810C response，payload=00 02 03 06 00
+AA 0C 00 00 0C 81 43 05 00 00 02 03 06 00
+
+# --- EQ 设置：0x0406 payload 为单字节预设 ID ---
+
+# TX 至臻原音 preset=0x00
+AA 08 00 00 06 04 60 01 00 00
+# RX 0x8406 set response，status=0x00
+AA 08 00 00 06 84 60 01 00 00
+
+# TX 澎湃低音 preset=0x01
+AA 08 00 00 06 04 5C 01 00 01
+# RX 0x8406 set response，status=0x00
+AA 08 00 00 06 84 5C 01 00 00
+
+# TX 纯享人声 preset=0x02
+AA 08 00 00 06 04 5E 01 00 02
+# RX 0x8406 set response，status=0x00
+AA 08 00 00 06 84 5E 01 00 00
+
+# --- EQ 查询响应：0x810F payload = <status> <preset> ---
+
+# preset=0x00 至臻原音
+AA 09 00 00 0F 81 61 02 00 00 00
+# preset=0x01 澎湃低音
+AA 09 00 00 0F 81 5D 02 00 00 01
+# preset=0x02 纯享人声
+AA 09 00 00 0F 81 5F 02 00 00 02

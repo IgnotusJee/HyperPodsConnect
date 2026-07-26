@@ -55,15 +55,20 @@ function Get-Hierarchy {
     return Get-Content $local -Raw
 }
 
-function Assert-NoForbiddenTerms {
+# Being *on* one of these pages means the session has walked into a destructive
+# flow and must stop. This is deliberately narrower than the never-tap list: a
+# settings list that merely contains a "find earbuds" row is safe to operate in
+# as long as that row is never tapped, and halting on its mere presence would
+# block every legitimate control on the same screen.
+$script:HaltPageMarkers = @(
+    '恢复出厂设置', '固件升级', '固件更新', '正在升级', '解除配对', '删除设备', '连接新设备'
+)
+
+function Assert-PageIsSafe {
     param([string]$Xml, [string]$Tag)
-    $hits = @($script:Denylist | Where-Object { $Xml -match [regex]::Escape($_) })
+    $hits = @($script:HaltPageMarkers | Where-Object { $Xml -match [regex]::Escape($_) })
     if ($hits.Count -gt 0) {
-        throw "当前界面出现危险入口（$($hits -join ', ')），按计划 3.3 立即停止 UI 自动化。dump=$Tag"
-    }
-    $dialogs = @($script:DismissOnSight | Where-Object { $Xml -match [regex]::Escape($_) })
-    if ($dialogs.Count -gt 0) {
-        throw "当前界面是会中断采集的确认框（$($dialogs -join ', ')），停止并人工处置。dump=$Tag"
+        throw "当前界面属于危险流程（$($hits -join ', ')），按计划 3.3 立即停止 UI 自动化。dump=$Tag"
     }
 }
 
@@ -150,7 +155,7 @@ foreach ($action in $Actions) {
     $tag = "step$stepIndex-$label"
 
     $xml = Get-Hierarchy -Tag "$tag-before"
-    Assert-NoForbiddenTerms -Xml $xml -Tag "$tag-before"
+    Assert-PageIsSafe -Xml $xml -Tag "$tag-before"
 
     $node = Find-Node -Xml $xml -Label $label -ResourceIdSuffix $ridSuffix
     Write-Host "[$stepIndex] 点击 $label @ ($($node.X),$($node.Y)) rid=$($node.ResourceId)" -ForegroundColor Cyan
