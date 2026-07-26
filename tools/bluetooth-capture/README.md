@@ -11,9 +11,9 @@ M3 OPPO fixture）尚未实现。
 | M0 环境和安全门禁 | 已交付，已在目标机实测通过 |
 | M1 HCI 自动提取 | 已交付，已对一条真实 LE 连接完成验收 |
 | M2 通用 Frida transport collector | 已交付并全部验收，含 Frida/HCI 字节级关联 |
-| M3 OPPO Phase 0 fixture | 部分交付：冷启动握手、电量与佩戴通知已闭合；ANC/EQ/固件待采 |
+| M3 OPPO Phase 0 fixture | 已交付，7 份 fixture 全部闭合，含白名单只读探针 |
 | M4 Sony 协议发现 | 未开始 |
-| M5 白名单 UI 自动化 | 未开始 |
+| M5 白名单 UI 自动化 | 部分交付：`ui-drive.ps1` 可用，场景文件驱动的编排未实现 |
 
 `scenarios/` 下已备好 OPPO Enco Air 5s 的四个 Phase 0 场景。Sony 场景暂缺：其 UI 步骤
 序列必须先做一轮实机观察，凭空写入等于猜测。

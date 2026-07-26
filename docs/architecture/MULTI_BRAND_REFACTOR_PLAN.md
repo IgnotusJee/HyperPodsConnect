@@ -752,7 +752,27 @@ Phase 0 使用两类不可混淆的测试输入：
 写能力提升为“真机确认”。每份真机 fixture 必须附带型号、固件、传输类型、
 实际 UUID、手机/Android 版本和抓取时间。
 
-当前实施状态（2026-07-26）：
+**Phase 0 已于 2026-07-26 完成。** 详细结论见
+`PHASE0_OPPO_BASELINE.md`，抓包工具链见 `tools/bluetooth-capture/`。
+
+代码保护网与真机证据均已就位：73 个单元测试，其中 40 个直接跑在
+OPPO Enco Air5s（固件 163.163.102）的真机字节上，7 份 device-capture fixture 覆盖
+握手、通知、ANC、EQ、固件、空间声开关与批量回读。
+
+Phase 0 同时产出四项对本方案的直接修正，应在 Phase 1 设计 `FeatureCapability` 与
+`OperationPhase` 时一并纳入：
+
+1. 主动查询要用能反映当前状态的选择符。官方 App 在 ANC 写入后查询的两个选择符实测
+   为静态值，不能用作回读；
+2. 能力探测不能只看"响应是否成功"。设备对不支持的特征**静默丢弃**，必须逐项比对
+   请求与应答，这直接影响 `FeatureCapability` 的 `evidenceLevel` 判定方式；
+3. set 响应只带状态字节、不回显新值，因此 `DEVICE_ACCEPTED` 与 `STATE_CONFIRMED`
+   必须是两个独立阶段，`confirmedValue` 只能由回读或通知更新——本方案原有的这一设计
+   已获真机验证；
+4. 名称白名单使用子串包含匹配，会让名称延长了已列型号的设备意外继承能力。真机证明
+   当前这次继承结论正确，但机制本身应收紧。
+
+历史实施记录：
 
 - 已加入短包及 7-bit varint builder 的 official-source golden tests；
 - 已加入拆包、逐字节输入、粘包、垃圾前缀、非法/超限长度回归测试；
@@ -761,10 +781,9 @@ Phase 0 使用两类不可混淆的测试输入：
 - capability 名称匹配和 override 已成为 Android-free 纯逻辑并完成回归；
 - 已加入连接状态 observable/test double 接口；
 - raw HEX 已限制为 debug build，且必须在调试页逐页面会话显式解锁；
-- 33 个测试已在正式 Gradle 工具链（`:app:testDebugUnitTest`）下运行，0 失败；
+- 测试已在正式 Gradle 工具链（`:app:testDebugUnitTest`）下运行，0 失败；
 - `:app:assembleDebug` 与 `:app:assembleRelease` 已在本机构建通过；
-- 真机 handshake/battery/ANC/EQ fixture 仍待采集，为 Phase 0 整体关闭前的
-  唯一剩余验收项。
+- 真机 handshake/battery/ANC/EQ fixture 已于同日采集完成并入库。
 
 ### Phase 1：创建 `:core` 和通用领域模型
 
