@@ -819,7 +819,26 @@ Phase 0 的四项发现已落进模型：
 - 新旧模型 adapter 测试通过；
 - UI 行为不变。
 
-### Phase 2：提取 OPPO 流式协议
+### Phase 2：提取 OPPO 流式协议（已完成，2026-07-26）
+
+`:protocol:oppo` 为纯 Kotlin/JVM 模块，仅依赖 `:core`，编译期无法触及 Android、
+Xposed、Compose 或 `ConfigManager`。26 个测试，全部由真机 fixture 驱动。
+
+要点：
+
+- `OppoMessageCodec` 是唯一理解帧头布局的地方。旧实现让每个 parser 各自从原始字节里
+  重新推导命令、序号与长度，结果是它们对"载荷不足"的判定并不一致；
+- `OppoMessage.isComplete` 区分"声明长度大于实到字节"与"根本没有这一帧"，两者此前都
+  表现为 null；
+- 未知 command 正常解码并保留载荷，不再需要在分派处特判；
+- ANC parser 只接受选择符 `01 01`。官方 App 在每次写入后查询的 `02 03`/`02 04` 返回
+  恒定值，把它们当读回会得到一个永不变化的"当前模式"；
+- 电量与佩戴按设备实际上报的组件返回，不补齐缺失的仓组件；
+- `OppoDomainMapper` 是厂商编码到领域值的唯一交叉点，preset id 带 `oppo:` 命名空间，
+  上层看不到 OPPO 命令码或预设数值。
+
+fixture 移到仓库根的 `testdata/`，`:app` 与 `:protocol:oppo` 共享同一份，避免两侧
+证据漂移。运行路径仍是 `RfcommController` 与旧 `Packets.kt`，UI 行为不变。
 
 改动：
 

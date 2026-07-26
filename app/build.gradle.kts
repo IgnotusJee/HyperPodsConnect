@@ -113,3 +113,9 @@ dependencies {
 
     testImplementation(libs.junit)
 }
+
+// Protocol fixtures are shared with :protocol:oppo; keeping one copy stops the
+// two from drifting apart. AGP exposes source sets through its own extension.
+android.sourceSets.getByName("test") {
+    resources.srcDir(rootProject.file("testdata"))
+}

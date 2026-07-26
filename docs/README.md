@@ -15,12 +15,16 @@
 
 ## 当前进度
 
-Phase 0（建立基线与保护网）与 Phase 1（创建 `:core` 与通用领域模型）**已完成**。
-Phase 2（提取 OPPO 流式协议到 `:protocol:oppo`）尚未开始。
+Phase 0（基线与保护网）、Phase 1（`:core` 与通用领域模型）、Phase 2（提取 OPPO
+流式协议）**已完成**。Phase 3（提取通用 SPP transport）尚未开始。
 
-模块结构目前是 `:app` 与 `:core`。`:core` 是纯 Kotlin/JVM 模块，不含任何 Android
-依赖；运行路径仍走 `RfcommController`，`:app` 侧的 `OppoCoreAdapter` 已建立映射但
-未接入，因此 UI 行为与 Phase 0 时一致。
+模块结构目前是 `:app`、`:core`、`:protocol:oppo`。后两个都是纯 Kotlin/JVM 模块，
+编译期即无法触及 Android、Xposed 与 Compose。运行路径仍走 `RfcommController` 与旧
+`Packets.kt`，新协议模块与 `OppoCoreAdapter` 均已建立并测试但未接入，因此 UI 行为
+与 Phase 0 时一致。
+
+协议 fixture 位于仓库根的 `testdata/`，由 `:app` 与 `:protocol:oppo` 共享，
+新旧两套实现对着同一份真机证据校验。
 
 抓包工具链的里程碑 M0 到 M3 已交付，M5 的 UI 自动化部分交付。M4（Sony 协议发现）
 未开始。
@@ -31,8 +35,8 @@ Phase 2（提取 OPPO 流式协议到 `:protocol:oppo`）尚未开始。
 
 | 类型 | 位置 | 含义 |
 | --- | --- | --- |
-| `official-source vector` | `app/src/test/resources/fixtures/oppo/official-source/` | 由官方 App 反编译结果静态推导，**不是**抓包 |
-| `device-capture fixture` | `app/src/test/resources/fixtures/oppo/device-capture/` | 指定型号与固件的真机实测，附 `.metadata.md` 说明采集条件 |
+| `official-source vector` | `testdata/fixtures/oppo/official-source/` | 由官方 App 反编译结果静态推导，**不是**抓包 |
+| `device-capture fixture` | `testdata/fixtures/oppo/device-capture/` | 指定型号与固件的真机实测，附 `.metadata.md` 说明采集条件 |
 
 文件名可直接区分：device-capture 一律带型号前缀。任何 fixture 都不得跨目录复制，
 静态推导的向量永远不能改标签充作真机证据。
@@ -77,6 +81,20 @@ Phase 2（提取 OPPO 流式协议到 `:protocol:oppo`）尚未开始。
 
 `SessionState.generationId` 另外解决了旧实现的一类隐患：上一次连接尝试的迟到回调会被
 按代次丢弃，不会把已经建立的新会话拖回错误状态。
+
+## Phase 2 的落点
+
+`:protocol:oppo` 把帧与消息解析集中起来，并让第 1 条和第 3 条发现在协议层也成立：
+
+- `OppoMessageCodec` 是唯一理解帧头布局的地方。旧实现每个 parser 各自从原始字节重新
+  推导命令、序号与长度，它们对"载荷不足"的判定并不一致；
+- `OppoMessage.isComplete` 把"声明长度大于实到字节"与"根本没有这一帧"分开，此前两者
+  都表现为 null；
+- ANC parser 只接受选择符 `01 01`，拒绝官方 App 那两个恒定值选择符；
+- `OppoDomainMapper` 是厂商编码到领域值的唯一交叉点，preset id 带 `oppo:` 命名空间。
+
+真机分片是这一层存在的直接理由：捕获显示一条响应以 3 字节加 15 字节两次读到达，
+而旧实现把一次读当成一个包。
 
 ## 安全边界
 
