@@ -84,6 +84,7 @@ configurations.configureEach {
 }
 
 dependencies {
+    implementation(project(":core"))
     implementation(libs.coreKtx)
     compileOnly(libs.libxposedApi)
     implementation(libs.libxposedService)

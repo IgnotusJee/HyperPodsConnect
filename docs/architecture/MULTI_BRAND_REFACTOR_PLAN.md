@@ -785,7 +785,24 @@ Phase 0 同时产出四项对本方案的直接修正，应在 Phase 1 设计 `F
 - `:app:assembleDebug` 与 `:app:assembleRelease` 已在本机构建通过；
 - 真机 handshake/battery/ANC/EQ fixture 已于同日采集完成并入库。
 
-### Phase 1：创建 `:core` 和通用领域模型
+### Phase 1：创建 `:core` 和通用领域模型（已完成，2026-07-26）
+
+`:core` 为纯 Kotlin/JVM 模块，编译期即无法解析 Android、Xposed、Compose 类型，
+依赖规则由构建强制而非靠评审。22 个 core 测试，另有 9 个 app 侧 adapter 测试。
+
+Phase 0 的四项发现已落进模型：
+
+- `FeatureValue` 把 `pending` 与 `confirmed` 分开，`confirmed` 只能由
+  `DeviceReported` 更新；`WriteAcknowledged` 对状态是显式 no-op，因为真机 set 响应
+  只有状态字节、不回显值；
+- `EvidenceLevel` 增加 `REFUTED`，`resolveBatchEvidence` 把"请求了但未出现在成功
+  响应里"判为不支持——这是发现设备静默丢弃特征的唯一途径；
+- `FeatureCapability.isWritable` 要求证据至少为 `ADVERTISED`，因此名称白名单推导出的
+  能力（`ASSUMED`）只能决定显示什么，不能决定发送什么；
+- `SessionState` 把 transport 连通与协议就绪彻底分开，`Ready` 只能在握手、能力加载和
+  初始同步之后到达；`generationId` 使旧连接的迟到回调被丢弃。
+
+运行路径仍走 `RfcommController`，adapter 已建立并测试但未接入，因此 UI 行为不变。
 
 改动：
 

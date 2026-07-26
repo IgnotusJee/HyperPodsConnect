@@ -15,7 +15,12 @@
 
 ## 当前进度
 
-Phase 0（建立基线与保护网）**已完成**。Phase 1（创建 `:core`）尚未开始。
+Phase 0（建立基线与保护网）与 Phase 1（创建 `:core` 与通用领域模型）**已完成**。
+Phase 2（提取 OPPO 流式协议到 `:protocol:oppo`）尚未开始。
+
+模块结构目前是 `:app` 与 `:core`。`:core` 是纯 Kotlin/JVM 模块，不含任何 Android
+依赖；运行路径仍走 `RfcommController`，`:app` 侧的 `OppoCoreAdapter` 已建立映射但
+未接入，因此 UI 行为与 Phase 0 时一致。
 
 抓包工具链的里程碑 M0 到 M3 已交付，M5 的 UI 自动化部分交付。M4（Sony 协议发现）
 未开始。
@@ -46,8 +51,8 @@ Phase 0（建立基线与保护网）**已完成**。Phase 1（创建 `:core`）
 
 ### 由此确认的四项待改动
 
-这些是 Phase 1 设计 `FeatureCapability` 与 `OperationPhase` 时的直接输入，每项都有
-fixture 与回归测试钉住：
+这四项已在 Phase 1 落进 `:core` 模型（见下方"Phase 1 的落点"），每项都有 fixture 与
+回归测试钉住：
 
 1. **ANC 查询保持用选择符 `01 01`**。官方 App 用 `02 03`/`02 04`，但实测这两个值在
    不同 ANC 模式下恒为 `06 00`，是静态值，照抄会实现出一个永远不变的"回读"。
@@ -58,6 +63,20 @@ fixture 与回归测试钉住：
 4. **名称白名单的子串匹配需要收紧**。`OPPO Enco Air5` 规范化后是 `oppoencoair5s` 的
    子串，Air5s 因此继承了空间声开关能力。真机证明结论碰巧正确，但机制会在名称恰好
    延长了已列型号的无关设备上误判。
+
+## Phase 1 的落点
+
+`:core` 用类型把上面四条变成编译期或测试期能挡住的约束，而不是注释里的提醒：
+
+| 发现 | 模型中的体现 |
+| --- | --- |
+| set 响应不回显值 | `FeatureValue` 分离 `pending` 与 `confirmed`；`StateUpdate.WriteAcknowledged` 对状态是显式 no-op |
+| 设备静默丢弃不支持的特征 | `EvidenceLevel.REFUTED` 与 `resolveBatchEvidence(requested, answered)` |
+| 名称白名单只是猜测 | 名称推导出的能力标为 `ASSUMED`，`isWritable` 因而为 false |
+| 连接不等于就绪 | `SessionState` 把 transport 与协议就绪拆开，`Ready` 位于握手、能力、初始同步之后 |
+
+`SessionState.generationId` 另外解决了旧实现的一类隐患：上一次连接尝试的迟到回调会被
+按代次丢弃，不会把已经建立的新会话拖回错误状态。
 
 ## 安全边界
 

@@ -25,3 +25,4 @@ plugins {
 
 rootProject.name = "OppoPods"
 include(":app")
+include(":core")
