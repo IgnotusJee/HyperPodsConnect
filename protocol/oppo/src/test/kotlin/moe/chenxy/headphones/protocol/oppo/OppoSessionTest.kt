@@ -1,0 +1,259 @@
+package moe.chenxy.headphones.protocol.oppo
+
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
+import moe.chenxy.headphones.core.device.DeviceCandidate
+import moe.chenxy.headphones.core.device.DeviceId
+import moe.chenxy.headphones.core.device.DeviceIdentity
+import moe.chenxy.headphones.core.device.TransportKind
+import moe.chenxy.headphones.core.device.VendorId
+import moe.chenxy.headphones.core.driver.DriverSessionContext
+import moe.chenxy.headphones.core.feature.NoiseControlMode
+import moe.chenxy.headphones.core.feature.ValueSource
+import moe.chenxy.headphones.core.operation.FeatureCommand
+import moe.chenxy.headphones.core.operation.FailureReason
+import moe.chenxy.headphones.core.operation.OperationEvent
+import moe.chenxy.headphones.core.operation.OperationPhase
+import moe.chenxy.headphones.core.session.DisconnectCause
+import moe.chenxy.headphones.core.session.SessionState
+import moe.chenxy.headphones.core.transport.ByteTransport
+import moe.chenxy.headphones.core.transport.TransportFactory
+import moe.chenxy.headphones.core.transport.TransportSpec
+import moe.chenxy.headphones.core.transport.TransportState
+import moe.chenxy.headphones.core.transport.TransportWriteResult
+import moe.chenxy.headphones.protocol.oppo.message.OppoCommand
+import moe.chenxy.headphones.protocol.oppo.message.OppoFeature
+import moe.chenxy.headphones.protocol.oppo.message.OppoMessage
+import moe.chenxy.headphones.protocol.oppo.message.OppoMessageCodec
+import moe.chenxy.headphones.protocol.oppo.session.OppoSession
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.util.concurrent.CopyOnWriteArrayList
+
+class OppoSessionTest {
+
+    @Test
+    fun `connect requires protocol replies before ready and reduces initial state`() = runBlocking {
+        val transport = FakeOppoTransport()
+        val session = session(transport)
+
+        session.connect()
+
+        assertTrue(session.connection.value is SessionState.Ready)
+        assertEquals(
+            session.state.value.toString(),
+            76,
+            session.state.value.batteries.values.firstOrNull()?.level,
+        )
+        assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
+        assertEquals("1.2.3", session.state.value.firmware)
+        val requestedBatchFeatures = transport.requests
+            .first { it.command == OppoCommand.QUERY_BATCH_STATUS }
+            .payload
+            .drop(1)
+            .map { it.toInt() and 0xFF }
+        assertTrue(0x37 in requestedBatchFeatures)
+        assertFalse(0x1C in requestedBatchFeatures)
+        assertTrue(session.profile.value!!.canWrite(
+            moe.chenxy.headphones.core.feature.FeatureId.NOISE_CONTROL,
+        ))
+        session.disconnect()
+    }
+
+    @Test
+    fun `set acknowledgement alone never confirms a value`() = runBlocking {
+        val transport = FakeOppoTransport(confirmAncWrites = false)
+        val session = session(transport)
+        session.connect()
+        val events = CopyOnWriteArrayList<OperationEvent>()
+        val collector: Job = CoroutineScope(Dispatchers.Default).launch(
+            start = CoroutineStart.UNDISPATCHED,
+        ) {
+            session.operations.collect(events::add)
+        }
+        yield()
+
+        val result = session.execute(
+            FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+        )
+
+        assertEquals(result.toString(), OperationPhase.TIMED_OUT, result.phase)
+        assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
+        assertNull(session.state.value.noiseControl.pending)
+        assertTrue(events.any { it.phase == OperationPhase.DEVICE_ACCEPTED })
+        assertFalse(events.any { it.phase == OperationPhase.READ_BACK_CONFIRMED })
+        collector.cancel()
+        session.disconnect()
+    }
+
+    @Test
+    fun `explicit readback confirms an accepted write`() = runBlocking {
+        val transport = FakeOppoTransport(confirmAncWrites = true)
+        val session = session(transport)
+        session.connect()
+
+        val result = session.execute(
+            FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+        )
+
+        assertEquals(result.toString(), OperationPhase.READ_BACK_CONFIRMED, result.phase)
+        assertEquals(
+            NoiseControlMode.NOISE_CANCELLATION,
+            session.state.value.noiseControl.confirmed,
+        )
+        assertEquals(ValueSource.READ_BACK, session.state.value.noiseControl.source)
+        assertNull(session.state.value.noiseControl.pending)
+        session.disconnect()
+    }
+
+    @Test
+    fun `device rejection rolls pending back without changing confirmed`() = runBlocking {
+        val transport = FakeOppoTransport(rejectAncWrites = true)
+        val session = session(transport)
+        session.connect()
+
+        val result = session.execute(
+            FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+        )
+
+        assertEquals(OperationPhase.FAILED, result.phase)
+        assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
+        assertNull(session.state.value.noiseControl.pending)
+        session.disconnect()
+    }
+
+    @Test
+    fun `unknown model cannot write an unadvertised spatial feature`() = runBlocking {
+        val transport = FakeOppoTransport()
+        val session = session(transport, model = "OPPO Enco Buds 3")
+        session.connect()
+
+        val result = session.execute(
+            FeatureCommand.SetSpatialAudio(
+                moe.chenxy.headphones.core.feature.SpatialAudioMode.FIXED,
+            ),
+        )
+
+        assertEquals(OperationPhase.FAILED, result.phase)
+        assertEquals(FailureReason.NOT_SUPPORTED, result.failure)
+        assertFalse(result.succeeded)
+        assertEquals(
+            moe.chenxy.headphones.core.feature.SpatialAudioMode.OFF,
+            session.state.value.spatialAudio.confirmed,
+        )
+        session.disconnect()
+    }
+
+    private fun session(
+        transport: FakeOppoTransport,
+        model: String = "OPPO Enco Air5s",
+    ): OppoSession {
+        val identity = DeviceIdentity(
+            DeviceId.fromAddress("11:22:33:44:55:66"),
+            VendorId.OPPO,
+            "11:22:33:44:55:66",
+        )
+        val candidate = DeviceCandidate(
+            identity,
+            model,
+            bonded = true,
+            advertisedUuids = setOf(OppoSession.OPPO_SPP_UUID),
+            availableTransports = setOf(TransportKind.CLASSIC_SPP),
+        )
+        val factory = object : TransportFactory {
+            override suspend fun create(
+                device: DeviceIdentity,
+                spec: TransportSpec,
+            ): ByteTransport = transport
+        }
+        return OppoSession(
+            DriverSessionContext(candidate, factory),
+            responseTimeoutMillis = 200,
+            confirmationTimeoutMillis = 50,
+            transportSettleDelayMillis = 0,
+        )
+    }
+}
+
+private class FakeOppoTransport(
+    private val confirmAncWrites: Boolean = false,
+    private val rejectAncWrites: Boolean = false,
+) : ByteTransport {
+    override val kind: TransportKind = TransportKind.CLASSIC_SPP
+    private val _state = MutableStateFlow<TransportState>(TransportState.Closed)
+    override val state: StateFlow<TransportState> = _state.asStateFlow()
+    private val _incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 32)
+    override val incoming: Flow<ByteArray> = _incoming.asSharedFlow()
+    override val maxWriteSize: StateFlow<Int> = MutableStateFlow(512).asStateFlow()
+
+    private var ancValue = 0x01
+    val requests = CopyOnWriteArrayList<OppoMessage>()
+
+    override suspend fun open() {
+        _state.value = TransportState.Open
+    }
+
+    override suspend fun write(bytes: ByteArray): TransportWriteResult {
+        val request = OppoMessageCodec.decode(bytes) ?: return TransportWriteResult.Written
+        requests += request
+        val responsePayload = when (request.command) {
+            OppoCommand.QUERY_NOTIFICATION_SUPPORT -> byteArrayOf(0, 3, 1, 2, 3)
+            OppoCommand.QUERY_BATTERY -> byteArrayOf(0, 1, 1, 76)
+            OppoCommand.QUERY_ANC -> byteArrayOf(0, 1, 1, ancValue.toByte())
+            OppoCommand.QUERY_EQ -> byteArrayOf(0, 0)
+            OppoCommand.QUERY_BATCH_STATUS -> byteArrayOf(
+                0,
+                4,
+                OppoFeature.GAME_MODE.toByte(),
+                0,
+                OppoFeature.LOW_LATENCY.toByte(),
+                0,
+                OppoFeature.DUAL_DEVICE.toByte(),
+                0,
+                OppoFeature.SPATIAL_SOUND_SWITCH.toByte(),
+                0,
+            )
+            OppoCommand.QUERY_FIRMWARE ->
+                byteArrayOf(0, 0) + "1,2,1,2,2,2,3,2,3".toByteArray(Charsets.US_ASCII)
+            OppoCommand.SET_ANC -> {
+                if (!rejectAncWrites && confirmAncWrites && request.payload.size >= 3) {
+                    ancValue = request.payload[2].toInt() and 0xFF
+                }
+                byteArrayOf(if (rejectAncWrites) 1 else 0)
+            }
+            OppoCommand.SET_EQ,
+            OppoCommand.SET_SWITCH_FEATURE,
+            OppoCommand.SET_SPATIAL_AUDIO,
+            -> byteArrayOf(0)
+            else -> null
+        }
+        if (responsePayload != null) {
+            _incoming.emit(
+                OppoMessageCodec.encode(
+                    OppoCommand.responseOf(request.command),
+                    sequence = request.sequence,
+                    payload = responsePayload,
+                ),
+            )
+        }
+        return TransportWriteResult.Written
+    }
+
+    override suspend fun close(cause: DisconnectCause) {
+        _state.value = TransportState.Closed
+    }
+}

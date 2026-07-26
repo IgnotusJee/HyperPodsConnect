@@ -23,6 +23,9 @@ object OppoCommand {
     const val SET_SWITCH_FEATURE = 0x0403
     const val SET_ANC = 0x0404
     const val SET_EQ = 0x0406
+    const val SET_SPATIAL_AUDIO = 0x0422
+    const val EQ_PRESET_NOTIFICATION = 0x0504
+    const val SPATIAL_AUDIO_NOTIFICATION = 0x0510
 
     const val RESPONSE_FLAG = 0x8000
 

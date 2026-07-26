@@ -83,6 +83,34 @@ class HeadphoneStateReducerTest {
     }
 
     @Test
+    fun `transparency voice enhancement follows the same pending confirmation rule`() {
+        val acknowledged = reduce(
+            StateUpdate.LocalPending(
+                FeatureCommand.SetTransparencyVocalEnhancement(true),
+                1,
+            ),
+            StateUpdate.WriteAcknowledged(
+                FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
+                accepted = true,
+                atMillis = 2,
+            ),
+        )
+        assertNull(acknowledged.transparencyVocalEnhancement.confirmed)
+        assertEquals(true, acknowledged.transparencyVocalEnhancement.pending)
+
+        val confirmed = HeadphoneStateReducer.reduce(
+            acknowledged,
+            StateUpdate.DeviceReported(
+                DeviceReport.TransparencyVocalEnhancement(true),
+                ValueSource.NOTIFICATION,
+                3,
+            ),
+        )
+        assertEquals(true, confirmed.transparencyVocalEnhancement.confirmed)
+        assertNull(confirmed.transparencyVocalEnhancement.pending)
+    }
+
+    @Test
     fun `battery components are replaced so a vanished case cannot linger`() {
         val withCase = HeadphoneStateReducer.reduce(
             empty,

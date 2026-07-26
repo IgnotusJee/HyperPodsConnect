@@ -105,6 +105,7 @@ data class HeadphoneState(
     val batteries: Map<BatteryComponent, BatteryState> = emptyMap(),
     val wearing: Map<WearComponent, WearState> = emptyMap(),
     val noiseControl: FeatureValue<NoiseControlMode> = FeatureValue.empty(),
+    val transparencyVocalEnhancement: FeatureValue<Boolean> = FeatureValue.empty(),
     val equalizer: FeatureValue<EqualizerPreset> = FeatureValue.empty(),
     val lowLatency: FeatureValue<Boolean> = FeatureValue.empty(),
     val spatialAudio: FeatureValue<SpatialAudioMode> = FeatureValue.empty(),
@@ -116,6 +117,7 @@ data class HeadphoneState(
     /** Marks every value stale on disconnect without discarding what we knew. */
     fun markAllStale(): HeadphoneState = copy(
         noiseControl = noiseControl.markStale(),
+        transparencyVocalEnhancement = transparencyVocalEnhancement.markStale(),
         equalizer = equalizer.markStale(),
         lowLatency = lowLatency.markStale(),
         spatialAudio = spatialAudio.markStale(),

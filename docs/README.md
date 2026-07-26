@@ -16,14 +16,14 @@
 ## 当前进度
 
 Phase 0（基线与保护网）、Phase 1（`:core` 与通用领域模型）、Phase 2（提取 OPPO
-流式协议）、Phase 3（提取通用 SPP transport）**已完成**。下一阶段是 Phase 4：
-建立 OPPO Session 和功能模块。
+流式协议）、Phase 3（提取通用 SPP transport）、Phase 4（建立 OPPO Session 和功能
+模块）**已完成**。下一阶段是 Phase 5：引入 engine 和版本化 IPC。
 
 模块结构目前是 `:app`、`:core`、`:protocol:oppo`、`:transport:android`。
 `:core` 与 `:protocol:oppo` 都是纯 Kotlin/JVM 模块，编译期即无法触及 Android、
-Xposed 与 Compose。运行路径仍保留 `RfcommController` 作为兼容 facade，但真实 socket
-生命周期与字节收发已经交给 `SppTransport`，拆包/粘包由 `:protocol:oppo` 的流式 decoder
-处理。协议消息解释仍由旧 `Packets.kt` 承担，留待 Phase 4 迁入 `OppoSession`。
+Xposed 与 Compose。运行路径仍保留 `RfcommController` 作为旧广播与 HyperOS 集成的
+兼容 facade；真实 socket 生命周期与字节收发由 `SppTransport` 管理，拆包/粘包、握手、
+能力发现、初始同步、状态归约和功能命令则由 `:protocol:oppo` 的 `OppoSession` 管理。
 
 协议 fixture 位于仓库根的 `testdata/`，由 `:app` 与 `:protocol:oppo` 共享，
 新旧两套实现对着同一份真机证据校验。
@@ -111,6 +111,27 @@ Xposed 与 Compose。运行路径仍保留 `RfcommController` 作为兼容 facad
 2026-07-26 已在 Xiaomi 13 Pro（Android 16 / API 36、LSPosed API 102）与
 OPPO Enco Air5s 上完成 20 次连续连接/断开。每轮 OPPO RFCOMM channel 5 都完整经历
 CONNECTING → CONNECTED → DISCONNECTED，蓝牙进程全程稳定，最终无残留连接。
+
+## Phase 4 的落点
+
+`:protocol:oppo` 现在提供 `OppoDriverProvider` 与 `OppoSession`，并将 battery、
+noise control、EQ、low latency、spatial 和 dual-device 拆为独立 feature。Session
+统一拥有通知订阅、初始查询、能力证据合并、协议状态归约和写操作生命周期。
+
+能力判断集中到 compatibility registry：型号命中和用户覆盖只产生 advertised/assumed
+证据，实际查询结果会将能力提升为 verified 或降为 refuted；型号匹配使用规范化后的
+精确名称，避免 Air5/Air5s 一类子串误继承。
+
+写操作不再在发送时修改 confirmed 值。`FeatureCommand` 依次产生 queued、sent、
+transport acknowledged、device accepted 和 read-back confirmed；设备拒绝或超时会
+回滚 pending。`RfcommController` 只把旧 UI 广播翻译为 `FeatureCommand`，并把领域状态
+翻译回原广播与 HyperOS 输出，其中不再保留 OPPO 命令常量、帧编解码或 parser。
+
+2026-07-27 在 Xiaomi 13 Pro（Android 16 / API 36、LSPosed 2.1.1 API 102）与
+OPPO Enco Air5s 上完成真机回归：Session 通过 OPPO RFCOMM channel 5 收到电量、ANC、
+功能表与低延迟状态；旧游戏模式广播可触发低延迟开启并恢复原值，两次操作均到达
+`DEVICE_ACCEPTED` 后再由批量状态回读进入 `READ_BACK_CONFIRMED`。全工程 158 个单元
+测试、`lintDebug`、debug/release assemble 全部通过。
 
 ## 安全边界
 

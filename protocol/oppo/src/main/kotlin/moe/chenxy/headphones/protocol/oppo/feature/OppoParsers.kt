@@ -187,7 +187,7 @@ object OppoEqParser {
                 (message.payload[1].toInt() and 0xFF).takeIf { it in allowedPresets }
             }
 
-            OppoCommand.NOTIFICATION_EVENT -> {
+            OppoCommand.EQ_PRESET_NOTIFICATION -> {
                 // The event channel reports the preset directly, without a status.
                 message.payload.firstOrNull()?.toInt()?.and(0xFF)?.takeIf { it in allowedPresets }
             }

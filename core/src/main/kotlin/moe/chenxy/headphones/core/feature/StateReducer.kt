@@ -45,6 +45,7 @@ sealed interface DeviceReport {
     data class Batteries(val values: Map<BatteryComponent, BatteryState>) : DeviceReport
     data class Wearing(val values: Map<WearComponent, WearState>) : DeviceReport
     data class NoiseControl(val mode: NoiseControlMode) : DeviceReport
+    data class TransparencyVocalEnhancement(val enabled: Boolean) : DeviceReport
     data class Equalizer(val preset: EqualizerPreset) : DeviceReport
     data class LowLatency(val enabled: Boolean) : DeviceReport
     data class SpatialAudio(val mode: SpatialAudioMode) : DeviceReport
@@ -82,6 +83,12 @@ object HeadphoneStateReducer {
             is FeatureCommand.SetNoiseControl ->
                 state.copy(noiseControl = state.noiseControl.withPending(command.mode, update.atMillis))
 
+            is FeatureCommand.SetTransparencyVocalEnhancement ->
+                state.copy(
+                    transparencyVocalEnhancement =
+                        state.transparencyVocalEnhancement.withPending(command.enabled, update.atMillis),
+                )
+
             is FeatureCommand.SetEqualizerPreset ->
                 state.copy(equalizer = state.equalizer.withPending(command.preset, update.atMillis))
 
@@ -113,6 +120,12 @@ object HeadphoneStateReducer {
             is DeviceReport.NoiseControl ->
                 state.copy(noiseControl = state.noiseControl.withConfirmed(report.mode, source, at))
 
+            is DeviceReport.TransparencyVocalEnhancement ->
+                state.copy(
+                    transparencyVocalEnhancement =
+                        state.transparencyVocalEnhancement.withConfirmed(report.enabled, source, at),
+                )
+
             is DeviceReport.Equalizer ->
                 state.copy(equalizer = state.equalizer.withConfirmed(report.preset, source, at))
 
@@ -134,6 +147,10 @@ object HeadphoneStateReducer {
 
     private fun rollback(state: HeadphoneState, featureId: FeatureId): HeadphoneState = when (featureId) {
         FeatureId.NOISE_CONTROL -> state.copy(noiseControl = state.noiseControl.rollbackPending())
+        FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT ->
+            state.copy(
+                transparencyVocalEnhancement = state.transparencyVocalEnhancement.rollbackPending(),
+            )
         FeatureId.EQUALIZER -> state.copy(equalizer = state.equalizer.rollbackPending())
         FeatureId.LOW_LATENCY -> state.copy(lowLatency = state.lowLatency.rollbackPending())
         FeatureId.SPATIAL_AUDIO -> state.copy(spatialAudio = state.spatialAudio.rollbackPending())

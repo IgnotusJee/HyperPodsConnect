@@ -891,7 +891,26 @@ fixture 移到仓库根的 `testdata/`，`:app` 与 `:protocol:oppo` 共享同�
 - reader/write job 在关闭后全部结束；
 - 拆包/粘包由 OPPO decoder 正确处理。
 
-### Phase 4：建立 OPPO Session 和功能模块
+### Phase 4：建立 OPPO Session 和功能模块（已完成，2026-07-27）
+
+`:protocol:oppo` 已建立 `OppoDriverProvider`、`OppoSession` 和按功能拆分的 command/
+parser。Session 是 OPPO 协议运行时的唯一所有者，负责 SPP transport、流式解码、握手、
+通知订阅、初始同步、请求关联、能力证据和领域状态归约。App 中的
+`RfcommController` 已收敛为 Android/旧广播兼容 facade，不再解释 OPPO 字节。
+
+验证记录：
+
+- `:core` 23 个、`:protocol:oppo` 34 个、`:transport:android` 16 个、`:app` 85 个
+  测试全部通过，共 158 个测试；
+- Session 测试覆盖“协议响应后才 Ready”、ACK 不确认状态、显式回读确认、设备拒绝回滚、
+  不支持能力拒写；架构测试约束 controller 不得出现 OPPO 常量、parser 或十六进制帧，
+  并确认所有旧 UI 写入口都映射为 `FeatureCommand`；
+- `lintDebug`、debug/release assemble、`git diff --check` 与模块依赖边界检查通过；
+- Xiaomi 13 Pro（Android 16 / API 36、LSPosed 2.1.1 API 102）连接
+  OPPO Enco Air5s 后，OPPO RFCOMM channel 5 保持连接，电量、ANC、功能表和低延迟查询
+  均收到设备响应；旧游戏模式广播完成开启与恢复原值，两次均按
+  QUEUED → SENT → TRANSPORT_ACKNOWLEDGED → DEVICE_ACCEPTED → READ_BACK_CONFIRMED
+  闭环，confirmed 值来自后续批量状态回读。
 
 改动：
 

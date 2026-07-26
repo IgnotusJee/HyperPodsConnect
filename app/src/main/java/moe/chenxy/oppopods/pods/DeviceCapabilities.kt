@@ -1,21 +1,8 @@
 package moe.chenxy.oppopods.pods
 
-private val ADAPTIVE_SUPPORTED_DEVICES = arrayOf(
-    "OPPO Enco Free4",
-)
-
-private val SPATIAL_AUDIO_SUPPORTED_DEVICES = arrayOf(
-    "OPPO Enco X3",
-)
-
-private val SPATIAL_SOUND_SWITCH_SUPPORTED_DEVICES = arrayOf(
-    "OPPO Enco Free4",
-    "OPPO Enco Air5",
-)
-
-private val LEGACY_ANC_DEVICES = arrayOf(
-    "OPPO Enco Air2 Pro",
-)
+import moe.chenxy.headphones.protocol.oppo.compatibility.OppoCompatibilityOverrides
+import moe.chenxy.headphones.protocol.oppo.compatibility.OppoCompatibilityRegistry
+import moe.chenxy.headphones.protocol.oppo.feature.OppoAncEncoding
 
 data class DeviceCapabilities(
     val adaptiveSupported: Boolean,
@@ -24,18 +11,19 @@ data class DeviceCapabilities(
     val ancImplementation: AncImplementation,
 )
 
-/**
- * Wire/persistence values currently shared with ConfigManager.
- *
- * Keeping the deterministic capability matcher Android-free lets Phase 0 run
- * its regression tests without constructing preferences or Android context.
- */
+/** Wire/persistence values shared with ConfigManager and the existing UI. */
 object DeviceCapabilityOverride {
     const val AUTO = 0
     const val FORCE_ENABLED = 1
     const val FORCE_DISABLED = 2
 }
 
+/**
+ * Legacy UI adapter over the protocol-owned compatibility registry.
+ *
+ * Keeping these functions avoids an IPC/UI migration in Phase 4 while ensuring
+ * the model table has one authority.
+ */
 fun detectDeviceCapabilities(
     deviceName: String,
     adaptiveOverride: Int = DeviceCapabilityOverride.AUTO,
@@ -43,68 +31,45 @@ fun detectDeviceCapabilities(
     spatialSoundSwitchOverride: Int = DeviceCapabilityOverride.AUTO,
     ancImplementationOverride: Int = DeviceCapabilityOverride.AUTO,
 ): DeviceCapabilities {
+    val profile = OppoCompatibilityRegistry.resolve(
+        deviceName,
+        OppoCompatibilityOverrides(
+            adaptiveSupported = adaptiveOverride.asBooleanOverride(),
+            spatialAudioSupported = spatialAudioOverride.asBooleanOverride(),
+            spatialSoundSwitchSupported = spatialSoundSwitchOverride.asBooleanOverride(),
+            ancEncoding = when (ancImplementationOverride) {
+                DeviceCapabilityOverride.FORCE_ENABLED -> OppoAncEncoding.COMPATIBLE
+                DeviceCapabilityOverride.FORCE_DISABLED -> OppoAncEncoding.STANDARD
+                else -> null
+            },
+        ),
+    )
     return DeviceCapabilities(
-        adaptiveSupported = resolveCapability(
-            override = adaptiveOverride,
-            autoDetected = isAdaptiveSupportedByName(deviceName),
-        ),
-        spatialAudioSupported = resolveCapability(
-            override = spatialAudioOverride,
-            autoDetected = isSpatialAudioSupportedByName(deviceName),
-        ),
-        spatialSoundSwitchSupported = resolveCapability(
-            override = spatialSoundSwitchOverride,
-            autoDetected = isSpatialSoundSwitchSupportedByName(deviceName),
-        ),
-        ancImplementation = resolveAncImplementation(
-            override = ancImplementationOverride,
-            autoDetected = isLegacyAncDeviceByName(deviceName)
-        )
+        adaptiveSupported = profile.adaptiveSupported,
+        spatialAudioSupported = profile.spatialAudioSupported,
+        spatialSoundSwitchSupported = profile.spatialSoundSwitchSupported,
+        ancImplementation = if (profile.ancEncoding == OppoAncEncoding.COMPATIBLE) {
+            AncImplementation.COMPATIBLE
+        } else {
+            AncImplementation.STANDARD
+        },
     )
 }
 
-fun isAdaptiveSupportedByName(deviceName: String): Boolean {
-    return isDeviceInCapabilityList(deviceName, ADAPTIVE_SUPPORTED_DEVICES)
-}
+fun isAdaptiveSupportedByName(deviceName: String): Boolean =
+    OppoCompatibilityRegistry.resolve(deviceName).adaptiveSupported
 
-fun isSpatialAudioSupportedByName(deviceName: String): Boolean {
-    return isDeviceInCapabilityList(deviceName, SPATIAL_AUDIO_SUPPORTED_DEVICES)
-}
+fun isSpatialAudioSupportedByName(deviceName: String): Boolean =
+    OppoCompatibilityRegistry.resolve(deviceName).spatialAudioSupported
 
-fun isSpatialSoundSwitchSupportedByName(deviceName: String): Boolean {
-    return isDeviceInCapabilityList(deviceName, SPATIAL_SOUND_SWITCH_SUPPORTED_DEVICES)
-}
+fun isSpatialSoundSwitchSupportedByName(deviceName: String): Boolean =
+    OppoCompatibilityRegistry.resolve(deviceName).spatialSoundSwitchSupported
 
-fun isLegacyAncDeviceByName(deviceName: String): Boolean {
-    return isDeviceInCapabilityList(deviceName, LEGACY_ANC_DEVICES)
-}
+fun isLegacyAncDeviceByName(deviceName: String): Boolean =
+    OppoCompatibilityRegistry.resolve(deviceName).ancEncoding == OppoAncEncoding.COMPATIBLE
 
-private fun resolveCapability(override: Int, autoDetected: Boolean): Boolean {
-    return when (override) {
-        DeviceCapabilityOverride.FORCE_ENABLED -> true
-        DeviceCapabilityOverride.FORCE_DISABLED -> false
-        else -> autoDetected
-    }
-}
-
-private fun resolveAncImplementation(override: Int, autoDetected: Boolean): AncImplementation {
-    return when (override) {
-        DeviceCapabilityOverride.FORCE_ENABLED -> AncImplementation.COMPATIBLE
-        DeviceCapabilityOverride.FORCE_DISABLED -> AncImplementation.STANDARD
-        else -> if (autoDetected) AncImplementation.COMPATIBLE else AncImplementation.STANDARD
-    }
-}
-
-private fun normalizeDeviceName(deviceName: String): String {
-    return deviceName.lowercase().filter { it.isLetterOrDigit() }
-}
-
-private fun isDeviceInCapabilityList(deviceName: String, supportedDevices: Array<String>): Boolean {
-    val normalizedName = normalizeDeviceName(deviceName)
-    if (normalizedName.isEmpty()) return false
-
-    return supportedDevices.any { supportedDevice ->
-        val normalizedSupportedDevice = normalizeDeviceName(supportedDevice)
-        normalizedSupportedDevice.isNotEmpty() && normalizedSupportedDevice in normalizedName
-    }
+private fun Int.asBooleanOverride(): Boolean? = when (this) {
+    DeviceCapabilityOverride.FORCE_ENABLED -> true
+    DeviceCapabilityOverride.FORCE_DISABLED -> false
+    else -> null
 }

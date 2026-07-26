@@ -28,6 +28,10 @@ sealed interface FeatureCommand {
         override val featureId: FeatureId get() = FeatureId.NOISE_CONTROL
     }
 
+    data class SetTransparencyVocalEnhancement(val enabled: Boolean) : FeatureCommand {
+        override val featureId: FeatureId get() = FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT
+    }
+
     data class SetEqualizerPreset(val preset: EqualizerPreset) : FeatureCommand {
         override val featureId: FeatureId get() = FeatureId.EQUALIZER
     }
