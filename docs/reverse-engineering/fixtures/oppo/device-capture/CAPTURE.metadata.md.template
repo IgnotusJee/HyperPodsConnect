@@ -1,0 +1,21 @@
+# Capture metadata
+
+- Evidence: `device-capture`
+- Device model:
+- Firmware:
+- Topology:
+- Transport: `RFCOMM` / `GATT`
+- Service UUID:
+- Phone model:
+- Android/HyperOS version:
+- Capture time and timezone:
+- Scenario: `cold-init` / `battery` / `anc` / `eq`
+- Expected decoded commands and state:
+- Matching sanitized `.hex` file:
+- Sanitization performed:
+  - [ ] Real Bluetooth addresses removed or consistently hashed
+  - [ ] Account identifiers and tokens removed
+  - [ ] Unrelated Bluetooth traffic removed
+  - [ ] Firmware binary data excluded
+- Reviewer:
+- Notes:

@@ -1,0 +1,47 @@
+{
+  "id": "oppo-air5s-eq",
+  "deviceAlias": "oppo-air5s-01",
+  "appPackage": "com.heytap.headset",
+  "expectedAppVersion": "16.7.1",
+  "mode": "guided",
+  "transportCandidates": [
+    "RFCOMM",
+    "GATT"
+  ],
+  "expectedCommands": [
+    "0x010F",
+    "0x810F",
+    "0x0406",
+    "0x8406"
+  ],
+  "steps": [
+    {
+      "id": "baseline_default",
+      "prompt": "确认当前为默认音效，不要操作",
+      "settleSeconds": 6
+    },
+    {
+      "id": "select_preset",
+      "prompt": "切换到一个非默认预设",
+      "settleSeconds": 10
+    },
+    {
+      "id": "restore_default",
+      "prompt": "切回默认音效",
+      "settleSeconds": 10
+    }
+  ],
+  "repeat": 3,
+  "forbiddenUiTerms": [
+    "固件升级",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备"
+  ],
+  "targetDeviceNames": [
+    "OPPO Enco Air 5s",
+    "Enco Air5s",
+    "Enco Air 5s"
+  ]
+}

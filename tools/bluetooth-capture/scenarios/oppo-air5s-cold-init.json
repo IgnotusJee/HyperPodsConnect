@@ -1,0 +1,55 @@
+{
+  "id": "oppo-air5s-cold-init",
+  "deviceAlias": "oppo-air5s-01",
+  "appPackage": "com.heytap.headset",
+  "expectedAppVersion": "16.7.1",
+  "mode": "guided",
+  "transportCandidates": [
+    "RFCOMM",
+    "GATT"
+  ],
+  "expectedCommands": [
+    "0x0100",
+    "0x8100",
+    "0x0200",
+    "0x8200",
+    "0x0205",
+    "0x8205",
+    "0x0201"
+  ],
+  "steps": [
+    {
+      "id": "disconnected",
+      "prompt": "确认耳机在盒中且已断开，官方 App 已完全退出",
+      "settleSeconds": 5
+    },
+    {
+      "id": "open_case",
+      "prompt": "打开充电盒并取出耳机，等待自动回连",
+      "settleSeconds": 12
+    },
+    {
+      "id": "app_launch",
+      "prompt": "启动官方 App 并停留在设备主页，不要操作任何控件",
+      "settleSeconds": 15
+    },
+    {
+      "id": "idle_settle",
+      "prompt": "保持不操作，等待初始化查询全部完成",
+      "settleSeconds": 10
+    }
+  ],
+  "repeat": 3,
+  "forbiddenUiTerms": [
+    "固件升级",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备"
+  ],
+  "targetDeviceNames": [
+    "OPPO Enco Air 5s",
+    "Enco Air5s",
+    "Enco Air 5s"
+  ]
+}

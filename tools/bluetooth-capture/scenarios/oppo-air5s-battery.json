@@ -1,0 +1,46 @@
+{
+  "id": "oppo-air5s-battery",
+  "deviceAlias": "oppo-air5s-01",
+  "appPackage": "com.heytap.headset",
+  "expectedAppVersion": "16.7.1",
+  "mode": "guided",
+  "transportCandidates": [
+    "RFCOMM",
+    "GATT"
+  ],
+  "expectedCommands": [
+    "0x0106",
+    "0x8106",
+    "0x0204"
+  ],
+  "steps": [
+    {
+      "id": "baseline_read",
+      "prompt": "停留在设备主页读取当前电量，不要操作",
+      "settleSeconds": 8
+    },
+    {
+      "id": "trigger_notify_single",
+      "prompt": "取下单只耳机放回充电盒，触发主动电量通知",
+      "settleSeconds": 12
+    },
+    {
+      "id": "restore",
+      "prompt": "重新取出该耳机并佩戴",
+      "settleSeconds": 12
+    }
+  ],
+  "repeat": 3,
+  "forbiddenUiTerms": [
+    "固件升级",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备"
+  ],
+  "targetDeviceNames": [
+    "OPPO Enco Air 5s",
+    "Enco Air5s",
+    "Enco Air 5s"
+  ]
+}
