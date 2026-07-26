@@ -63,7 +63,9 @@ function hookStreamClass(className: string, socketRef: any, isInput: boolean, Th
         return;
     }
 
-    const socketId = sockets.idFor(socketRef);
+    // A preloaded class has no socket to attribute yet; the id resolves once the
+    // socket is seen through connect() or a stream accessor.
+    const socketId = socketRef !== null ? sockets.idFor(socketRef) : "spp-preloaded";
 
     if (isInput) {
         target.implementation = function (buffer: any, offset: number, length: number) {
@@ -111,6 +113,35 @@ function hookStreamClass(className: string, socketRef: any, isInput: boolean, Th
     emit("spp.hook.installed", { className, method: methodName, socketId });
 }
 
+/**
+ * Hooks stream classes that are already loaded.
+ *
+ * Discovery through getInputStream()/getOutputStream() only fires when the app
+ * asks for a stream. An app that opened its socket before the agent attached
+ * never calls them again, so attaching to a running app would install nothing
+ * and the capture would look silently idle. Sweeping the loaded classes closes
+ * that gap; the factory hooks still cover classes loaded later.
+ */
+function hookAlreadyLoadedStreamClasses(Throwable: any): void {
+    let names: string[] = [];
+    try {
+        names = Java.enumerateLoadedClassesSync().filter(
+            (name: string) => name.startsWith("android.bluetooth.") && name.includes("Stream"),
+        );
+    } catch (error) {
+        emitError("enumerate loaded stream classes", error);
+        return;
+    }
+
+    for (const name of names) {
+        const isInput = name.toLowerCase().includes("input");
+        const isOutput = name.toLowerCase().includes("output");
+        if (!isInput && !isOutput) continue;
+        hookStreamClass(name, null, isInput, Throwable);
+    }
+    emit("spp.preloaded.scan", { scanned: names.length, classes: names });
+}
+
 export function installRfcommHooks(): void {
     const BluetoothSocket = Java.use("android.bluetooth.BluetoothSocket");
     const Throwable = Java.use("java.lang.Throwable");
@@ -153,5 +184,6 @@ export function installRfcommHooks(): void {
         };
     }
 
+    hookAlreadyLoadedStreamClasses(Throwable);
     emit("spp.hooks.ready", {});
 }
