@@ -16,12 +16,14 @@
 ## 当前进度
 
 Phase 0（基线与保护网）、Phase 1（`:core` 与通用领域模型）、Phase 2（提取 OPPO
-流式协议）**已完成**。Phase 3（提取通用 SPP transport）尚未开始。
+流式协议）、Phase 3（提取通用 SPP transport）**已完成**。下一阶段是 Phase 4：
+建立 OPPO Session 和功能模块。
 
-模块结构目前是 `:app`、`:core`、`:protocol:oppo`。后两个都是纯 Kotlin/JVM 模块，
-编译期即无法触及 Android、Xposed 与 Compose。运行路径仍走 `RfcommController` 与旧
-`Packets.kt`，新协议模块与 `OppoCoreAdapter` 均已建立并测试但未接入，因此 UI 行为
-与 Phase 0 时一致。
+模块结构目前是 `:app`、`:core`、`:protocol:oppo`、`:transport:android`。
+`:core` 与 `:protocol:oppo` 都是纯 Kotlin/JVM 模块，编译期即无法触及 Android、
+Xposed 与 Compose。运行路径仍保留 `RfcommController` 作为兼容 facade，但真实 socket
+生命周期与字节收发已经交给 `SppTransport`，拆包/粘包由 `:protocol:oppo` 的流式 decoder
+处理。协议消息解释仍由旧 `Packets.kt` 承担，留待 Phase 4 迁入 `OppoSession`。
 
 协议 fixture 位于仓库根的 `testdata/`，由 `:app` 与 `:protocol:oppo` 共享，
 新旧两套实现对着同一份真机证据校验。
@@ -95,6 +97,20 @@ Phase 0（基线与保护网）、Phase 1（`:core` 与通用领域模型）、P
 
 真机分片是这一层存在的直接理由：捕获显示一条响应以 3 字节加 15 字节两次读到达，
 而旧实现把一次读当成一个包。
+
+## Phase 3 的落点
+
+`:transport:android` 提供通用 `SppTransport` 和 Android socket adapter：
+
+- connect/write 均有超时，write 由 mutex 串行化；
+- transport 自己持有结构化 coroutine scope，并显式区分主动关闭与链路失败；
+- close 会先关闭 socket，再取消并等待 reader/write job，避免遗留阻塞任务；
+- `RfcommController` 不再直接持有 `BluetoothSocket`、`InputStream` 或
+  `OutputStream`，通过 `RfcommTransportBridge` 保留原广播、重连和 UI 行为。
+
+2026-07-26 已在 Xiaomi 13 Pro（Android 16 / API 36、LSPosed API 102）与
+OPPO Enco Air5s 上完成 20 次连续连接/断开。每轮 OPPO RFCOMM channel 5 都完整经历
+CONNECTING → CONNECTED → DISCONNECTED，蓝牙进程全程稳定，最终无残留连接。
 
 ## 安全边界
 

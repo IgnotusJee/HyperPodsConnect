@@ -856,7 +856,25 @@ fixture 移到仓库根的 `testdata/`，`:app` 与 `:protocol:oppo` 共享同�
 - parser 不依赖 Android、ConfigManager 或 UI；
 - 未知 command 被保留并记录，不导致崩溃。
 
-### Phase 3：提取通用 SPP transport
+### Phase 3：提取通用 SPP transport（已完成，2026-07-26）
+
+`:transport:android` 已建立，依赖 `:core` 并实现 `ByteTransport`。Android
+`BluetoothSocket` 被封装为 `SppSocket`，`SppTransport` 统一负责连接、读取、串行写入、
+超时、失败分类和有序关闭。App 侧通过 `RfcommTransportBridge` 保留旧 controller 的
+回调与重连语义；controller 已不再直接访问 socket 或输入输出流。运行时字节流接入
+`:protocol:oppo` 的 `OppoFrameStreamDecoder`，旧包解释逻辑继续保留到 Phase 4。
+
+验证记录：
+
+- `:transport:android` 16 个单元测试覆盖分片原样交付、EOF、连接/写入超时与取消、
+  权限失败、并发写串行化、失败原因、幂等关闭，以及关闭后 reader/write job 回收；
+- `:core` 22 个、`:protocol:oppo` 26 个、`:app` 82 个、transport 16 个测试全部通过，
+  共 146 个测试；
+- `lintDebug`、debug/release assemble 与架构依赖检查通过；
+- Xiaomi 13 Pro（Android 16 / API 36、LSPosed 2.1.1 API 102）连接
+  OPPO Enco Air5s，连续 20 次连接/断开均通过；OPPO RFCOMM channel 5 每轮完整进入
+  CONNECTING、CONNECTED、DISCONNECTED，蓝牙进程 PID 全程稳定，尾检无残留链路或
+  transport 异常。
 
 改动：
 

@@ -959,6 +959,7 @@ private data class BluetoothSummary(
     val bondedCount: Int,
 )
 
+@android.annotation.SuppressLint("MissingPermission")
 private fun readBluetoothState(context: Context): BluetoothSummary {
     val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
     return runCatching {

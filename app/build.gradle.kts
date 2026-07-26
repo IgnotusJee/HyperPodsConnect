@@ -85,6 +85,8 @@ configurations.configureEach {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":protocol:oppo"))
+    implementation(project(":transport:android"))
     implementation(libs.coreKtx)
     compileOnly(libs.libxposedApi)
     implementation(libs.libxposedService)

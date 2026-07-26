@@ -5,7 +5,6 @@ import android.app.StatusBarManager
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
-import android.bluetooth.BluetoothSocket
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -17,10 +16,14 @@ import android.os.SystemClock
 import moe.chenxy.oppopods.hook.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import moe.chenxy.headphones.core.session.DisconnectCause
+import moe.chenxy.headphones.core.transport.TransportWriteResult
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
+import moe.chenxy.oppopods.core.RfcommTransportBridge
 import moe.chenxy.oppopods.utils.MediaControl
 import moe.chenxy.oppopods.utils.SystemApisUtils
 import moe.chenxy.oppopods.utils.SystemApisUtils.setIconVisibility
@@ -29,8 +32,6 @@ import moe.chenxy.oppopods.utils.miuiStrongToast.MiuiStrongToastUtil.cancelPodsN
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
-import java.io.IOException
-import java.io.InputStream
 import android.content.SharedPreferences
 import java.util.UUID
 import java.util.concurrent.Executor
@@ -43,7 +44,6 @@ object RfcommController {
     private const val APP_UI_ACTIVE_TIMEOUT_MS = 75_000L
 
     // Basic Objects
-    private var socket: BluetoothSocket? = null
     private var mContext: Context? = null
     lateinit var mDevice: BluetoothDevice
     private lateinit var mPrefs: SharedPreferences
@@ -94,10 +94,28 @@ object RfcommController {
     // RFCOMM jobs
     private var connectionJob: kotlinx.coroutines.Job? = null
     private var reconnectJob: kotlinx.coroutines.Job? = null
-    private var readerJob: kotlinx.coroutines.Job? = null
+    private var transportCloseJob: kotlinx.coroutines.Job? = null
+    private val transportLifecycleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val reconnectAttempts = AtomicInteger(0)
     private var reconnectPending = false
     private val OPPO_RFCOMM_UUID: UUID = UUID.fromString("0000079A-D102-11E1-9B23-00025B00A5A5")
+    private val transportBridge by lazy {
+        RfcommTransportBridge(
+            serviceUuid = OPPO_RFCOMM_UUID,
+            onRawChunk = { chunk ->
+                RfcommLog.d(mContext, "RFCOMM/RX", chunk.toHexString(HexFormat.UpperCase))
+            },
+            onFrame = ::handleOppoPacket,
+            onDisconnected = { cause, detail ->
+                if (isConnected) {
+                    Log.e(TAG, "RFCOMM disconnected: cause=$cause detail=${detail.orEmpty()}")
+                    RfcommLog.e(mContext, TAG, "disconnected cause=$cause detail=${detail.orEmpty()}")
+                    changeUIConnectionState("error")
+                    scheduleReconnect("transport failure: $cause")
+                }
+            },
+        )
+    }
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(p0: Context?, p1: Intent?) {
@@ -296,16 +314,16 @@ object RfcommController {
             transparencyVocalEnhancement = currentTransparencyVocalEnhancement,
             address = if (::mDevice.isInitialized) mDevice.address else null,
             deviceName = if (::mDevice.isInitialized) mDevice.name ?: cachedDeviceName else cachedDeviceName.takeIf { it.isNotEmpty() },
-            connected = isConnected && socket != null,
+            connected = isConnected && transportBridge.isOpen,
             connecting = connectionJob?.isActive == true,
             reconnectPending = reconnectPending,
         )
     }
 
     private fun currentConnectionState(): String = when {
-        isConnected && socket != null && ::currentBatteryParams.isInitialized -> "connected"
+        isConnected && transportBridge.isOpen && ::currentBatteryParams.isInitialized -> "connected"
         connectionJob?.isActive == true || reconnectPending -> "connecting"
-        isConnected && socket != null -> "connecting"
+        isConnected && transportBridge.isOpen -> "connecting"
         else -> "disconnected"
     }
 
@@ -477,15 +495,10 @@ object RfcommController {
         }
     }
 
-    private fun createRfcommSocket(device: BluetoothDevice): BluetoothSocket {
-        return device.createRfcommSocketToServiceRecord(OPPO_RFCOMM_UUID)
-    }
-
     fun connectPod(context: Context, device: BluetoothDevice, prefs: SharedPreferences, appRequested: Boolean = false) {
         connectionJob?.cancel()
         reconnectJob?.cancel()
-        readerJob?.cancel()
-        closeSocketOnly()
+        closeTransportOnly()
         mContext = context
         mDevice = device
         mPrefs = prefs
@@ -609,20 +622,17 @@ object RfcommController {
     private fun connectRfcomm(initialDelayMs: Long = 0L) {
         connectionJob?.cancel()
         connectionJob = CoroutineScope(Dispatchers.IO).launch {
+            transportCloseJob?.join()
             if (initialDelayMs > 0) delay(initialDelayMs)
             if (!isConnected || !::mDevice.isInitialized) return@launch
-            closeSocketOnly()
-            try {
-                val newSocket = createRfcommSocket(mDevice)
-                newSocket.connect()
-                socket = newSocket
+            reconnectPending = false
+            val failure = transportBridge.connect(mDevice)
+            if (failure == null) {
                 reconnectAttempts.set(0)
                 reconnectPending = false
                 Log.d(TAG, "RFCOMM connected! uuid=$OPPO_RFCOMM_UUID")
                 RfcommLog.i(mContext, TAG, "connected uuid=$OPPO_RFCOMM_UUID")
                 changeUIConnectionState("connecting")
-
-                startPacketReader(newSocket.inputStream)
 
                 delay(300)
                 // Ask the bud which notifications it can push; we subscribe to the
@@ -634,8 +644,9 @@ object RfcommController {
                 if (autoGameModeEnabled) {
                     enableGameModeOnConnect()
                 }
-            } catch (e: IOException) {
-                Log.e(TAG, "RFCOMM connect failed", e)
+            } else {
+                Log.e(TAG, "RFCOMM connect failed: ${failure.detail.orEmpty()}")
+                RfcommLog.e(mContext, TAG, "connect failed: ${failure.detail.orEmpty()}")
                 changeUIConnectionState("error")
                 scheduleReconnect("connect failed")
             }
@@ -644,8 +655,12 @@ object RfcommController {
 
     private fun scheduleReconnect(reason: String, immediate: Boolean = false) {
         if (!isConnected || !::mDevice.isInitialized || mContext == null) return
+        if (!immediate && reconnectPending) {
+            Log.d(TAG, "RFCOMM reconnect already pending reason=$reason")
+            return
+        }
         RfcommLog.w(mContext, TAG, "schedule reconnect reason=$reason immediate=$immediate")
-        closeSocketOnly()
+        closeTransportOnly()
         reconnectPending = true
         if (immediate) {
             if (connectionJob?.isActive == true) {
@@ -655,7 +670,6 @@ object RfcommController {
             Log.d(TAG, "immediate RFCOMM reconnect reason=$reason")
             reconnectJob?.cancel()
             reconnectJob = null
-            reconnectPending = false
             connectRfcomm()
             return
         }
@@ -668,50 +682,15 @@ object RfcommController {
         reconnectJob = CoroutineScope(Dispatchers.IO).launch {
             delay(AUTO_RECONNECT_DELAY_MS)
             reconnectJob = null
-            reconnectPending = false
             connectRfcomm()
         }
     }
 
-    private fun reconnectNowForRequest(reason: String) {
-        if (socket != null && !reconnectPending) return
-        scheduleReconnect(reason, immediate = true)
-    }
-
-    private fun closeSocketOnly() {
-        readerJob?.cancel()
-        readerJob = null
-        try {
-            socket?.close()
-        } catch (_: IOException) {}
-        socket = null
-    }
-
-    private fun startPacketReader(inputStream: InputStream) {
-        readerJob?.cancel()
-        readerJob = CoroutineScope(Dispatchers.IO).launch {
-            val buffer = ByteArray(1024)
-            try {
-                while (isConnected) {
-                    val bytesRead = inputStream.read(buffer)
-                    if (bytesRead > 0) {
-                        val packet = buffer.copyOfRange(0, bytesRead)
-                        RfcommLog.d(mContext, "RFCOMM/RX", packet.toHexString(HexFormat.UpperCase))
-                        handleOppoPacket(packet)
-                    } else if (bytesRead == -1) {
-                        Log.d(TAG, "RFCOMM stream ended")
-                        RfcommLog.w(mContext, TAG, "stream ended")
-                        scheduleReconnect("stream ended")
-                        break
-                    }
-                }
-            } catch (e: IOException) {
-                if (isConnected) {
-                    Log.e(TAG, "RFCOMM read error", e)
-                    RfcommLog.e(mContext, TAG, "read error: ${e.message.orEmpty()}")
-                    scheduleReconnect("read error")
-                }
-            }
+    private fun closeTransportOnly(cause: DisconnectCause =
+        DisconnectCause.SUPERSEDED
+    ) {
+        transportCloseJob = transportLifecycleScope.launch {
+            transportBridge.close(cause)
         }
     }
 
@@ -869,11 +848,10 @@ object RfcommController {
         isConnected = false
         connectionJob?.cancel()
         reconnectJob?.cancel()
-        readerJob?.cancel()
         reconnectAttempts.set(0)
         reconnectPending = false
 
-        closeSocketOnly()
+        closeTransportOnly(DisconnectCause.REQUESTED)
 
         mContext?.let {
             stopRoutesScan()
@@ -904,20 +882,18 @@ object RfcommController {
         MediaControl.mContext = null
     }
 
-    private fun sendPacketSafe(packet: ByteArray, requestReason: String? = null) {
-        if (requestReason != null) reconnectNowForRequest(requestReason)
-        try {
-            val currentSocket = socket ?: run {
-                RfcommLog.w(mContext, "RFCOMM/TX", "socket null: ${packet.toHexString(HexFormat.UpperCase)}")
-                scheduleReconnect("socket null before send", immediate = requestReason != null)
-                return
-            }
-            RfcommLog.d(mContext, "RFCOMM/TX", packet.toHexString(HexFormat.UpperCase))
-            currentSocket.outputStream.write(packet)
-            currentSocket.outputStream.flush()
-        } catch (e: IOException) {
-            Log.e(TAG, "Send packet failed", e)
-            RfcommLog.e(mContext, TAG, "send failed: ${e.message.orEmpty()}")
+    private suspend fun sendPacketSafe(packet: ByteArray, requestReason: String? = null) {
+        if (!transportBridge.isOpen) {
+            RfcommLog.w(mContext, "RFCOMM/TX", "transport closed: ${packet.toHexString(HexFormat.UpperCase)}")
+            scheduleReconnect("transport closed before send", immediate = requestReason != null)
+            return
+        }
+        RfcommLog.d(mContext, "RFCOMM/TX", packet.toHexString(HexFormat.UpperCase))
+        val result = transportBridge.send(packet)
+        if (result is TransportWriteResult.Rejected) {
+            val detail = result.failure.detail.orEmpty()
+            Log.e(TAG, "Send packet failed: $detail")
+            RfcommLog.e(mContext, TAG, "send failed: $detail")
             scheduleReconnect("send error", immediate = requestReason != null)
         }
     }
@@ -935,7 +911,9 @@ object RfcommController {
         }
         val packet = normalized.hexToByteArray()
         RfcommLog.i(mContext, "RFCOMM/DEBUG", "send ${packet.size} bytes")
-        sendPacketSafe(packet, "rfcomm debug send")
+        CoroutineScope(Dispatchers.IO).launch {
+            sendPacketSafe(packet, "rfcomm debug send")
+        }
     }
 
     fun addConnectionStateObserver(observer: RfcommConnectionStateObserver, emitCurrent: Boolean = true) {

@@ -1,5 +1,6 @@
 package moe.chenxy.oppopods.ui.components
 
+import android.annotation.SuppressLint
 import android.content.res.Configuration
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.Image
@@ -215,6 +216,7 @@ private fun getBatteryIconRes(level: Int, isCharging: Boolean): Int {
  * with the correct night mode to load the appropriate drawable variant (e.g. drawable-night-nodpi).
  */
 @Composable
+@SuppressLint("LocalContextConfigurationRead")
 private fun themedPainterResource(@androidx.annotation.DrawableRes id: Int): Painter {
     val context = LocalContext.current
     val themeConfig = LocalConfiguration.current

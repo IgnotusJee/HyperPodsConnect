@@ -53,6 +53,7 @@ object HeadsetStateDispatcher : HookContext() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun registerAppRequestReceiver(context: Context?) {
         if (context == null || appRequestReceiverRegistered) return
         context.registerReceiver(object : BroadcastReceiver() {

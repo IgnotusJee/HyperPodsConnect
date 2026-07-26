@@ -1,5 +1,6 @@
 package moe.chenxy.oppopods.ui.components
 
+import android.annotation.SuppressLint
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -333,6 +334,7 @@ private fun AncButton(
  * Handles both bitmap and vector drawables by rendering via Canvas when needed.
  */
 @Composable
+@SuppressLint("LocalContextConfigurationRead")
 private fun themedPainterResource(@androidx.annotation.DrawableRes id: Int): Painter {
     val context = LocalContext.current
     val themeConfig = LocalConfiguration.current
