@@ -5,7 +5,7 @@
 | 项目 | 值 |
 | --- | --- |
 | 型号 | OPPO Enco Air5s（设备名 `OPPO Enco Air5s`） |
-| 固件 | **未采集**，见下方"未闭合项" |
+| 固件 | **163.163.102**（左耳 163、右耳 163、仓 102），UI 与协议双来源确认 |
 | 拓扑 | TWS 双耳 + 充电盒 |
 | 传输 | Bluetooth Classic RFCOMM，BR/EDR ACL 句柄 `0x0006`，RFCOMM DLCI `0x0A` |
 | 手机 | Xiaomi 13 Pro（`nuwa` / `2210132C`） |

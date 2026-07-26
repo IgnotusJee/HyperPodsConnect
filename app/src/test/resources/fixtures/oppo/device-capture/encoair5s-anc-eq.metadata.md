@@ -5,7 +5,7 @@
 | 项目 | 值 |
 | --- | --- |
 | 型号 | OPPO Enco Air5s |
-| 固件 | **未采集**，App 内未找到耳机固件版本入口 |
+| 固件 | **163.163.102**，UI 与协议双来源确认，见 encoair5s-firmware.hex |
 | 佩戴状态 | **双耳佩戴中**，这是本次能采到 ANC/EQ 的前提 |
 | 传输 | Bluetooth Classic RFCOMM，BR/EDR ACL 句柄先 `0x0006` 后重连为 `0x0001` |
 | 手机 | Xiaomi 13 Pro / Android 16 / API 36 / HyperOS 3 |
