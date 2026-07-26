@@ -158,7 +158,13 @@ function hookAlreadyLoadedStreamClasses(Throwable: any): void {
  */
 const READ_PROBE_ALLOWLIST = new Set([
     "aa0700000601f00000",       // 0x0106 battery query, empty payload
-    "aa0900000c01f002000101",   // 0x010C ANC query, selector 01 01
+    "aa0900000c01f002000101",   // 0x010C ANC query, selector 01 01 (this project's)
+    "aa0900000c01f002000203",   // 0x010C ANC query, selector 02 03 (official app's)
+    "aa0900000c01f002000204",   // 0x010C ANC query, selector 02 04 (official app's)
+    "aa0900000c01f002000301",   // 0x010C ANC query, selector 03 01
+    // 0x010D batch status, verbatim from this project's Enums.QUERY_STATUS,
+    // to find out whether features 0x13 and 0x1C exist on this model.
+    "aa1300000d01000c000b05040b111318061b1c2728",
 ]);
 
 export function sendReadProbe(hex: string): { sent: boolean; reason?: string } {
