@@ -77,6 +77,8 @@ object RfcommController {
     private var routeScanStarted = false
     private var appUiActive = false
     private var appUiActiveUntilMs = 0L
+    private val connectionStateObservable = RfcommConnectionStateObservable()
+    private val rawHexSessionGate = RawHexSessionGate(BuildConfig.DEBUG)
 
     data class StatusSnapshot(
         val battery: BatteryParams?,
@@ -206,6 +208,7 @@ object RfcommController {
             OppoPodsAction.ACTION_PODS_UI_CLOSED -> {
                 appUiActive = false
                 appUiActiveUntilMs = 0L
+                rawHexSessionGate.lock()
                 Log.i(TAG, "UI Closed")
             }
             OppoPodsAction.ACTION_ANC_SELECT -> {
@@ -266,9 +269,22 @@ object RfcommController {
             OppoPodsAction.ACTION_RFCOMM_LOG_CLEAR -> {
                 RfcommLog.clear()
             }
+            OppoPodsAction.ACTION_RFCOMM_DEBUG_UNLOCK -> {
+                val sessionToken = intent.getStringExtra(OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN).orEmpty()
+                if (rawHexSessionGate.unlock(sessionToken)) {
+                    RfcommLog.w(mContext, "RFCOMM/DEBUG", "raw HEX unlocked for this debug-page session")
+                } else {
+                    RfcommLog.e(mContext, "RFCOMM/DEBUG", "raw HEX is unavailable in release builds")
+                }
+            }
+            OppoPodsAction.ACTION_RFCOMM_DEBUG_LOCK -> {
+                rawHexSessionGate.lock(intent.getStringExtra(OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN))
+                RfcommLog.i(mContext, "RFCOMM/DEBUG", "raw HEX locked")
+            }
             OppoPodsAction.ACTION_RFCOMM_DEBUG_SEND -> {
                 val hex = intent.getStringExtra("hex").orEmpty()
-                sendDebugHex(hex)
+                val sessionToken = intent.getStringExtra(OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN)
+                sendDebugHex(hex, sessionToken)
             }
         }
     }
@@ -294,6 +310,7 @@ object RfcommController {
     }
 
     private fun changeUIConnectionState(state: String) {
+        connectionStateObservable.publish(RfcommConnectionState.fromWireValue(state))
         sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_CONNECTION_STATE_CHANGED) {
             if (::mDevice.isInitialized) {
                 putExtra("address", mDevice.address)
@@ -504,7 +521,7 @@ object RfcommController {
                 this.addAction(OppoPodsAction.ACTION_RFCOMM_LOG_CONNECT)
                 this.addAction(OppoPodsAction.ACTION_RFCOMM_LOG_DISCONNECT)
                 this.addAction(OppoPodsAction.ACTION_RFCOMM_LOG_CLEAR)
-                this.addAction(OppoPodsAction.ACTION_RFCOMM_DEBUG_SEND)
+                OppoPodsAction.RFCOMM_DEBUG_CONTROL_ACTIONS.forEach(this::addAction)
             }, Context.RECEIVER_EXPORTED)
             receiverRegistered = true
         }
@@ -906,7 +923,11 @@ object RfcommController {
     }
 
     @OptIn(ExperimentalStdlibApi::class)
-    fun sendDebugHex(hex: String) {
+    fun sendDebugHex(hex: String, sessionToken: String? = null) {
+        if (!rawHexSessionGate.canSend(sessionToken)) {
+            RfcommLog.e(mContext, "RFCOMM/DEBUG", "raw HEX denied: unlock it in a debug-page session first")
+            return
+        }
         val normalized = hex.filterNot { it.isWhitespace() || it == ':' || it == '-' }
         if (normalized.isEmpty() || normalized.length % 2 != 0 || !normalized.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
             RfcommLog.e(mContext, "RFCOMM/DEBUG", "invalid HEX: $hex")
@@ -915,6 +936,14 @@ object RfcommController {
         val packet = normalized.hexToByteArray()
         RfcommLog.i(mContext, "RFCOMM/DEBUG", "send ${packet.size} bytes")
         sendPacketSafe(packet, "rfcomm debug send")
+    }
+
+    fun addConnectionStateObserver(observer: RfcommConnectionStateObserver, emitCurrent: Boolean = true) {
+        connectionStateObservable.addObserver(observer, emitCurrent)
+    }
+
+    fun removeConnectionStateObserver(observer: RfcommConnectionStateObserver) {
+        connectionStateObservable.removeObserver(observer)
     }
 
     fun setGameMode(enabled: Boolean) {

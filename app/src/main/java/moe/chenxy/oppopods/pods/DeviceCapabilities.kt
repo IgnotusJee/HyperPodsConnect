@@ -1,7 +1,5 @@
 package moe.chenxy.oppopods.pods
 
-import moe.chenxy.oppopods.config.ConfigManager
-
 private val ADAPTIVE_SUPPORTED_DEVICES = arrayOf(
     "OPPO Enco Free4",
 )
@@ -26,12 +24,24 @@ data class DeviceCapabilities(
     val ancImplementation: AncImplementation,
 )
 
+/**
+ * Wire/persistence values currently shared with ConfigManager.
+ *
+ * Keeping the deterministic capability matcher Android-free lets Phase 0 run
+ * its regression tests without constructing preferences or Android context.
+ */
+object DeviceCapabilityOverride {
+    const val AUTO = 0
+    const val FORCE_ENABLED = 1
+    const val FORCE_DISABLED = 2
+}
+
 fun detectDeviceCapabilities(
     deviceName: String,
-    adaptiveOverride: Int = ConfigManager.CAPABILITY_OVERRIDE_AUTO,
-    spatialAudioOverride: Int = ConfigManager.CAPABILITY_OVERRIDE_AUTO,
-    spatialSoundSwitchOverride: Int = ConfigManager.CAPABILITY_OVERRIDE_AUTO,
-    ancImplementationOverride: Int = ConfigManager.CAPABILITY_OVERRIDE_AUTO,
+    adaptiveOverride: Int = DeviceCapabilityOverride.AUTO,
+    spatialAudioOverride: Int = DeviceCapabilityOverride.AUTO,
+    spatialSoundSwitchOverride: Int = DeviceCapabilityOverride.AUTO,
+    ancImplementationOverride: Int = DeviceCapabilityOverride.AUTO,
 ): DeviceCapabilities {
     return DeviceCapabilities(
         adaptiveSupported = resolveCapability(
@@ -71,16 +81,16 @@ fun isLegacyAncDeviceByName(deviceName: String): Boolean {
 
 private fun resolveCapability(override: Int, autoDetected: Boolean): Boolean {
     return when (override) {
-        ConfigManager.CAPABILITY_OVERRIDE_FORCE_ENABLED -> true
-        ConfigManager.CAPABILITY_OVERRIDE_FORCE_DISABLED -> false
+        DeviceCapabilityOverride.FORCE_ENABLED -> true
+        DeviceCapabilityOverride.FORCE_DISABLED -> false
         else -> autoDetected
     }
 }
 
 private fun resolveAncImplementation(override: Int, autoDetected: Boolean): AncImplementation {
     return when (override) {
-        ConfigManager.CAPABILITY_OVERRIDE_FORCE_ENABLED -> AncImplementation.COMPATIBLE
-        ConfigManager.CAPABILITY_OVERRIDE_FORCE_DISABLED -> AncImplementation.STANDARD
+        DeviceCapabilityOverride.FORCE_ENABLED -> AncImplementation.COMPATIBLE
+        DeviceCapabilityOverride.FORCE_DISABLED -> AncImplementation.STANDARD
         else -> if (autoDetected) AncImplementation.COMPATIBLE else AncImplementation.STANDARD
     }
 }

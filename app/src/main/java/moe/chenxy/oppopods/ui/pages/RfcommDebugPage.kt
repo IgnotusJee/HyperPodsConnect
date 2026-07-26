@@ -40,7 +40,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
+import java.util.UUID
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
@@ -66,6 +68,8 @@ fun RfcommDebugPage(
     val logs = remember { mutableStateListOf<RfcommDebugLogEntry>() }
     val listState = rememberLazyListState()
     var hexInput by remember { mutableStateOf("") }
+    var rawHexUnlocked by remember { mutableStateOf(false) }
+    val rawHexSessionToken = remember { UUID.randomUUID().toString() }
 
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
@@ -85,6 +89,9 @@ fun RfcommDebugPage(
         context.registerReceiver(receiver, IntentFilter(OppoPodsAction.ACTION_RFCOMM_LOG), Context.RECEIVER_EXPORTED)
         context.sendRfcommDebugBroadcast(OppoPodsAction.ACTION_RFCOMM_LOG_CONNECT)
         onDispose {
+            context.sendRfcommDebugBroadcast(OppoPodsAction.ACTION_RFCOMM_DEBUG_LOCK) {
+                putExtra(OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN, rawHexSessionToken)
+            }
             context.sendRfcommDebugBroadcast(OppoPodsAction.ACTION_RFCOMM_LOG_DISCONNECT)
             context.unregisterReceiver(receiver)
         }
@@ -132,27 +139,70 @@ fun RfcommDebugPage(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        when {
+            !BuildConfig.DEBUG -> RawHexUnavailableCard()
+            !rawHexUnlocked -> RawHexUnlockCard {
+                context.sendRfcommDebugBroadcast(OppoPodsAction.ACTION_RFCOMM_DEBUG_UNLOCK) {
+                    putExtra(OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN, rawHexSessionToken)
+                }
+                rawHexUnlocked = true
+            }
+            else -> Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HexInputField(
+                    value = hexInput,
+                    onValueChange = { hexInput = it.uppercase() },
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    text = "发送",
+                    onClick = {
+                        context.sendRfcommDebugBroadcast(OppoPodsAction.ACTION_RFCOMM_DEBUG_SEND) {
+                            putExtra("hex", hexInput)
+                            putExtra(OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN, rawHexSessionToken)
+                        }
+                        hexInput = ""
+                    },
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RawHexUnlockCard(onUnlock: () -> Unit) {
+    Card {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            HexInputField(
-                value = hexInput,
-                onValueChange = { hexInput = it.uppercase() },
-                modifier = Modifier.weight(1f),
+            Text(
+                text = "任意 HEX 会直接写入耳机控制通道，错误命令可能造成异常状态。仅在理解协议风险时解锁。",
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 13.sp,
             )
             TextButton(
-                text = "发送",
-                onClick = {
-                    context.sendRfcommDebugBroadcast(OppoPodsAction.ACTION_RFCOMM_DEBUG_SEND) {
-                        putExtra("hex", hexInput)
-                    }
-                    hexInput = ""
-                },
+                text = "本次页面会话解锁",
+                onClick = onUnlock,
                 colors = ButtonDefaults.textButtonColorsPrimary(),
             )
         }
+    }
+}
+
+@Composable
+private fun RawHexUnavailableCard() {
+    Card {
+        Text(
+            text = "Release 构建已禁用任意 HEX 发送。",
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            fontSize = 13.sp,
+        )
     }
 }
 

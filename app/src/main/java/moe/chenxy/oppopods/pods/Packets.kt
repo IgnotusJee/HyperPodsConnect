@@ -3,29 +3,48 @@ package moe.chenxy.oppopods.pods
 /**
  * OPPO earphone RFCOMM protocol packet definitions.
  *
- * Packet format (Little Endian for multi-byte fields):
- * Header(AA) + TotalLen(1B) + Res(0000) + Cmd(2B) + Seq(1B) + PayLen(2B) + Payload
+ * Short, unfragmented OPOv1 packet format (Little Endian for multi-byte fields):
+ * Header(AA) + EncodedLen(7-bit varint) + Control/Res(0000) +
+ * Cmd(2B) + Seq(1B) + PayLen(2B) + Payload.
+ *
+ * Existing commands are all shorter than 128 bytes, so their encoded length is
+ * one byte. Long packets use a multi-byte varint and may additionally require
+ * OPOv1 link-layer fragmentation.
  */
 
 object OppoPackets {
 
-    /** Build a complete OPPO protocol packet. */
+    /** Build a complete, unfragmented OPPO protocol packet. */
     fun buildPacket(cmd: Int, seq: Int = 0xF0, payload: ByteArray = byteArrayOf()): ByteArray {
         val payLen = payload.size
-        // TotalLen = 7 (header fields after TotalLen: Res(2) + Cmd(2) + Seq(1) + PayLen(2)) + payLen
-        val totalLen = 7 + payLen
-        val packet = ByteArray(2 + totalLen) // Header(1) + TotalLen(1) + rest
-        packet[0] = 0xAA.toByte()           // Header
-        packet[1] = totalLen.toByte()        // TotalLen
-        packet[2] = 0x00                     // Res byte 1
-        packet[3] = 0x00                     // Res byte 2
-        packet[4] = (cmd and 0xFF).toByte()          // Cmd low byte
-        packet[5] = ((cmd shr 8) and 0xFF).toByte()  // Cmd high byte
-        packet[6] = seq.toByte()             // Seq
-        packet[7] = (payLen and 0xFF).toByte()        // PayLen low byte
-        packet[8] = ((payLen shr 8) and 0xFF).toByte() // PayLen high byte
-        payload.copyInto(packet, 9)
+        require(payLen <= 0xFFFF) { "OPPO inner payload exceeds the unsigned 16-bit length field" }
+        val encodedLength = 7 + payLen
+        val lengthBytes = encodeVarint(encodedLength)
+        val innerStart = 1 + lengthBytes.size + 2
+        val packet = ByteArray(1 + lengthBytes.size + encodedLength)
+        packet[0] = 0xAA.toByte()
+        lengthBytes.copyInto(packet, destinationOffset = 1)
+        packet[1 + lengthBytes.size] = 0x00
+        packet[2 + lengthBytes.size] = 0x00
+        packet[innerStart] = (cmd and 0xFF).toByte()
+        packet[innerStart + 1] = ((cmd shr 8) and 0xFF).toByte()
+        packet[innerStart + 2] = seq.toByte()
+        packet[innerStart + 3] = (payLen and 0xFF).toByte()
+        packet[innerStart + 4] = ((payLen shr 8) and 0xFF).toByte()
+        payload.copyInto(packet, innerStart + 5)
         return packet
+    }
+
+    private fun encodeVarint(value: Int): ByteArray {
+        require(value >= 0)
+        var remaining = value
+        val result = mutableListOf<Byte>()
+        do {
+            val group = remaining and 0x7F
+            remaining = remaining ushr 7
+            result += (if (remaining == 0) group else group or 0x80).toByte()
+        } while (remaining != 0)
+        return result.toByteArray()
     }
 }
 
@@ -505,14 +524,16 @@ object EqPresetParser {
         if (data.size < 10 || data[0] != 0xAA.toByte()) return null
         val cmd = (data[4].toInt() and 0xFF) or ((data[5].toInt() and 0xFF) shl 8)
         val payLen = (data[7].toInt() and 0xFF) or ((data[8].toInt() and 0xFF) shl 8)
+        if (data.size < 9 + payLen) return null
         return when (cmd) {
             Cmd.EQ_PRESET_NOTIFY -> {
                 if (payLen < 1) return null
                 (data[9].toInt() and 0xFF).takeIf { it in EqPreset.ALL }
             }
             Cmd.EQ_PRESET_RESPONSE -> {
-                if (payLen < 2 || data.size < 11) return null
+                if (payLen < 2) return null
                 // payload[0] = status (0 on success), payload[1] = preset
+                if ((data[9].toInt() and 0xFF) != 0x00) return null
                 (data[10].toInt() and 0xFF).takeIf { it in EqPreset.ALL }
             }
             else -> null
@@ -814,10 +835,11 @@ object NotificationSupportParser {
         val payloadStart = 9
         if (data.size < payloadStart + payLen) return null
         if (payLen < 2) return null
+        if ((data[payloadStart].toInt() and 0xFF) != 0x00) return null
         val count = data[payloadStart + 1].toInt() and 0xFF
         val idsStart = payloadStart + 2
-        val idsEnd = minOf(idsStart + count, payloadStart + payLen, data.size)
-        if (idsEnd <= idsStart) return null
+        if (count <= 0 || payLen < 2 + count) return null
+        val idsEnd = idsStart + count
         return data.copyOfRange(idsStart, idsEnd)
     }
 }

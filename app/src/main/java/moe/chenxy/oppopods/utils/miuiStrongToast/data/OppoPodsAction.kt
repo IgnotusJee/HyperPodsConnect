@@ -34,7 +34,15 @@ object OppoPodsAction {
     const val ACTION_RFCOMM_LOG_DISCONNECT = "chen.action.oppopods.rfcomm_log_disconnect"
     const val ACTION_RFCOMM_LOG_CLEAR = "chen.action.oppopods.rfcomm_log_clear"
     const val ACTION_RFCOMM_LOG = "chen.action.oppopods.rfcomm_log"
+    const val ACTION_RFCOMM_DEBUG_UNLOCK = "chen.action.oppopods.rfcomm_debug_unlock"
+    const val ACTION_RFCOMM_DEBUG_LOCK = "chen.action.oppopods.rfcomm_debug_lock"
     const val ACTION_RFCOMM_DEBUG_SEND = "chen.action.oppopods.rfcomm_debug_send"
+    const val EXTRA_RFCOMM_DEBUG_SESSION_TOKEN = "rfcomm_debug_session_token"
+    val RFCOMM_DEBUG_CONTROL_ACTIONS = listOf(
+        ACTION_RFCOMM_DEBUG_UNLOCK,
+        ACTION_RFCOMM_DEBUG_LOCK,
+        ACTION_RFCOMM_DEBUG_SEND,
+    )
     // Adaptive模式开关状态变更广播，用于跨进程同步偏好设置（App → com.android.bluetooth / com.xiaomi.bluetooth）
     const val ACTION_ADAPTIVE_MODE_CHANGED = "chen.action.oppopods.adaptive_mode_changed"
     const val ACTION_CONFIG_CHANGED = "chen.action.oppopods.config_changed"
