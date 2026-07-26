@@ -542,7 +542,26 @@ TX_INNER -> TX_LINK -> RX_LINK -> RX_INNER
 
 用于证明 command、seq、payload、外层 framing、实际 transport 和 response 关联。
 
-### 9.4 Sony 发现层
+### 9.4 实现中确认的三项约束
+
+**目标进程必须按包名从 application 列表解析。** frida-server 的
+`enumerate_processes()` 对应用返回的是**显示名**（Sony App 返回 `Sound Connect`），
+不是包名，按包名匹配会静默找不到进程并误报"目标未在运行"。可靠做法是用
+`enumerate_applications()` 匹配 `identifier`，进程名匹配只作为非应用进程的兜底。
+
+**只 attach，不 spawn。** spawn 会重启目标、改变 PID，并丢弃操作员刚建立好的蓝牙
+会话，而 M2 的验收标准恰恰是 PID 前后不变。目标未运行时应直接失败并提示手动启动。
+
+**流类名必须运行时发现。** `BluetoothSocket.getInputStream()` / `getOutputStream()`
+背后的具体流类是包级私有的，且在 AOSP 各版本间改过名，不能硬编码。做法是 hook 这两个
+工厂方法，从返回对象上取实际类名再挂钩，每个具体类只挂一次。同理，GATT 的接收侧必须
+从 `connectGatt` 的实参上取得 App 真实的 `BluetoothGattCallback` 子类——App 通常重写
+回调且不调用 super，只挂基类观察不到任何事件。
+
+写入侧只挂带 offset/length 的重载：无 offset 的变体内部转调它们，两个都挂会让每个
+字节重复计数。
+
+### 9.5 Sony 发现层
 
 第一轮不假设 Sony 协议类名：
 
@@ -731,17 +750,25 @@ pcapng，Wireshark 与 TShark 均可正常打开，协议层级解析为 59 帧 
 实现位于 `tools/bluetooth-capture/capture.ps1` 的 `hci-begin` / `hci-end` 模式，
 结构校验位于 `analysis/inspect_btsnoop.py`。
 
-### M2：通用 Frida transport collector
+### M2：通用 Frida transport collector（已交付，2026-07-26）
 
 交付：
 
-- Frida 17 TypeScript agent 构建；
-- RFCOMM/GATT 通用 Hook；
+- Frida 17 TypeScript agent，经 frida-compile 打成单文件，Java bridge 显式导入；
+- RFCOMM/GATT 通用只观察 Hook；
 - 二进制 message channel；
-- JSONL 和原始二进制落盘；
-- attach/detach 健康检查。
+- JSONL 事件流与原始 payload 分离落盘，按 offset 与 SHA-256 引用；
+- attach/detach 健康检查与 payload 链路自检。
 
-验收：Sony App attach 前后 PID不变；同一 TX payload 能在 HCI 中找到。
+验收状态：
+
+- **已达成**：Sony App（`com.sony.songpal.mdr` 13.0.8，Android 16/API 36）attach
+  前后 PID 均为同一值，进程存活无 ANR/FATAL，agent 报告 rfcomm 与 gatt 两组 hook
+  均安装成功；payload 链路自检字节级一致，覆盖 `0x00`/`0x80`/`0xFF` 等符号边界。
+- **待硬件**：`同一 TX payload 能在 HCI 中找到` 需要目标耳机实际连接后才能验证。
+  无连接设备时官方 App 不发起任何蓝牙传输，因此该项与 M3 同受配对阻塞。
+
+实现要点见 9.1 与 9.2；实测确认的三项约束记录在 9.4。
 
 ### M3：OPPO Phase 0 fixture
 

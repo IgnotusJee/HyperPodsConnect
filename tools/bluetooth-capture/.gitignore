@@ -1,0 +1,5 @@
+# Build output of `npm run build` in agent/. Rebuildable, so not tracked.
+_agent.js
+_agent.js.map
+agent/node_modules/
+collector/__pycache__/

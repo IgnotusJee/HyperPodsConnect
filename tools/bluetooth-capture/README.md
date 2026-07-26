@@ -10,7 +10,7 @@ M3 OPPO fixture）尚未实现。
 | --- | --- |
 | M0 环境和安全门禁 | 已交付，已在目标机实测通过 |
 | M1 HCI 自动提取 | 已交付，已对一条真实 LE 连接完成验收 |
-| M2 通用 Frida transport collector | 未开始 |
+| M2 通用 Frida transport collector | 已交付，attach/detach 与 payload 链路已验收；HCI 关联待硬件 |
 | M3 OPPO Phase 0 fixture | 未开始 |
 | M4 Sony 协议发现 | 未开始 |
 | M5 白名单 UI 自动化 | 未开始 |
@@ -64,6 +64,37 @@ derived/<name>.target-window.pcapng 句柄 + 会话时间窗
 ```powershell
 python .\analysis\inspect_btsnoop.py <path-to-btsnoop.log>
 ```
+
+### Frida transport collector（M2）
+
+首次使用需构建 agent（Frida 17 的裸 GumJS 不再自带 Java bridge，必须 frida-compile
+打成单文件）：
+
+```powershell
+cd agent; npm install; npm run build
+```
+
+目标 App 必须已在运行——collector 只 attach 不 spawn，spawn 会改变 PID 并丢掉操作员
+刚建立的蓝牙会话：
+
+```powershell
+python .\collector\collect.py --package com.sony.songpal.mdr --session-id 20260726-sony --duration 120
+```
+
+产物写入同一会话目录，与 M1 的 HCI 材料并存：
+
+```text
+raw/frida-events.jsonl   事件流，payload 以 offset + SHA-256 引用
+raw/frida-events.bin     原始 payload，按事件顺序拼接，字节级保真
+```
+
+验证采集链路本身是否正常（构造一个纯数据对象触发 hook，不产生任何射频操作）：
+
+```powershell
+python .\collector\collect.py --package com.sony.songpal.mdr --session-id selftest --duration 5 --self-test
+```
+
+退出码非 0 表示进程未存活、PID 变化或自检失败，该会话不可用作证据。
 
 主要参数：`-OutputRoot`（默认 `D:\HeadphoneCaptures`）、`-FridaHome`、`-Tshark`、
 `-ExpectedFridaVersion`、`-FridaPort`、`-MinFreeGiB`。默认值对应当前工作机，换机时覆盖。
