@@ -40,10 +40,36 @@ sealed interface TransportSpec {
         val rxCharacteristicUuid: String,
         val cccdUuid: String,
         val requestMtu: Int? = null,
+        val writableLength: Int? = null,
+        val writeMode: GattWriteMode = GattWriteMode.WITH_RESPONSE,
+        val notificationMode: GattNotificationMode = GattNotificationMode.NOTIFICATION,
+        val mtuFailurePolicy: GattMtuFailurePolicy = GattMtuFailurePolicy.CONTINUE_WITH_DEFAULT,
+        val chunkPolicy: GattChunkPolicy = GattChunkPolicy.SPLIT,
+        val withoutResponseThrottleMillis: Long = 10,
     ) : TransportSpec {
         override val kind: TransportKind get() = TransportKind.BLE_GATT
+
+        init {
+            require(requestMtu == null || requestMtu in 23..517) {
+                "GATT MTU must be between 23 and 517"
+            }
+            require(writableLength == null || writableLength > 0) {
+                "GATT writable length must be positive"
+            }
+            require(withoutResponseThrottleMillis >= 0) {
+                "GATT write throttle cannot be negative"
+            }
+        }
     }
 }
+
+enum class GattWriteMode { WITH_RESPONSE, WITHOUT_RESPONSE }
+
+enum class GattNotificationMode { NOTIFICATION, INDICATION }
+
+enum class GattMtuFailurePolicy { CONTINUE_WITH_DEFAULT, FAIL_CONNECTION }
+
+enum class GattChunkPolicy { SPLIT, REJECT_OVERSIZED }
 
 /**
  * An ordered byte pipe to one device.

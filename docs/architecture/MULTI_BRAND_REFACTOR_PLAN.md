@@ -1024,7 +1024,40 @@ bootstrap fallback。
 - 未支持功能不显示或明确只读；
 - pending/timeout/confirmed 可被用户区分。
 
-### Phase 7：实现通用 GATT transport
+### Phase 7：实现通用 GATT transport（已完成，2026-07-27）
+
+`:transport:android` 新增可由 JVM fake 的 `GattClient` 平台端口、
+`GattOperationQueue` 和 `GattTransport`。连接、MTU、service discovery、
+characteristic read/write 与 CCCD descriptor write 共用唯一串行队列；每个连接分配
+独立 generation，Android 旧 `BluetoothGatt` 的迟到 callback 无法完成新连接上的
+operation。notification 走独立有序 channel，保持平台交付的任意字节分片。
+
+`TransportSpec.Gatt` 由 driver 提供 service/TX/RX/CCCD UUID，并声明 MTU 失败策略、
+writable length、with/without-response、notification/indication、拆分/拒绝策略及
+no-response throttle。Android 37 使用 `BluetoothGattConnectionSettings` 与
+Executor，Android 35/36 保留兼容连接入口；读写和 notification callback 均采用 API
+33+ 的 memory-safe value overload。transport 内没有厂商 UUID 或 Sony/OPPO 常量。
+
+验证记录：
+
+- `:core` 23 个、`:engine` 11 个、`:protocol:oppo` 34 个、
+  `:transport:android` 36 个、`:app` 103 个 JVM 测试全部执行并通过，共 207 个、
+  0 skipped；
+- 17 个 GATT fake callback 测试覆盖完整 open/CCCD 顺序、无并发 operation、MTU
+  成功与两种失败策略、协商 MTU 与 vendor writable length 分块、超长拒绝、
+  no-response throttle、read/notification 原序、timeout、operation 中断线、旧
+  generation callback、status 19、permission、adapter off、bond removed、主动关闭
+  operation 和缺失 attribute；3 个架构测试约束串行队列、memory-safe Android API
+  与无厂商常量；
+- `transport:android` 与 App 的 `lintDebug`、instrumentation APK、debug/release
+  assemble、`git diff --check` 全部通过；
+- Xiaomi 13 Pro（Android 16 / API 36）上通过 ADB 手动安装最终 instrumentation APK，
+  `AndroidGattSmokeTest` 使用真实 `BluetoothManager`/`BluetoothDevice` 创建
+  vendor-neutral GATT transport，1/1 通过；测试未连接或探测任意外设，完成后测试包
+  已卸载；
+- 最终 App APK 重载蓝牙作用域后，OPPO Enco Air5s 仍为 A2DP Connected，
+  RFCOMM channel 5 于 12:06:15.011 成功连接；低延迟开启和恢复关闭均完成“设备已确认
+  更改”，蓝牙 PID 保持稳定且 App/蓝牙进程无 scoped FATAL，证明现有 OPPO SPP 无回退。
 
 改动：
 
