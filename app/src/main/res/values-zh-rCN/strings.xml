@@ -136,4 +136,10 @@
     <string name="anc_implementation_summary">自动时跟随型号检测；部分老耳机降噪/关闭指令相反，可手动切换。</string>
     <string name="anc_implementation_standard">标准</string>
     <string name="anc_implementation_compatible">兼容</string>
+    <string name="feature_read_only">只读</string>
+    <string name="operation_pending">正在应用更改…</string>
+    <string name="operation_confirmed">设备已确认更改</string>
+    <string name="operation_timed_out">更改超时，已恢复设备确认状态</string>
+    <string name="operation_failed">更改失败，已恢复设备确认状态</string>
+    <string name="operation_cancelled">更改已取消</string>
 </resources>

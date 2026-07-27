@@ -976,7 +976,36 @@ Session。旧 `OppoPodsAction` 由双向 bridge 继续兼容，包含旧 UI 依�
 - MiLink/小米蓝牙/App 能从统一 snapshot 恢复状态；
 - 旧 generation 的事件被测试证明不会污染新会话。
 
-### Phase 6：UI 与 HyperOS 去品牌化
+### Phase 6：UI 与 HyperOS 去品牌化（已完成，2026-07-27）
+
+App 新增 `HeadphoneUiStateStore`，把 version 2 snapshot 归约为与厂商无关的连接、
+电量、佩戴、功能和操作状态，并同时按 generation 与 snapshot 时间拒绝迟到状态。
+页面仅消费 `FeatureCapability` 提供的可读/可写、枚举值及展示标签；EQ 的 OPPO
+preset ID 留在 driver/profile 内部，Compose 页面不再知道厂商编码。
+
+`HyperOsHeadphoneAdapter` 成为 HyperOS 整数接口与领域命令之间的唯一边界。小米蓝牙、
+Settings、MiLink 和上游耳机 hook 均从统一 profile/snapshot 判断当前设备并发送
+`FeatureCommand`，不再维护 `knownOppoAddresses` 或构造 OPPO 功能广播。迁移期仍保留
+原 application ID、旧 action bridge，以及首个 engine snapshot 到达前的 OPPO 名称
+bootstrap fallback。
+
+验证记录：
+
+- `:core` 23 个、`:engine` 11 个、`:protocol:oppo` 34 个、
+  `:transport:android` 16 个、`:app` 103 个测试全部执行并通过，共 187 个测试、0
+  skipped；
+- fake driver 测试覆盖相同 UI、battery/ANC/EQ/失败状态、unsupported 隐藏、read-only
+  明示，以及 pending/timeout/confirmed 区分；架构测试约束 UI 无 OPPO preset/旧写
+  action，HyperOS hook 无已知 OPPO 地址表；
+- capability 枚举标签完成 snapshot IPC round-trip；UiStore 测试证明旧 generation
+  和同 generation 的迟到 snapshot 都不能覆盖新状态；
+- `lintDebug`、debug/release assemble、`git diff --check` 与静态去品牌约束通过；
+- Xiaomi 13 Pro（Android 16 / API 36、LSPosed 2.1.1 API 102）连接
+  OPPO Enco Air5s 后，能力驱动页面从统一 snapshot 恢复左右耳 100% 电量、ANC、
+  低延迟、空间音效和动态 EQ 选项；低延迟开启及恢复关闭都显示“设备已确认更改”；
+- App 连续三次 force-stop/cold-start 前后蓝牙进程 PID 均为 20798，RFCOMM channel 5
+  建连记录数保持 2 → 2，耳机仍为 A2DP Connected，且 App/蓝牙进程无 scoped FATAL，
+  证明 UI 重建不会抢占或重建真实连接。
 
 改动：
 

@@ -285,6 +285,7 @@ data class HeadphoneSnapshotPayload(
                         it.evidence.name,
                         it.requiresReadback,
                         it.allowedValues.toList(),
+                        it.valueLabels,
                     )
                 }.orEmpty(),
                 operation = snapshot.lastOperation?.let {
@@ -326,6 +327,7 @@ data class CapabilityPayload(
     val evidence: String,
     val requiresReadback: Boolean,
     val allowedValues: List<String>,
+    val valueLabels: Map<String, String> = emptyMap(),
 )
 
 @Serializable

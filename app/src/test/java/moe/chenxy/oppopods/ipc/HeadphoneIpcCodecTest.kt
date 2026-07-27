@@ -76,6 +76,8 @@ class HeadphoneIpcCodecTest {
             canWrite = true,
             evidence = EvidenceLevel.VERIFIED,
             availableOnTransports = setOf(TransportKind.CLASSIC_SPP),
+            allowedValues = setOf("false", "true"),
+            valueLabels = mapOf("false" to "Standard", "true" to "Low latency"),
         )
         val profile = DeviceProfile(
             identity,
@@ -125,5 +127,10 @@ class HeadphoneIpcCodecTest {
         assertEquals("true", decoded.features[FeatureId.LOW_LATENCY.name]?.confirmed)
         assertEquals("READ_BACK_CONFIRMED", decoded.operation?.phase)
         assertEquals("VERIFIED", decoded.capabilities.single().evidence)
+        assertEquals(listOf("false", "true"), decoded.capabilities.single().allowedValues)
+        assertEquals(
+            mapOf("false" to "Standard", "true" to "Low latency"),
+            decoded.capabilities.single().valueLabels,
+        )
     }
 }

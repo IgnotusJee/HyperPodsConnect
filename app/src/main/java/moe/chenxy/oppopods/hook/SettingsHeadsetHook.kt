@@ -11,6 +11,8 @@ import android.os.Handler
 import android.os.Looper
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
+import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
+import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
@@ -21,7 +23,6 @@ object SettingsHeadsetHook : HookContext() {
     private const val TAG = "OppoPods-Settings"
     private const val PREFS_NAME = "oppopods_milink_state"
     private const val SETTINGS_REFRESH_INTERVAL_MS = 3_000L
-    private val knownOppoAddresses = linkedSetOf<String>()
     private val batteryViews = WeakHashMap<Any, BluetoothDevice>()
     private val headsetFragments = WeakHashMap<Any, Boolean>()
     private var context: Context? = null
@@ -64,7 +65,7 @@ object SettingsHeadsetHook : HookContext() {
                 registerStatusReceiver(activity)
                 val intent = callMethod(instance, "getIntent") as? Intent ?: return@hookBefore
                 val device = intent.parcelableDevice("android.bluetooth.device.extra.DEVICE")
-                Log.d(TAG, "Activity.onCreate before device=${device.describe()} support=${intent.getStringExtra("MIUI_HEADSET_SUPPORT")} comeFrom=${intent.getStringExtra("COME_FROM")} btAddress=${intent.getStringExtra("bluetoothaddress")} known=$knownOppoAddresses current=$currentAddress")
+                Log.d(TAG, "Activity.onCreate before device=${device.describe()} support=${intent.getStringExtra("MIUI_HEADSET_SUPPORT")} comeFrom=${intent.getStringExtra("COME_FROM")} btAddress=${intent.getStringExtra("bluetoothaddress")} profile=${HyperOsHeadphoneAdapter.state.deviceId}")
                 if (!isOppoPod(device)) return@hookBefore
                 intent.putExtra("MIUI_HEADSET_SUPPORT", fakeSupport())
                 intent.putExtra("COME_FROM", intent.getStringExtra("COME_FROM") ?: "MIUI_BLUETOOTH_SETTINGS")
@@ -81,7 +82,7 @@ object SettingsHeadsetHook : HookContext() {
                 registerStatusReceiver(activity)
                 val intent = callMethod(instance, "getIntent") as? Intent ?: return@hookBefore
                 val device = intent.parcelableDevice("android.bluetooth.device.extra.DEVICE")
-                Log.d(TAG, "Plugin.onCreate before device=${device.describe()} support=${intent.getStringExtra("MIUI_HEADSET_SUPPORT")} comeFrom=${intent.getStringExtra("COME_FROM")} btAddress=${intent.getStringExtra("bluetoothaddress")} known=$knownOppoAddresses current=$currentAddress")
+                Log.d(TAG, "Plugin.onCreate before device=${device.describe()} support=${intent.getStringExtra("MIUI_HEADSET_SUPPORT")} comeFrom=${intent.getStringExtra("COME_FROM")} btAddress=${intent.getStringExtra("bluetoothaddress")} profile=${HyperOsHeadphoneAdapter.state.deviceId}")
                 if (!isOppoPod(device)) return@hookBefore
                 intent.putExtra("MIUI_HEADSET_SUPPORT", fakeSupport())
                 intent.putExtra("DEVICE_ID", fakeDeviceId())
@@ -213,7 +214,7 @@ object SettingsHeadsetHook : HookContext() {
             hookBefore(findMethod(className, methodName, String::class.java)) {
                 val address = args[0] as? String ?: return@hookBefore
                 val isOppo = isOppoAddress(address)
-                Log.d(TAG, "$methodName proxy string call address=$address isOppo=$isOppo oldKnown=$knownOppoAddresses current=$currentAddress")
+                Log.d(TAG, "$methodName proxy string call address=$address supported=$isOppo profile=${HyperOsHeadphoneAdapter.state.deviceId}")
                 if (!isOppo) return@hookBefore
                 this.result = result()
                 Log.d(TAG, "$methodName proxy forced result=${this.result} address=$address")
@@ -390,12 +391,10 @@ object SettingsHeadsetHook : HookContext() {
                     OppoPodsAction.ACTION_PODS_CONNECTED -> {
                         currentAddress = intent.getStringExtra("address") ?: currentAddress
                         currentName = intent.getStringExtra("device_name") ?: currentName
-                        currentAddress?.let { knownOppoAddresses.add(it.uppercase()) }
                     }
                     OppoPodsAction.ACTION_PODS_BATTERY_CHANGED -> {
                         currentAddress = intent.getStringExtra("address") ?: currentAddress
                         currentBattery = intent.batteryStatusFromExtras() ?: intent.parcelableStatus() ?: currentBattery
-                        currentAddress?.let { knownOppoAddresses.add(it.uppercase()) }
                         saveState(context)
                         updateBatteryViews()
                         updateFragments()
@@ -403,14 +402,12 @@ object SettingsHeadsetHook : HookContext() {
                     OppoPodsAction.ACTION_PODS_ANC_CHANGED -> {
                         currentAddress = intent.getStringExtra("address") ?: currentAddress
                         currentAnc = intent.getIntExtra("status", currentAnc)
-                        currentAddress?.let { knownOppoAddresses.add(it.uppercase()) }
                         saveState(context)
                         updateFragments()
                     }
                     OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED -> {
                         currentAddress = intent.getStringExtra("address") ?: currentAddress
                         currentTransparencyVocalEnhancement = intent.getBooleanExtra("enabled", currentTransparencyVocalEnhancement)
-                        currentAddress?.let { knownOppoAddresses.add(it.uppercase()) }
                         saveState(context)
                         updateFragments()
                     }
@@ -492,11 +489,9 @@ object SettingsHeadsetHook : HookContext() {
     private fun isOppoPod(device: BluetoothDevice?): Boolean {
         if (device == null) return false
         val address = runCatching { device.address }.getOrNull()
-        if (address != null && isOppoAddress(address)) return true
         val name = runCatching { device.name ?: device.alias }.getOrNull().orEmpty()
-        val result = name.contains("oppo", ignoreCase = true)
+        val result = HyperOsHeadphoneAdapter.supports(address, name)
         if (result && address != null) {
-            knownOppoAddresses.add(address.uppercase())
             currentAddress = address
             currentName = name
         }
@@ -535,8 +530,7 @@ object SettingsHeadsetHook : HookContext() {
     }
 
     private fun isOppoAddress(address: String): Boolean {
-        val normalized = address.uppercase()
-        return normalized == currentAddress?.uppercase() || normalized in knownOppoAddresses
+        return HyperOsHeadphoneAdapter.supports(address)
     }
 
     private fun settingsBatteryString(): String {
@@ -639,11 +633,7 @@ object SettingsHeadsetHook : HookContext() {
             Log.w(TAG, "sendOppoAnc skipped: context is null mode=$mode")
             return
         }
-        ctx.sendBroadcast(Intent(OppoPodsAction.ACTION_ANC_SELECT).apply {
-            putExtra("status", mode)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-        })
+        HyperOsHeadphoneAdapter.setNoiseControl(ctx, mode)
     }
 
     private fun sendOppoTransparencyVocalEnhancement(enabled: Boolean) {
@@ -652,16 +642,10 @@ object SettingsHeadsetHook : HookContext() {
             return
         }
         currentTransparencyVocalEnhancement = enabled
-        ctx.sendBroadcast(Intent(OppoPodsAction.ACTION_TRANSPARENCY_VOCAL_ENHANCEMENT_SET).apply {
-            putExtra("enabled", enabled)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-        })
-        ctx.sendBroadcast(Intent(OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED).apply {
-            putExtra("enabled", enabled)
-            setPackage(BuildConfig.APPLICATION_ID)
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-        })
+        HyperOsHeadphoneAdapter.execute(
+            ctx,
+            FeatureCommand.SetTransparencyVocalEnhancement(enabled),
+        )
         ctx.sendBroadcast(Intent(OppoPodsAction.ACTION_REFRESH_STATUS).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
@@ -744,7 +728,6 @@ object SettingsHeadsetHook : HookContext() {
         currentName = prefs.getString("name", currentName)
         currentAnc = prefs.getInt("anc", currentAnc)
         currentTransparencyVocalEnhancement = prefs.getBoolean("transparency_vocal_enhancement", currentTransparencyVocalEnhancement)
-        currentAddress?.let { knownOppoAddresses.add(it.uppercase()) }
         if (!hasSavedBattery && hasCurrentBattery()) return
         currentBattery = BatteryParams(
             left = PodParams(

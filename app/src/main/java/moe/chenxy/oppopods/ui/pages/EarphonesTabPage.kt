@@ -11,8 +11,11 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import moe.chenxy.oppopods.R
-import moe.chenxy.oppopods.pods.NoiseControlMode
+import moe.chenxy.headphones.core.feature.NoiseControlMode
+import moe.chenxy.headphones.core.feature.SpatialAudioMode
 import moe.chenxy.oppopods.pods.WearStatus
+import moe.chenxy.oppopods.ui.state.UiFeatureState
+import moe.chenxy.oppopods.ui.state.UiOperation
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -29,15 +32,16 @@ internal fun EarphonesTabPage(
     onTransparencyVocalEnhancementChange: (Boolean) -> Unit,
     displayGameMode: Boolean,
     onGameModeChange: (Boolean) -> Unit,
-    spatialAudioMode: Int,
-    onSpatialAudioModeChange: (Int) -> Unit,
-    eqPreset: Int,
-    onEqPresetChange: (Int) -> Unit,
+    spatialAudioMode: SpatialAudioMode,
+    onSpatialAudioModeChange: (SpatialAudioMode) -> Unit,
+    spatialSoundSwitch: Boolean,
+    onSpatialSoundSwitchChange: (Boolean) -> Unit,
+    eqPresetId: String?,
+    onEqPresetChange: (String) -> Unit,
     displayDualDeviceConnection: Boolean,
     onDualDeviceConnectionChange: (Boolean) -> Unit,
-    spatialAudioSupported: Boolean,
-    spatialSoundSupported: Boolean,
-    adaptiveModeEnabled: Boolean,
+    features: Map<String, UiFeatureState>,
+    operation: UiOperation?,
     boxImagePath: String?,
     connectedDeviceAddress: String,
     connectingDeviceAddress: String?,
@@ -74,13 +78,14 @@ internal fun EarphonesTabPage(
                 onGameModeChange = onGameModeChange,
                 spatialAudioMode = spatialAudioMode,
                 onSpatialAudioModeChange = onSpatialAudioModeChange,
-                eqPreset = eqPreset,
+                spatialSoundSwitch = spatialSoundSwitch,
+                onSpatialSoundSwitchChange = onSpatialSoundSwitchChange,
+                eqPresetId = eqPresetId,
                 onEqPresetChange = onEqPresetChange,
                 dualDeviceConnection = displayDualDeviceConnection,
                 onDualDeviceConnectionChange = onDualDeviceConnectionChange,
-                spatialAudioSupported = spatialAudioSupported,
-                spatialSoundSupported = spatialSoundSupported,
-                adaptiveModeEnabled = adaptiveModeEnabled,
+                features = features,
+                operation = operation,
                 boxImagePath = boxImagePath,
             )
         } else {

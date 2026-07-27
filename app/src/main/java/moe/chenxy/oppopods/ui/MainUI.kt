@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -49,18 +50,25 @@ import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.config.PodImagePrefs
 import moe.chenxy.oppopods.config.PodImageResource
 import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
+import moe.chenxy.oppopods.ipc.HeadphoneCommandClient
+import moe.chenxy.headphones.core.feature.EqualizerPreset
+import moe.chenxy.headphones.core.feature.FeatureId
+import moe.chenxy.headphones.core.feature.SpatialAudioMode
+import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.oppopods.pods.GameModeImplementation
-import moe.chenxy.oppopods.pods.NoiseControlMode
+import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.oppopods.pods.WearState
 import moe.chenxy.oppopods.pods.WearStatus
-import moe.chenxy.oppopods.pods.detectDeviceCapabilities
 import moe.chenxy.oppopods.ui.pages.AboutPage
 import moe.chenxy.oppopods.ui.pages.DeviceCapabilitiesPage
 import moe.chenxy.oppopods.ui.pages.RfcommDebugPage
 import moe.chenxy.oppopods.ui.pages.ThemeSettingsPage
+import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
+import moe.chenxy.oppopods.ui.state.UiConnectionState
 import moe.chenxy.oppopods.utils.RootManager
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
+import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -104,6 +112,7 @@ fun MainUI(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val headphoneUiState by HeadphoneUiStore.state.collectAsState()
 
     val mainTitle = remember { mutableStateOf("") }
     val batteryParams = remember { mutableStateOf(BatteryParams()) }
@@ -160,8 +169,9 @@ fun MainUI(
     val fakeDeviceId = remember { mutableStateOf(appConfig.fakeDeviceId) }
     val islandMode = remember { mutableStateOf(appConfig.islandMode) }
     val islandShowTimings = remember { mutableStateOf(appConfig.islandShowTimings) }
-    val spatialAudioMode = remember { mutableStateOf(prefs.getInt("spatial_audio_mode", ConfigManager.SPATIAL_AUDIO_OFF)) }
-    val eqPreset = remember { mutableStateOf(-1) }
+    val spatialAudioMode = remember { mutableStateOf(SpatialAudioMode.OFF) }
+    val spatialSoundSwitch = remember { mutableStateOf(false) }
+    val eqPresetId = remember { mutableStateOf<String?>(null) }
     val earphonePrefs = remember { mutableStateOf(PodImagePrefs.load(prefs)) }
     val adaptiveCapabilityOverride = remember { mutableStateOf(appConfig.adaptiveCapabilityOverride) }
     val spatialAudioCapabilityOverride = remember { mutableStateOf(appConfig.spatialAudioCapabilityOverride) }
@@ -177,19 +187,74 @@ fun MainUI(
     val displayTransparencyVocalEnhancement = transparencyVocalEnhancement.value
     val displayDualDeviceConnection = dualDeviceConnection.value
     val displayTitle = mainTitle.value.takeIf { it.isNotBlank() && hookConnected.value } ?: mainTitle.value
-    val displayCapabilities = detectDeviceCapabilities(
-        deviceName = displayTitle,
-        adaptiveOverride = adaptiveCapabilityOverride.value,
-        spatialAudioOverride = spatialAudioCapabilityOverride.value,
-        spatialSoundSwitchOverride = spatialSoundSwitchCapabilityOverride.value,
-        ancImplementationOverride = ancImplementationCapabilityOverride.value,
-    )
+    val displayFeatures = headphoneUiState.features
 
-    LaunchedEffect(displayTitle, displayCapabilities) {
-        Log.i(
-            "OppoPods",
-            "capability check: deviceName='$displayTitle', adaptive=${displayCapabilities.adaptiveSupported}, spatial=${displayCapabilities.spatialAudioSupported}, spatialSoundSwitch=${displayCapabilities.spatialSoundSwitchSupported}"
+    LaunchedEffect(headphoneUiState) {
+        val state = headphoneUiState
+        val wasConnected = hookConnected.value
+        state.address?.let { connectedDeviceAddress = it }
+        if (state.title.isNotBlank()) mainTitle.value = state.title
+        hookConnectionState = when (state.connection) {
+            UiConnectionState.CONNECTED -> "connected"
+            UiConnectionState.CONNECTING -> "connecting"
+            UiConnectionState.ERROR -> "error"
+            UiConnectionState.DISCONNECTED -> "disconnected"
+        }
+        hookConnected.value = state.connected
+
+        fun battery(component: String): PodParams? = state.batteries[component]?.let {
+            PodParams(it.level, it.charging, true, 0)
+        }
+        batteryParams.value = BatteryParams(
+            left = battery("LEFT") ?: battery("SINGLE"),
+            right = battery("RIGHT"),
+            case = battery("CASE"),
         )
+        fun wear(component: String): WearState? = when (state.wearing[component]) {
+            "WEARING" -> WearState.WEARING
+            "REMOVED" -> WearState.REMOVED
+            "IN_CASE" -> WearState.IN_CASE
+            else -> null
+        }
+        wearStatus.value = WearStatus(
+            left = wear("LEFT"),
+            right = wear("RIGHT"),
+        )
+        state.feature(FeatureId.NOISE_CONTROL.name)?.displayed?.let {
+            runCatching { NoiseControlMode.valueOf(it) }.getOrNull()
+                ?.let { value -> ancMode.value = value }
+        }
+        state.feature(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT.name)
+            ?.displayed?.toBooleanStrictOrNull()
+            ?.let { transparencyVocalEnhancement.value = it }
+        state.feature(FeatureId.LOW_LATENCY.name)?.displayed?.toBooleanStrictOrNull()
+            ?.let { gameMode.value = it }
+        state.feature(FeatureId.SPATIAL_AUDIO.name)?.displayed?.let {
+            runCatching { SpatialAudioMode.valueOf(it) }.getOrNull()
+                ?.let { value -> spatialAudioMode.value = value }
+        }
+        state.feature(FeatureId.SPATIAL_SOUND_SWITCH.name)
+            ?.displayed?.toBooleanStrictOrNull()
+            ?.let { spatialSoundSwitch.value = it }
+        state.feature(FeatureId.EQUALIZER.name)?.displayed?.let { eqPresetId.value = it }
+        state.feature(FeatureId.DUAL_DEVICE_CONNECTION.name)
+            ?.displayed?.toBooleanStrictOrNull()
+            ?.let { dualDeviceConnection.value = it }
+
+        if (state.connected) {
+            connectingDeviceAddress = null
+            earphonePrefs.value = PodImagePrefs.upsertConnected(
+                prefs = prefs,
+                service = xposedService,
+                address = connectedDeviceAddress,
+                name = state.title,
+            )
+            if (!wasConnected) {
+                pendingOpenEarphonesAfterPickerLoaded = true
+            }
+        } else if (state.connection == UiConnectionState.DISCONNECTED) {
+            connectedDeviceAddress = ""
+        }
     }
 
     LaunchedEffect(displayTitle) {
@@ -226,106 +291,9 @@ fun MainUI(
         object : BroadcastReceiver() {
             override fun onReceive(p0: Context?, p1: Intent?) {
                 when (p1?.action) {
-                    OppoPodsAction.ACTION_PODS_ANC_CHANGED -> {
-                        connectedDeviceAddress = p1.getStringExtra("address") ?: connectedDeviceAddress
-                        val status = p1.getIntExtra("status", 1)
-                        ancMode.value = when (status) {
-                            1 -> NoiseControlMode.OFF
-                            2 -> NoiseControlMode.NOISE_CANCELLATION
-                            3 -> NoiseControlMode.TRANSPARENCY
-                            4 -> NoiseControlMode.ADAPTIVE
-                            5 -> NoiseControlMode.NOISE_CANCELLATION_SMART
-                            6 -> NoiseControlMode.NOISE_CANCELLATION_LIGHT
-                            7 -> NoiseControlMode.NOISE_CANCELLATION_MEDIUM
-                            8 -> NoiseControlMode.NOISE_CANCELLATION_DEEP
-                            else -> NoiseControlMode.OFF
-                        }
-                    }
-
                     OppoPodsAction.ACTION_PODS_SMART_ANC_LEVEL_CHANGED -> {
                         val ord = p1.getIntExtra("ordinal", -1)
                         smartAncLevel.value = NoiseControlMode.entries.getOrNull(ord)
-                    }
-
-                    OppoPodsAction.ACTION_PODS_BATTERY_CHANGED -> {
-                        connectedDeviceAddress = p1.getStringExtra("address") ?: connectedDeviceAddress
-                        batteryParams.value =
-                            p1.getParcelableExtra("status", BatteryParams::class.java)!!
-                    }
-
-                    OppoPodsAction.ACTION_PODS_WEAR_STATUS_CHANGED -> {
-                        connectedDeviceAddress = p1.getStringExtra("address") ?: connectedDeviceAddress
-                        wearStatus.value = WearStatus(
-                            left = wearStateFromExtra(p1.getIntExtra("left_wear_status", -1)),
-                            right = wearStateFromExtra(p1.getIntExtra("right_wear_status", -1)),
-                            case = wearStateFromExtra(p1.getIntExtra("case_wear_status", -1))
-                        )
-                    }
-
-                    OppoPodsAction.ACTION_PODS_GAME_MODE_CHANGED -> {
-                        gameMode.value = p1.getBooleanExtra("enabled", false)
-                    }
-
-                    OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED -> {
-                        transparencyVocalEnhancement.value = p1.getBooleanExtra("enabled", false)
-                    }
-
-                    OppoPodsAction.ACTION_PODS_SPATIAL_AUDIO_CHANGED -> {
-                        spatialAudioMode.value = p1.getIntExtra("mode", ConfigManager.SPATIAL_AUDIO_OFF)
-                    }
-
-                    OppoPodsAction.ACTION_PODS_EQ_PRESET_CHANGED -> {
-                        eqPreset.value = p1.getIntExtra("preset", -1)
-                    }
-
-                    OppoPodsAction.ACTION_PODS_DUAL_DEVICE_CONNECTION_CHANGED -> {
-                        dualDeviceConnection.value = p1.getBooleanExtra("enabled", false)
-                    }
-
-                    OppoPodsAction.ACTION_PODS_CONNECTED -> {
-                        val deviceName = p1.getStringExtra("device_name")
-                        val shouldOpenEarphones = connectingDeviceAddress != null || !hasAppliedDefaultTab
-                        connectedDeviceAddress = p1.getStringExtra("address") ?: connectedDeviceAddress
-                        connectingDeviceAddress = null
-                        mainTitle.value = deviceName ?: ""
-                        earphonePrefs.value = PodImagePrefs.upsertConnected(
-                            prefs = prefs,
-                            service = xposedService,
-                            address = connectedDeviceAddress,
-                            name = deviceName.orEmpty(),
-                        )
-                        hookConnected.value = true
-                        hookConnectionState = "connected"
-                        if (shouldOpenEarphones) {
-                            if (!hasAppliedDefaultTab) {
-                                selectedTab = MainTab.Earphones
-                            }
-                            hasAppliedDefaultTab = true
-                            pendingOpenEarphonesAfterPickerLoaded = true
-                        }
-                        Log.i("OppoPods", "pod connected via hook: $deviceName")
-                    }
-
-                    OppoPodsAction.ACTION_PODS_CONNECTION_STATE_CHANGED -> {
-                        hookConnectionState = p1.getStringExtra("state") ?: hookConnectionState
-                        if (hookConnectionState == "disconnected") {
-                            connectedDeviceAddress = ""
-                            mainTitle.value = ""
-                            hookConnected.value = false
-                        } else if (hookConnected.value) {
-                            connectedDeviceAddress = p1.getStringExtra("address") ?: connectedDeviceAddress
-                            p1.getStringExtra("device_name")?.let {
-                                mainTitle.value = it
-                                earphonePrefs.value = PodImagePrefs.upsertConnected(prefs, xposedService, connectedDeviceAddress, it)
-                            }
-                        }
-                    }
-
-                    OppoPodsAction.ACTION_PODS_DISCONNECTED -> {
-                        mainTitle.value = ""
-                        connectedDeviceAddress = ""
-                        hookConnectionState = "disconnected"
-                        hookConnected.value = false
                     }
 
                     OppoPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE -> {
@@ -349,18 +317,7 @@ fun MainUI(
         OppoPodsApp.addServiceListener(serviceListener)
 
         context.registerReceiver(broadcastReceiver, IntentFilter().apply {
-            addAction(OppoPodsAction.ACTION_PODS_ANC_CHANGED)
             addAction(OppoPodsAction.ACTION_PODS_SMART_ANC_LEVEL_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_BATTERY_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_WEAR_STATUS_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_GAME_MODE_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_SPATIAL_AUDIO_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_EQ_PRESET_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_DUAL_DEVICE_CONNECTION_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_CONNECTED)
-            addAction(OppoPodsAction.ACTION_PODS_CONNECTION_STATE_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_DISCONNECTED)
             addAction(OppoPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE)
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
@@ -381,7 +338,7 @@ fun MainUI(
     LaunchedEffect(Unit) {
         while (true) {
             sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_PODS_UI_INIT)
-            sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_REFRESH_STATUS)
+            HeadphoneCommandClient.execute(context, FeatureCommand.RefreshAll)
             delay(30_000L)
         }
     }
@@ -389,7 +346,7 @@ fun MainUI(
     LaunchedEffect(selectedTab, hookConnected.value) {
         sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_PODS_UI_INIT)
         if (selectedTab == MainTab.Module || hookConnected.value) {
-            sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_REFRESH_STATUS)
+            HeadphoneCommandClient.execute(context, FeatureCommand.RefreshAll)
         }
     }
 
@@ -402,43 +359,18 @@ fun MainUI(
     }
 
     fun setAncMode(mode: NoiseControlMode) {
-        ancMode.value = mode
-        val status = when (mode) {
-            NoiseControlMode.OFF -> 1
-            NoiseControlMode.NOISE_CANCELLATION -> 2
-            NoiseControlMode.TRANSPARENCY -> 3
-            NoiseControlMode.ADAPTIVE -> 4
-            NoiseControlMode.NOISE_CANCELLATION_SMART -> 5
-            NoiseControlMode.NOISE_CANCELLATION_LIGHT -> 6
-            NoiseControlMode.NOISE_CANCELLATION_MEDIUM -> 7
-            NoiseControlMode.NOISE_CANCELLATION_DEEP -> 8
-        }
-        Intent(OppoPodsAction.ACTION_ANC_SELECT).apply {
-            this.putExtra("status", status)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+        HeadphoneCommandClient.execute(context, FeatureCommand.SetNoiseControl(mode))
     }
 
     fun setGameMode(enabled: Boolean) {
-        gameMode.value = enabled
-        Intent(OppoPodsAction.ACTION_GAME_MODE_SET).apply {
-            this.putExtra("enabled", enabled)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+        HeadphoneCommandClient.execute(context, FeatureCommand.SetLowLatency(enabled))
     }
 
     fun setTransparencyVocalEnhancement(enabled: Boolean) {
-        transparencyVocalEnhancement.value = enabled
-        Intent(OppoPodsAction.ACTION_TRANSPARENCY_VOCAL_ENHANCEMENT_SET).apply {
-            this.putExtra("enabled", enabled)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+        HeadphoneCommandClient.execute(
+            context,
+            FeatureCommand.SetTransparencyVocalEnhancement(enabled),
+        )
     }
 
     fun clearPodConnectionState() {
@@ -471,36 +403,29 @@ fun MainUI(
         }
     }
 
-    fun setSpatialAudioMode(mode: Int) {
-        val normalizedMode = mode.coerceIn(ConfigManager.SPATIAL_AUDIO_OFF, ConfigManager.SPATIAL_AUDIO_HEAD_TRACKING)
-        spatialAudioMode.value = normalizedMode
-        prefs.edit().putInt("spatial_audio_mode", normalizedMode).apply()
-        Intent(OppoPodsAction.ACTION_SPATIAL_AUDIO_SET).apply {
-            this.putExtra("mode", normalizedMode)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+    fun setSpatialAudioMode(mode: SpatialAudioMode) {
+        HeadphoneCommandClient.execute(context, FeatureCommand.SetSpatialAudio(mode))
     }
 
-    fun setEqPreset(preset: Int) {
-        eqPreset.value = preset
-        Intent(OppoPodsAction.ACTION_EQ_PRESET_SET).apply {
-            this.putExtra("preset", preset)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+    fun setSpatialSoundSwitch(enabled: Boolean) {
+        HeadphoneCommandClient.execute(
+            context,
+            FeatureCommand.SetSpatialSoundSwitch(enabled),
+        )
+    }
+
+    fun setEqPreset(presetId: String) {
+        HeadphoneCommandClient.execute(
+            context,
+            FeatureCommand.SetEqualizerPreset(EqualizerPreset(presetId)),
+        )
     }
 
     fun setDualDeviceConnection(enabled: Boolean) {
-        dualDeviceConnection.value = enabled
-        Intent(OppoPodsAction.ACTION_DUAL_DEVICE_CONNECTION_SET).apply {
-            this.putExtra("enabled", enabled)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+        HeadphoneCommandClient.execute(
+            context,
+            FeatureCommand.SetDualDeviceConnection(enabled),
+        )
     }
 
     fun onDeviceDisconnect(device: BluetoothDevice) {
@@ -576,10 +501,7 @@ fun MainUI(
 
     fun refreshStatus() {
         if (hookConnected.value) {
-            context.sendBroadcast(Intent(OppoPodsAction.ACTION_REFRESH_STATUS).apply {
-                setPackage("com.android.bluetooth")
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            })
+            HeadphoneCommandClient.execute(context, FeatureCommand.RefreshAll)
         }
     }
 
@@ -648,13 +570,14 @@ fun MainUI(
                 onGameModeChange = { setGameMode(it) },
                 spatialAudioMode = spatialAudioMode.value,
                 onSpatialAudioModeChange = { setSpatialAudioMode(it) },
-                eqPreset = eqPreset.value,
+                spatialSoundSwitch = spatialSoundSwitch.value,
+                onSpatialSoundSwitchChange = { setSpatialSoundSwitch(it) },
+                eqPresetId = eqPresetId.value,
                 onEqPresetChange = { setEqPreset(it) },
                 displayDualDeviceConnection = displayDualDeviceConnection,
                 onDualDeviceConnectionChange = { setDualDeviceConnection(it) },
-                spatialAudioSupported = displayCapabilities.spatialAudioSupported,
-                spatialSoundSupported = displayCapabilities.spatialSoundSwitchSupported,
-                adaptiveModeEnabled = displayCapabilities.adaptiveSupported,
+                features = displayFeatures,
+                operation = headphoneUiState.lastOperation,
                 earphonePrefs = earphonePrefs.value,
                 connectedDeviceAddress = connectedDeviceAddress,
                 connectingDeviceAddress = connectingDeviceAddress,
@@ -863,13 +786,7 @@ fun MainUI(
                             adaptiveCapabilityOverride.value = it
                             ConfigManager.updateAdaptiveCapabilityOverride(prefs, xposedService, it)
                             broadcastConfigChanged(context, "com.android.bluetooth")
-                            if (!detectDeviceCapabilities(
-                                    deviceName = displayTitle,
-                                    adaptiveOverride = it,
-                                    spatialAudioOverride = spatialAudioCapabilityOverride.value,
-                                    spatialSoundSwitchOverride = spatialSoundSwitchCapabilityOverride.value,
-                                    ancImplementationOverride = ancImplementationCapabilityOverride.value,
-                                ).adaptiveSupported &&
+                            if (it == ConfigManager.CAPABILITY_OVERRIDE_FORCE_DISABLED &&
                                 displayAnc == NoiseControlMode.ADAPTIVE
                             ) {
                                 setAncMode(NoiseControlMode.NOISE_CANCELLATION)
@@ -970,10 +887,6 @@ private fun readBluetoothState(context: Context): BluetoothSummary {
             bondedCount = adapter?.bondedDevices?.size ?: 0,
         )
     }.getOrDefault(BluetoothSummary(enabled = false, bondedCount = 0))
-}
-
-private fun wearStateFromExtra(value: Int): WearState? {
-    return WearState.fromValue(value)
 }
 
 private fun sendBluetoothModuleBroadcast(context: Context, action: String) {

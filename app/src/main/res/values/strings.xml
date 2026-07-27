@@ -135,4 +135,10 @@
     <string name="anc_implementation_summary">Auto follows model detection. Manual switch for ANC behavior compatibility.</string>
     <string name="anc_implementation_standard">Standard</string>
     <string name="anc_implementation_compatible">Compatible</string>
+    <string name="feature_read_only">Read only</string>
+    <string name="operation_pending">Applying change…</string>
+    <string name="operation_confirmed">Change confirmed by device</string>
+    <string name="operation_timed_out">Change timed out; confirmed state restored</string>
+    <string name="operation_failed">Change failed; confirmed state restored</string>
+    <string name="operation_cancelled">Change cancelled</string>
 </resources>

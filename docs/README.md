@@ -17,8 +17,8 @@
 
 Phase 0（基线与保护网）、Phase 1（`:core` 与通用领域模型）、Phase 2（提取 OPPO
 流式协议）、Phase 3（提取通用 SPP transport）、Phase 4（建立 OPPO Session 和功能
-模块）、Phase 5（引入 engine 和版本化 IPC）**已完成**。下一阶段是 Phase 6：
-UI 与 HyperOS 去品牌化。
+模块）、Phase 5（引入 engine 和版本化 IPC）、Phase 6（UI 与 HyperOS 去品牌化）
+**已完成**。下一阶段是 Phase 7：实现通用 GATT transport。
 
 模块结构目前是 `:app`、`:core`、`:engine`、`:protocol:oppo`、
 `:transport:android`。`:core`、`:engine` 与 `:protocol:oppo` 都是纯 Kotlin/JVM
@@ -27,6 +27,9 @@ UI 与 HyperOS 去品牌化。
 `HeadphoneSessionManager` 管理 driver、generation、重连和统一 snapshot。
 `RfcommController` 仅保留为旧广播与 HyperOS 集成的兼容 facade；App、MiLink 和
 小米蓝牙进程通过版本化 IPC 恢复相同快照，不会各自建立蓝牙会话。
+App 页面由 `HeadphoneUiStateStore` 按 capability 动态渲染，HyperOS hook 通过
+`HyperOsHeadphoneAdapter` 使用通用状态和 `FeatureCommand`，不再维护 OPPO 地址表或
+在 UI 中解释厂商 preset。
 
 协议 fixture 位于仓库根的 `testdata/`，由 `:app` 与 `:protocol:oppo` 共享，
 新旧两套实现对着同一份真机证据校验。

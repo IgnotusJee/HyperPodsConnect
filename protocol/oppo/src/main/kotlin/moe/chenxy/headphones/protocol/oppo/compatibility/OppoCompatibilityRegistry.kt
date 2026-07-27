@@ -100,6 +100,8 @@ object OppoCompatibilityRegistry {
             writable: Boolean,
             advertised: Boolean = false,
             source: String = "oppo-family",
+            allowedValues: Set<String> = emptySet(),
+            valueLabels: Map<String, String> = emptyMap(),
         ): FeatureCapability {
             val forced = id in compatibility.forcedFeatures
             return FeatureCapability(
@@ -113,6 +115,8 @@ object OppoCompatibilityRegistry {
                 },
                 availableOnTransports = transports,
                 requiresReadback = writable,
+                allowedValues = allowedValues,
+                valueLabels = valueLabels,
                 source = when {
                     forced -> "user-override"
                     advertised -> "compatibility-registry"
@@ -124,12 +128,48 @@ object OppoCompatibilityRegistry {
         val features = buildMap {
             put(FeatureId.BATTERY, capability(FeatureId.BATTERY, true, false))
             put(FeatureId.WEAR_DETECTION, capability(FeatureId.WEAR_DETECTION, true, false))
-            put(FeatureId.NOISE_CONTROL, capability(FeatureId.NOISE_CONTROL, true, true))
+            val noiseControlValues = linkedMapOf(
+                "OFF" to "Off",
+                "NOISE_CANCELLATION" to "Noise cancellation",
+                "NOISE_CANCELLATION_SMART" to "Smart",
+                "NOISE_CANCELLATION_LIGHT" to "Light",
+                "NOISE_CANCELLATION_MEDIUM" to "Medium",
+                "NOISE_CANCELLATION_DEEP" to "Deep",
+                "TRANSPARENCY" to "Transparency",
+            ).apply {
+                if (compatibility.adaptiveSupported) put("ADAPTIVE", "Adaptive")
+            }
+            put(
+                FeatureId.NOISE_CONTROL,
+                capability(
+                    FeatureId.NOISE_CONTROL,
+                    true,
+                    true,
+                    allowedValues = noiseControlValues.keys,
+                    valueLabels = noiseControlValues,
+                ),
+            )
             put(
                 FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
                 capability(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT, true, true),
             )
-            put(FeatureId.EQUALIZER, capability(FeatureId.EQUALIZER, true, true))
+            val equalizerValues = linkedMapOf(
+                "oppo:0" to "Authentic",
+                "oppo:1" to "Detail",
+                "oppo:2" to "Vocal",
+                "oppo:3" to "Bass",
+                "oppo:4" to "Dynaudio",
+            )
+            put(
+                FeatureId.EQUALIZER,
+                capability(
+                    FeatureId.EQUALIZER,
+                    true,
+                    true,
+                    allowedValues = equalizerValues.keys,
+                    valueLabels = equalizerValues,
+                ),
+            )
             put(FeatureId.LOW_LATENCY, capability(FeatureId.LOW_LATENCY, true, true))
             put(FeatureId.DUAL_DEVICE_CONNECTION, capability(FeatureId.DUAL_DEVICE_CONNECTION, true, true))
             put(
@@ -139,6 +179,12 @@ object OppoCompatibilityRegistry {
                     compatibility.spatialAudioSupported,
                     true,
                     advertised = compatibility.spatialAudioSupported,
+                    allowedValues = setOf("OFF", "FIXED", "HEAD_TRACKING"),
+                    valueLabels = mapOf(
+                        "OFF" to "Off",
+                        "FIXED" to "Fixed",
+                        "HEAD_TRACKING" to "Head tracking",
+                    ),
                 ),
             )
             put(

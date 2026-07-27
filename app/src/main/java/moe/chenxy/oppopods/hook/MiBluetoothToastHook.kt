@@ -23,7 +23,8 @@ import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
 import moe.chenxy.oppopods.R
-import moe.chenxy.oppopods.pods.detectDeviceCapabilities
+import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
+import moe.chenxy.headphones.core.feature.FeatureId
 
 @SuppressLint("MissingPermission")
 object MiBluetoothToastHook : HookContext() {
@@ -270,26 +271,18 @@ object MiBluetoothToastHook : HookContext() {
                                 // 同步耳机实际 ANC 状态到本地缓存，确保下次循环切换时状态准确
                                 localAncMode = p1.getIntExtra("status", 1)
                             } else if (p1?.action == OppoPodsAction.ACTION_CYCLE_ANC) {
-                                val capabilities = detectDeviceCapabilities(
-                                    deviceName = p1.getStringExtra("device_name").orEmpty(),
-                                    adaptiveOverride = prefs.getInt(
-                                        ConfigManager.PREF_KEY_ADAPTIVE_CAPABILITY_OVERRIDE,
-                                        ConfigManager.CAPABILITY_OVERRIDE_AUTO
-                                    ),
-                                    spatialAudioOverride = ConfigManager.CAPABILITY_OVERRIDE_AUTO,
-                                    spatialSoundSwitchOverride = ConfigManager.CAPABILITY_OVERRIDE_AUTO,
-                                )
-                                val cycle = if (capabilities.adaptiveSupported) {
+                                val adaptiveSupported = HyperOsHeadphoneAdapter.state
+                                    .feature(FeatureId.NOISE_CONTROL.name)
+                                    ?.options?.any { it.value == "ADAPTIVE" } == true
+                                val cycle = if (adaptiveSupported) {
                                     listOf(2, 4, 3, 1)
                                 } else {
                                     listOf(2, 3, 1)
                                 }
                                 val currentIndex = cycle.indexOf(if (localAncMode in 5..8) 2 else localAncMode)
                                 localAncMode = cycle[(currentIndex + 1).floorMod(cycle.size)]
-                                Intent(OppoPodsAction.ACTION_ANC_SELECT).apply {
-                                    putExtra("status", localAncMode)
-                                    addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-                                    p0?.sendBroadcast(this)
+                                p0?.let {
+                                    HyperOsHeadphoneAdapter.setNoiseControl(it, localAncMode)
                                 }
                             }
                         }

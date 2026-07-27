@@ -29,15 +29,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import moe.chenxy.oppopods.R
-import moe.chenxy.oppopods.config.ConfigManager
-import moe.chenxy.oppopods.pods.NoiseControlMode
+import moe.chenxy.headphones.core.feature.NoiseControlMode
+import moe.chenxy.headphones.core.feature.SpatialAudioMode
 import moe.chenxy.oppopods.pods.WearStatus
 import moe.chenxy.oppopods.ui.components.AncSwitch
 import moe.chenxy.oppopods.ui.components.PodStatus
+import moe.chenxy.oppopods.ui.state.UiFeatureState
+import moe.chenxy.oppopods.ui.state.UiOperation
+import moe.chenxy.oppopods.ui.state.UiOperationStatus
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
-import moe.chenxy.oppopods.pods.EqPreset
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 
@@ -56,15 +58,16 @@ fun PodDetailPage(
     onTransparencyVocalEnhancementChange: (Boolean) -> Unit = {},
     gameMode: Boolean = false,
     onGameModeChange: (Boolean) -> Unit = {},
-    spatialAudioMode: Int = ConfigManager.SPATIAL_AUDIO_OFF,
-    onSpatialAudioModeChange: (Int) -> Unit = {},
+    spatialAudioMode: SpatialAudioMode = SpatialAudioMode.OFF,
+    onSpatialAudioModeChange: (SpatialAudioMode) -> Unit = {},
+    spatialSoundSwitch: Boolean = false,
+    onSpatialSoundSwitchChange: (Boolean) -> Unit = {},
     dualDeviceConnection: Boolean = false,
     onDualDeviceConnectionChange: (Boolean) -> Unit = {},
-    spatialAudioSupported: Boolean = false,
-    spatialSoundSupported: Boolean = false,
-    adaptiveModeEnabled: Boolean = true,
-    eqPreset: Int = -1,
-    onEqPresetChange: (Int) -> Unit = {},
+    eqPresetId: String? = null,
+    onEqPresetChange: (String) -> Unit = {},
+    features: Map<String, UiFeatureState> = emptyMap(),
+    operation: UiOperation? = null,
     boxImagePath: String? = null,
 ) {
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -119,13 +122,14 @@ fun PodDetailPage(
                     onGameModeChange = onGameModeChange,
                     spatialAudioMode = spatialAudioMode,
                     onSpatialAudioModeChange = onSpatialAudioModeChange,
+                    spatialSoundSwitch = spatialSoundSwitch,
+                    onSpatialSoundSwitchChange = onSpatialSoundSwitchChange,
                     dualDeviceConnection = dualDeviceConnection,
                     onDualDeviceConnectionChange = onDualDeviceConnectionChange,
-                    spatialAudioSupported = spatialAudioSupported,
-                    spatialSoundSupported = spatialSoundSupported,
-                    adaptiveModeEnabled = adaptiveModeEnabled,
-                    eqPreset = eqPreset,
+                    eqPresetId = eqPresetId,
                     onEqPresetChange = onEqPresetChange,
+                    features = features,
+                    operation = operation,
                     bottomContentPadding = bottomContentPadding
                 )
             }
@@ -161,13 +165,14 @@ fun PodDetailPage(
             onGameModeChange = onGameModeChange,
             spatialAudioMode = spatialAudioMode,
             onSpatialAudioModeChange = onSpatialAudioModeChange,
+            spatialSoundSwitch = spatialSoundSwitch,
+            onSpatialSoundSwitchChange = onSpatialSoundSwitchChange,
             dualDeviceConnection = dualDeviceConnection,
             onDualDeviceConnectionChange = onDualDeviceConnectionChange,
-            spatialAudioSupported = spatialAudioSupported,
-            spatialSoundSupported = spatialSoundSupported,
-            adaptiveModeEnabled = adaptiveModeEnabled,
-            eqPreset = eqPreset,
+            eqPresetId = eqPresetId,
             onEqPresetChange = onEqPresetChange,
+            features = features,
+            operation = operation,
             bottomContentPadding = bottomContentPadding
         )
     }
@@ -192,22 +197,25 @@ private fun LazyListScope.podControlItems(
     onTransparencyVocalEnhancementChange: (Boolean) -> Unit,
     gameMode: Boolean,
     onGameModeChange: (Boolean) -> Unit,
-    spatialAudioMode: Int,
-    onSpatialAudioModeChange: (Int) -> Unit,
+    spatialAudioMode: SpatialAudioMode,
+    onSpatialAudioModeChange: (SpatialAudioMode) -> Unit,
+    spatialSoundSwitch: Boolean,
+    onSpatialSoundSwitchChange: (Boolean) -> Unit,
     dualDeviceConnection: Boolean,
     onDualDeviceConnectionChange: (Boolean) -> Unit,
-    spatialAudioSupported: Boolean,
-    spatialSoundSupported: Boolean,
-    adaptiveModeEnabled: Boolean,
-    eqPreset: Int,
-    onEqPresetChange: (Int) -> Unit,
+    eqPresetId: String?,
+    onEqPresetChange: (String) -> Unit,
+    features: Map<String, UiFeatureState>,
+    operation: UiOperation?,
     bottomContentPadding: Dp
 ) {
-    val spatialAudioValues = listOf(
-        ConfigManager.SPATIAL_AUDIO_OFF,
-        ConfigManager.SPATIAL_AUDIO_FIXED,
-        ConfigManager.SPATIAL_AUDIO_HEAD_TRACKING,
-    )
+    val noiseControl = features["NOISE_CONTROL"]
+    val transparency = features["TRANSPARENCY_VOCAL_ENHANCEMENT"]
+    val lowLatency = features["LOW_LATENCY"]
+    val spatialAudio = features["SPATIAL_AUDIO"]
+    val spatialSound = features["SPATIAL_SOUND_SWITCH"]
+    val equalizer = features["EQUALIZER"]
+    val dualDevice = features["DUAL_DEVICE_CONNECTION"]
 
     item {
         Card(
@@ -221,75 +229,147 @@ private fun LazyListScope.podControlItems(
         }
     }
 
-    item {
-        Card(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
-        ) {
-            AncSwitch(
-                ancStatus = ancMode,
-                onAncModeChange = onAncModeChange,
-                smartAncLevel = smartAncLevel,
-                adaptiveModeEnabled = adaptiveModeEnabled,
-                transparencyVocalEnhancement = transparencyVocalEnhancement,
-                onTransparencyVocalEnhancementChange = onTransparencyVocalEnhancementChange
-            )
+    if (noiseControl?.visible == true) {
+        item {
+            Card(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
+            ) {
+                AncSwitch(
+                    ancStatus = ancMode,
+                    onAncModeChange = onAncModeChange,
+                    smartAncLevel = smartAncLevel,
+                    enabled = noiseControl.writable,
+                    adaptiveModeEnabled =
+                        noiseControl.options.any { it.value == "ADAPTIVE" },
+                    transparencyVocalEnhancement = transparencyVocalEnhancement,
+                    onTransparencyVocalEnhancementChange =
+                        if (transparency?.writable == true) {
+                            onTransparencyVocalEnhancementChange
+                        } else {
+                            null
+                        },
+                )
+                if (noiseControl.readOnly) {
+                    Text(
+                        text = stringResource(R.string.feature_read_only),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+            }
         }
     }
 
-    item {
-        Card(
-            modifier = Modifier.padding(horizontal = 12.dp)
-        ) {
-            SwitchPreference(
-                title = stringResource(R.string.game_mode),
-                summary = stringResource(R.string.game_mode_summary),
-                checked = gameMode,
-                onCheckedChange = onGameModeChange
-            )
-            if (spatialAudioSupported) {
+    if (
+        listOf(lowLatency, spatialAudio, spatialSound, equalizer, dualDevice)
+            .any { it?.visible == true }
+    ) {
+        item {
+            Card(
+                modifier = Modifier.padding(horizontal = 12.dp)
+            ) {
+            if (lowLatency?.visible == true) {
+                SwitchPreference(
+                    title = stringResource(R.string.game_mode),
+                    summary = if (lowLatency.readOnly) {
+                        stringResource(R.string.feature_read_only)
+                    } else {
+                        stringResource(R.string.game_mode_summary)
+                    },
+                    checked = gameMode,
+                    onCheckedChange = onGameModeChange,
+                    enabled = lowLatency.writable,
+                )
+            }
+            if (spatialAudio?.visible == true) {
+                val spatialAudioValues = spatialAudio.options.mapNotNull {
+                    runCatching { SpatialAudioMode.valueOf(it.value) }.getOrNull()
+                }.ifEmpty { SpatialAudioMode.entries }
                 val spatialAudioOptions = listOf(
                     stringResource(R.string.off),
                     stringResource(R.string.spatial_audio_fixed),
                     stringResource(R.string.spatial_audio_head_tracking),
-                )
+                ).take(spatialAudioValues.size)
                 OverlayDropdownPreference(
                     title = stringResource(R.string.spatial_audio),
-                    summary = stringResource(R.string.spatial_audio_summary),
+                    summary = if (spatialAudio.readOnly) {
+                        stringResource(R.string.feature_read_only)
+                    } else {
+                        stringResource(R.string.spatial_audio_summary)
+                    },
                     items = spatialAudioOptions,
                     selectedIndex = spatialAudioValues.indexOf(spatialAudioMode).coerceAtLeast(0),
-                    onSelectedIndexChange = { onSpatialAudioModeChange(spatialAudioValues[it]) }
+                    onSelectedIndexChange = { onSpatialAudioModeChange(spatialAudioValues[it]) },
+                    enabled = spatialAudio.writable,
                 )
             }
-            if (spatialSoundSupported) {
+            if (spatialSound?.visible == true) {
                 SwitchPreference(
                     title = stringResource(R.string.spatial_sound),
-                    summary = stringResource(if (spatialAudioMode != ConfigManager.SPATIAL_AUDIO_OFF) R.string.enabled else R.string.off),
-                    checked = spatialAudioMode != ConfigManager.SPATIAL_AUDIO_OFF,
-                    onCheckedChange = {
-                        onSpatialAudioModeChange(if (it) ConfigManager.SPATIAL_AUDIO_FIXED else ConfigManager.SPATIAL_AUDIO_OFF)
-                    }
+                    summary = if (spatialSound.readOnly) {
+                        stringResource(R.string.feature_read_only)
+                    } else {
+                        stringResource(if (spatialSoundSwitch) R.string.enabled else R.string.off)
+                    },
+                    checked = spatialSoundSwitch,
+                    onCheckedChange = onSpatialSoundSwitchChange,
+                    enabled = spatialSound.writable,
                 )
             }
-            val eqOptions = listOf(
-                stringResource(R.string.eq_preset_authentic),
-                stringResource(R.string.eq_preset_detail),
-                stringResource(R.string.eq_preset_vocal),
-                stringResource(R.string.eq_preset_bass),
-                stringResource(R.string.eq_preset_dynaudio),
-            )
-            OverlayDropdownPreference(
-                title = stringResource(R.string.eq_preset_title),
-                summary = stringResource(R.string.eq_preset_summary),
-                items = eqOptions,
-                selectedIndex = EqPreset.ALL.indexOf(eqPreset).coerceAtLeast(0),
-                onSelectedIndexChange = { onEqPresetChange(EqPreset.ALL[it]) }
-            )
-            SwitchPreference(
-                title = stringResource(R.string.dual_device_connection),
-                summary = stringResource(if (dualDeviceConnection) R.string.enabled else R.string.off),
-                checked = dualDeviceConnection,
-                onCheckedChange = onDualDeviceConnectionChange
-            )
+            if (equalizer?.visible == true && equalizer.options.isNotEmpty()) {
+                OverlayDropdownPreference(
+                    title = stringResource(R.string.eq_preset_title),
+                    summary = if (equalizer.readOnly) {
+                        stringResource(R.string.feature_read_only)
+                    } else {
+                        stringResource(R.string.eq_preset_summary)
+                    },
+                    items = equalizer.options.map { it.label },
+                    selectedIndex = equalizer.options.indexOfFirst {
+                        it.value == eqPresetId
+                    }.coerceAtLeast(0),
+                    onSelectedIndexChange = {
+                        onEqPresetChange(equalizer.options[it].value)
+                    },
+                    enabled = equalizer.writable,
+                )
+            }
+            if (dualDevice?.visible == true) {
+                SwitchPreference(
+                    title = stringResource(R.string.dual_device_connection),
+                    summary = if (dualDevice.readOnly) {
+                        stringResource(R.string.feature_read_only)
+                    } else {
+                        stringResource(
+                            if (dualDeviceConnection) R.string.enabled else R.string.off,
+                        )
+                    },
+                    checked = dualDeviceConnection,
+                    onCheckedChange = onDualDeviceConnectionChange,
+                    enabled = dualDevice.writable,
+                )
+            }
+            }
+        }
+    }
+    operation?.let { currentOperation ->
+        item {
+            Card(modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+                Text(
+                    text = when (currentOperation.status) {
+                        UiOperationStatus.PENDING ->
+                            stringResource(R.string.operation_pending)
+                        UiOperationStatus.CONFIRMED ->
+                            stringResource(R.string.operation_confirmed)
+                        UiOperationStatus.TIMED_OUT ->
+                            stringResource(R.string.operation_timed_out)
+                        UiOperationStatus.FAILED ->
+                            stringResource(R.string.operation_failed)
+                        UiOperationStatus.CANCELLED ->
+                            stringResource(R.string.operation_cancelled)
+                    },
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
         }
     }
     item {

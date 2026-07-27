@@ -37,8 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import moe.chenxy.oppopods.R
-import moe.chenxy.oppopods.pods.NoiseControlMode
-import moe.chenxy.oppopods.pods.isNoiseCancellation
+import moe.chenxy.headphones.core.feature.NoiseControlMode
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -47,12 +46,21 @@ import top.yukonga.miuix.kmp.utils.pressable
 
 private const val ANIM_DURATION = 300
 
+private fun NoiseControlMode.isNoiseCancellation(): Boolean = this in setOf(
+    NoiseControlMode.NOISE_CANCELLATION,
+    NoiseControlMode.NOISE_CANCELLATION_SMART,
+    NoiseControlMode.NOISE_CANCELLATION_LIGHT,
+    NoiseControlMode.NOISE_CANCELLATION_MEDIUM,
+    NoiseControlMode.NOISE_CANCELLATION_DEEP,
+)
+
 @Composable
 fun AncSwitch(
     ancStatus: NoiseControlMode,
     onAncModeChange: (NoiseControlMode) -> Unit,
     smartAncLevel: NoiseControlMode? = null,
     compact: Boolean = false,
+    enabled: Boolean = true,
     adaptiveModeEnabled: Boolean = true,
     transparencyVocalEnhancement: Boolean = false,
     onTransparencyVocalEnhancementChange: ((Boolean) -> Unit)? = null
@@ -77,7 +85,9 @@ fun AncSwitch(
                 onIconRes = R.drawable.ic_openanc_on,
                 label = stringResource(R.string.noise_cancellation_title),
                 isSelected = ancStatus.isNoiseCancellation(),
-                onClick = { onAncModeChange(NoiseControlMode.NOISE_CANCELLATION) },
+                onClick = {
+                    if (enabled) onAncModeChange(NoiseControlMode.NOISE_CANCELLATION)
+                },
                 modifier = Modifier.weight(1f),
                 compact = compact
             )
@@ -88,7 +98,7 @@ fun AncSwitch(
                     onIconRes = R.drawable.ic_adaptive_on,
                     label = stringResource(R.string.adaptive_title),
                     isSelected = ancStatus == NoiseControlMode.ADAPTIVE,
-                    onClick = { onAncModeChange(NoiseControlMode.ADAPTIVE) },
+                    onClick = { if (enabled) onAncModeChange(NoiseControlMode.ADAPTIVE) },
                     modifier = Modifier.weight(1f),
                     compact = compact
                 )
@@ -98,7 +108,7 @@ fun AncSwitch(
                 onIconRes = R.drawable.ic_transparent_on,
                 label = stringResource(R.string.transparency_title),
                 isSelected = ancStatus == NoiseControlMode.TRANSPARENCY,
-                onClick = { onAncModeChange(NoiseControlMode.TRANSPARENCY) },
+                onClick = { if (enabled) onAncModeChange(NoiseControlMode.TRANSPARENCY) },
                 modifier = Modifier.weight(1f),
                 compact = compact
             )
@@ -107,7 +117,7 @@ fun AncSwitch(
                 onIconRes = R.drawable.ic_closeanc_on,
                 label = stringResource(R.string.off),
                 isSelected = ancStatus == NoiseControlMode.OFF,
-                onClick = { onAncModeChange(NoiseControlMode.OFF) },
+                onClick = { if (enabled) onAncModeChange(NoiseControlMode.OFF) },
                 modifier = Modifier.weight(1f),
                 compact = compact
             )
@@ -139,7 +149,7 @@ fun AncSwitch(
                 tabs = tabs,
                 selectedTabIndex = modes.indexOf(ancStatus).takeIf { it >= 0 } ?: 0,
                 assistHighlightedIndex = if (isSmart) smartLevelIndex else null,
-                onTabSelected = { onAncModeChange(modes[it]) },
+                onTabSelected = { if (enabled) onAncModeChange(modes[it]) },
                 compact = compact,
                 minWidth = tabMinWidth,
                 tabMaxWidth = tabMaxWidth,
@@ -158,7 +168,9 @@ fun AncSwitch(
             ResponsiveAncTabRow(
                 tabs = tabs,
                 selectedTabIndex = if (transparencyVocalEnhancement) 1 else 0,
-                onTabSelected = { onTransparencyVocalEnhancementChange(it == 1) },
+                onTabSelected = {
+                    if (enabled) onTransparencyVocalEnhancementChange(it == 1)
+                },
                 compact = compact,
                 minWidth = tabMinWidth,
                 tabMaxWidth = tabMaxWidth,

@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
+import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 
 /**
  * Migration bridge installed in each consumer process.
@@ -27,6 +28,7 @@ object HeadphoneIpcEventBridge {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val target = context ?: return
                 val snapshot = intent?.let(HeadphoneIpcContract::decodeSnapshot) ?: return
+                HeadphoneUiStore.accept(snapshot)
                 publishLegacy(target, snapshot)
             }
         }, IntentFilter(HeadphoneIpcContract.ACTION_HEADPHONE_EVENT), Context.RECEIVER_EXPORTED)

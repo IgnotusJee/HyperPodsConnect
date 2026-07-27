@@ -59,6 +59,8 @@ data class FeatureCapability(
     val requiresReadback: Boolean = true,
     /** Allowed values for enumerated features; empty when not enumerable. */
     val allowedValues: Set<String> = emptySet(),
+    /** Driver-provided, presentation-safe labels keyed by opaque domain value. */
+    val valueLabels: Map<String, String> = emptyMap(),
     val source: String? = null,
 ) {
     /**

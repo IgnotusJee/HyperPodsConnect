@@ -2,10 +2,8 @@ package moe.chenxy.oppopods
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -22,7 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,15 +32,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
-import moe.chenxy.oppopods.pods.NoiseControlMode
-import moe.chenxy.oppopods.pods.detectDeviceCapabilities
+import moe.chenxy.headphones.core.feature.FeatureId
+import moe.chenxy.headphones.core.feature.NoiseControlMode
+import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.oppopods.config.ConfigManager
+import moe.chenxy.oppopods.ipc.HeadphoneCommandClient
+import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
 import moe.chenxy.oppopods.ui.AppLocale
 import moe.chenxy.oppopods.ui.AppTheme
 import moe.chenxy.oppopods.ui.components.AncSwitch
 import moe.chenxy.oppopods.ui.components.PodStatus
+import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
+import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -153,6 +156,7 @@ class PopupActivity : ComponentActivity() {
 private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
     val context = LocalContext.current
     val showDialog = remember { mutableStateOf(false) }
+    val headphoneUiState = HeadphoneUiStore.state.collectAsState().value
 
     val prefs = remember { context.getSharedPreferences(ConfigManager.PREFS_NAME, Context.MODE_PRIVATE) }
     val themeMode = remember { prefs.getInt("theme_mode", 0) }
@@ -168,76 +172,38 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
     val gameMode = remember { mutableStateOf(false) }
     val transparencyVocalEnhancement = remember { mutableStateOf(false) }
     val deviceName = remember { mutableStateOf("") }
-    val appConfig = remember { ConfigManager.refreshFromPrefs(prefs) }
-    val capabilities = detectDeviceCapabilities(
-        deviceName = deviceName.value,
-        adaptiveOverride = appConfig.adaptiveCapabilityOverride,
-        spatialAudioOverride = appConfig.spatialAudioCapabilityOverride,
-        spatialSoundSwitchOverride = appConfig.spatialSoundSwitchCapabilityOverride,
-    )
-
-    val broadcastReceiver = remember {
-        object : BroadcastReceiver() {
-            override fun onReceive(p0: Context?, p1: Intent?) {
-                when (p1?.action) {
-                    OppoPodsAction.ACTION_PODS_ANC_CHANGED -> {
-                        val status = p1.getIntExtra("status", 1)
-                        ancMode.value = when (status) {
-                            1 -> NoiseControlMode.OFF
-                            2 -> NoiseControlMode.NOISE_CANCELLATION
-                            3 -> NoiseControlMode.TRANSPARENCY
-                            4 -> NoiseControlMode.ADAPTIVE
-                            5 -> NoiseControlMode.NOISE_CANCELLATION_SMART
-                            6 -> NoiseControlMode.NOISE_CANCELLATION_LIGHT
-                            7 -> NoiseControlMode.NOISE_CANCELLATION_MEDIUM
-                            8 -> NoiseControlMode.NOISE_CANCELLATION_DEEP
-                            else -> NoiseControlMode.OFF
-                        }
-                    }
-                    OppoPodsAction.ACTION_PODS_BATTERY_CHANGED -> {
-                        batteryParams.value =
-                            p1.getParcelableExtra("status", BatteryParams::class.java)!!
-                    }
-                    OppoPodsAction.ACTION_PODS_CONNECTED -> {
-                        deviceName.value = p1.getStringExtra("device_name") ?: ""
-                        if (!showDialog.value) showDialog.value = true
-                    }
-                    OppoPodsAction.ACTION_PODS_DISCONNECTED -> {
-                        showDialog.value = false
-                    }
-                    OppoPodsAction.ACTION_PODS_GAME_MODE_CHANGED -> {
-                        gameMode.value = p1.getBooleanExtra("enabled", false)
-                    }
-                    OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED -> {
-                        transparencyVocalEnhancement.value = p1.getBooleanExtra("enabled", false)
-                    }
-                }
-            }
+    val adaptiveModeEnabled =
+        headphoneUiState.feature(FeatureId.NOISE_CONTROL.name)
+            ?.options?.any { it.value == "ADAPTIVE" } == true
+    LaunchedEffect(headphoneUiState) {
+        val state = headphoneUiState
+        deviceName.value = state.title
+        showDialog.value = state.connected || showDialog.value
+        fun battery(component: String): PodParams? = state.batteries[component]?.let {
+            PodParams(it.level, it.charging, true, 0)
         }
+        batteryParams.value = BatteryParams(
+            left = battery("LEFT") ?: battery("SINGLE"),
+            right = battery("RIGHT"),
+            case = battery("CASE"),
+        )
+        state.feature(FeatureId.NOISE_CONTROL.name)?.displayed?.let {
+            runCatching { NoiseControlMode.valueOf(it) }.getOrNull()
+                ?.let { mode -> ancMode.value = mode }
+        }
+        state.feature(FeatureId.LOW_LATENCY.name)?.displayed?.toBooleanStrictOrNull()
+            ?.let { gameMode.value = it }
+        state.feature(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT.name)
+            ?.displayed?.toBooleanStrictOrNull()
+            ?.let { transparencyVocalEnhancement.value = it }
     }
 
-    DisposableEffect(Unit) {
-        context.registerReceiver(broadcastReceiver, IntentFilter().apply {
-            addAction(OppoPodsAction.ACTION_PODS_ANC_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_BATTERY_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_CONNECTED)
-            addAction(OppoPodsAction.ACTION_PODS_DISCONNECTED)
-            addAction(OppoPodsAction.ACTION_PODS_GAME_MODE_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED)
-        }, Context.RECEIVER_EXPORTED)
-
+    LaunchedEffect(Unit) {
+        HeadphoneIpcEventBridge.requestSnapshot(context)
         context.sendBroadcast(Intent(OppoPodsAction.ACTION_PODS_UI_INIT).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         })
-        context.sendBroadcast(Intent(OppoPodsAction.ACTION_REFRESH_STATUS).apply {
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-        })
-
-        onDispose {
-            try { context.unregisterReceiver(broadcastReceiver) } catch (_: Exception) {}
-        }
     }
 
     // Timeout fallback: show dialog even if no response within 500ms
@@ -248,51 +214,23 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
 
         while (true) {
             delay(15_000)
-            context.sendBroadcast(Intent(OppoPodsAction.ACTION_REFRESH_STATUS).apply {
-                setPackage("com.android.bluetooth")
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            })
+            HeadphoneCommandClient.execute(context, FeatureCommand.RefreshAll)
         }
     }
 
     fun setAncMode(mode: NoiseControlMode) {
-        ancMode.value = mode
-        val status = when (mode) {
-            NoiseControlMode.OFF -> 1
-            NoiseControlMode.NOISE_CANCELLATION -> 2
-            NoiseControlMode.TRANSPARENCY -> 3
-            NoiseControlMode.ADAPTIVE -> 4
-            NoiseControlMode.NOISE_CANCELLATION_SMART -> 5
-            NoiseControlMode.NOISE_CANCELLATION_LIGHT -> 6
-            NoiseControlMode.NOISE_CANCELLATION_MEDIUM -> 7
-            NoiseControlMode.NOISE_CANCELLATION_DEEP -> 8
-        }
-        Intent(OppoPodsAction.ACTION_ANC_SELECT).apply {
-            putExtra("status", status)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+        HeadphoneCommandClient.execute(context, FeatureCommand.SetNoiseControl(mode))
     }
 
     fun setGameMode(enabled: Boolean) {
-        gameMode.value = enabled
-        Intent(OppoPodsAction.ACTION_GAME_MODE_SET).apply {
-            putExtra("enabled", enabled)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+        HeadphoneCommandClient.execute(context, FeatureCommand.SetLowLatency(enabled))
     }
 
     fun setTransparencyVocalEnhancement(enabled: Boolean) {
-        transparencyVocalEnhancement.value = enabled
-        Intent(OppoPodsAction.ACTION_TRANSPARENCY_VOCAL_ENHANCEMENT_SET).apply {
-            putExtra("enabled", enabled)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+        HeadphoneCommandClient.execute(
+            context,
+            FeatureCommand.SetTransparencyVocalEnhancement(enabled),
+        )
     }
 
     val dialogBgColor = if (isDarkMode) Color(0xFF1A1A1A) else Color(0xFFF7F7F7)
@@ -321,7 +259,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
                     onTransparencyVocalEnhancementChange = ::setTransparencyVocalEnhancement,
                     onMore = onMore,
                     onDone = { showDialog.value = false },
-                    adaptiveModeEnabled = capabilities.adaptiveSupported
+                    adaptiveModeEnabled = adaptiveModeEnabled
                 )
             } else {
                 PortraitPopupBody(
@@ -334,7 +272,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
                     onTransparencyVocalEnhancementChange = ::setTransparencyVocalEnhancement,
                     onMore = onMore,
                     onDone = { showDialog.value = false },
-                    adaptiveModeEnabled = capabilities.adaptiveSupported
+                    adaptiveModeEnabled = adaptiveModeEnabled
                 )
             }
         }
