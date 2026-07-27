@@ -69,4 +69,23 @@ class Phase5ArchitectureTest {
         assertFalse(controller.contains("OppoDriverProvider("))
         assertFalse(controller.contains("AndroidSppTransportFactory("))
     }
+
+    @Test
+    fun `default runtime logs do not format identity bearing addresses`() {
+        val runtime = source(
+            "src/main/java/moe/chenxy/oppopods/runtime/bluetoothprocess/" +
+                "BluetoothProcessRuntimeHost.kt",
+        )
+        val dispatcher = source(
+            "src/main/java/moe/chenxy/oppopods/hook/HeadsetStateDispatcher.kt",
+        )
+        assumeTrue(runtime != null)
+        assumeTrue(dispatcher != null)
+
+        assertTrue(runtime!!.contains("value.connection::class.simpleName"))
+        assertFalse(runtime.contains("connection=\${value.connection}"))
+        dispatcher!!.lineSequence()
+            .filter { it.contains("Log.") }
+            .forEach { line -> assertFalse(line.contains("device.address")) }
+    }
 }

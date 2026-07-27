@@ -192,7 +192,11 @@ fun MainUI(
     LaunchedEffect(headphoneUiState) {
         val state = headphoneUiState
         val wasConnected = hookConnected.value
-        state.address?.let { connectedDeviceAddress = it }
+        if (state.connection == UiConnectionState.DISCONNECTED) {
+            connectedDeviceAddress = ""
+        } else {
+            state.address?.let { connectedDeviceAddress = it }
+        }
         if (state.title.isNotBlank()) mainTitle.value = state.title
         hookConnectionState = when (state.connection) {
             UiConnectionState.CONNECTED -> "connected"
@@ -560,6 +564,7 @@ fun MainUI(
                 mainTitle = mainTitle.value,
                 displayTitle = displayTitle,
                 displayBattery = displayBattery,
+                displayTopology = headphoneUiState.topology,
                 displayWearStatus = displayWearStatus,
                 displayAnc = displayAnc,
                 onAncModeChange = { setAncMode(it) },

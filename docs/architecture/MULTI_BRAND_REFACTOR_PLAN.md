@@ -1077,6 +1077,10 @@ Executor，Android 35/36 保留兼容连接入口；读写和 notification callb
 
 ### Phase 8：Sony Classic SPP 只读 MVP
 
+当前状态（2026-07-27）：**已闭环**。WH-1000XM4 / 2.5.1 / Sony v1 SPP 已完成
+官方 App 对照、20/20 次控制会话稳定性循环和脱敏实机 fixture。完整证据见
+[PHASE8_SONY_CLASSIC_SPP_READONLY.md](PHASE8_SONY_CLASSIC_SPP_READONLY.md)。
+
 改动：
 
 - 创建 `:protocol:sony`；
@@ -1088,11 +1092,11 @@ Executor，Android 35/36 保留兼容连接入口；读写和 notification callb
 
 完成标准：
 
-- 指定已配对 Sony SPP 型号可稳定连接；
-- 型号、固件、电量与官方 App 一致；
-- 20 次连接/断开；
-- 官方 App 关闭时测试；
-- 设备达到 Read-only 后才在 UI 展示状态。
+- [x] 指定已配对 Sony SPP 型号可稳定连接；
+- [x] 型号、固件、电量与官方 App 一致；
+- [x] 20 次连接/断开；
+- [x] 官方 App 关闭时测试；
+- [x] 设备达到 Read-only 后才在 UI 展示状态。
 
 ### Phase 9：Sony BLE GATT 只读 MVP
 

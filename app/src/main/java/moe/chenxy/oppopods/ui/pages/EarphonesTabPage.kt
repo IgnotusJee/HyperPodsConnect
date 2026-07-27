@@ -24,6 +24,7 @@ internal fun EarphonesTabPage(
     showEarphoneDetail: Boolean,
     displayTitle: String,
     displayBattery: BatteryParams,
+    displayTopology: String?,
     displayWearStatus: WearStatus,
     displayAnc: NoiseControlMode,
     onAncModeChange: (NoiseControlMode) -> Unit,
@@ -68,6 +69,7 @@ internal fun EarphonesTabPage(
                 bottomContentPadding = pageBottomContentPadding,
                 podName = displayTitle.ifEmpty { stringResource(R.string.pod_info) },
                 batteryParams = displayBattery,
+                batteryTopology = displayTopology,
                 wearStatus = displayWearStatus,
                 ancMode = displayAnc,
                 onAncModeChange = onAncModeChange,
@@ -90,7 +92,6 @@ internal fun EarphonesTabPage(
             )
         } else {
             DevicePickerPage(
-                connectedDeviceName = displayTitle,
                 connectedDeviceAddress = connectedDeviceAddress,
                 connectingDeviceAddress = connectingDeviceAddress,
                 showConnectError = showConnectErrorDialog,

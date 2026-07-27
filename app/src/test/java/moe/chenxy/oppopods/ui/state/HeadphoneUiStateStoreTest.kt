@@ -50,6 +50,14 @@ class HeadphoneUiStateStoreTest {
     }
 
     @Test
+    fun `headband topology reaches the vendor neutral UI state`() {
+        val store = HeadphoneUiStateStore()
+        store.accept(fakeSnapshot(topology = "HEADBAND"))
+
+        assertEquals("HEADBAND", store.state.value.topology)
+    }
+
+    @Test
     fun `unsupported feature is hidden and readable feature is read only`() {
         val store = HeadphoneUiStateStore()
         val snapshot = fakeSnapshot().copy(
@@ -124,6 +132,7 @@ class HeadphoneUiStateStoreTest {
         lowLatency: FeatureValuePayload = FeatureValuePayload("false", null, false, "READ_BACK"),
         operation: OperationPayload? = null,
         emittedAtMillis: Long = 12,
+        topology: String? = null,
     ) = HeadphoneSnapshotPayload(
         deviceId = deviceId,
         generationId = generation,
@@ -133,6 +142,7 @@ class HeadphoneUiStateStoreTest {
         connection = "Ready",
         protocolReady = true,
         transport = "FAKE",
+        topology = topology,
         firmware = "1",
         compatibility = "CONTROLLED",
         batteries = listOf(BatteryPayload("LEFT", 82, false)),

@@ -5,6 +5,7 @@ import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import moe.chenxy.headphones.core.feature.BatteryComponent
+import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
@@ -194,6 +195,7 @@ data class HeadphoneSnapshotPayload(
     val connection: String,
     val protocolReady: Boolean,
     val transport: String?,
+    val topology: String? = null,
     val firmware: String?,
     val compatibility: String?,
     val batteries: List<BatteryPayload>,
@@ -207,6 +209,8 @@ data class HeadphoneSnapshotPayload(
         fun from(snapshot: HeadphoneSnapshot): HeadphoneSnapshotPayload {
             val profile = snapshot.profile
             val state = snapshot.state
+            val mayExposeState = profile?.compatibilityLevel == CompatibilityLevel.READ_ONLY ||
+                profile?.compatibilityLevel == CompatibilityLevel.CONTROLLED
             fun feature(
                 confirmed: Any?,
                 pending: Any?,
@@ -223,17 +227,19 @@ data class HeadphoneSnapshotPayload(
                 generationId = snapshot.generationId,
                 vendorId = profile?.vendorId?.value,
                 primaryAddress = profile?.identity?.primaryAddress,
-                deviceName = profile?.model,
+                deviceName = profile?.model?.takeIf { mayExposeState },
                 connection = snapshot.connection::class.simpleName.orEmpty(),
                 protocolReady = snapshot.connection is SessionState.Ready,
                 transport = profile?.transport?.name,
-                firmware = state.firmware ?: profile?.firmware,
+                topology = profile?.topology?.name?.takeIf { mayExposeState },
+                firmware = (state.firmware ?: profile?.firmware).takeIf { mayExposeState },
                 compatibility = profile?.compatibilityLevel?.name,
-                batteries = state.batteries.map { (component, value) ->
+                batteries = state.batteries.takeIf { mayExposeState }.orEmpty().map { (component, value) ->
                     BatteryPayload(component.name, value.level, value.charging)
                 },
-                wearing = state.wearing.mapKeys { it.key.name }.mapValues { it.value.name },
-                features = mapOf(
+                wearing = state.wearing.takeIf { mayExposeState }.orEmpty()
+                    .mapKeys { it.key.name }.mapValues { it.value.name },
+                features = if (mayExposeState) mapOf(
                     FeatureId.NOISE_CONTROL.name to feature(
                         state.noiseControl.confirmed?.name,
                         state.noiseControl.pending?.name,
@@ -276,8 +282,8 @@ data class HeadphoneSnapshotPayload(
                         state.dualDeviceConnection.stale,
                         state.dualDeviceConnection.source,
                     ),
-                ),
-                capabilities = profile?.features?.values?.map {
+                ) else emptyMap(),
+                capabilities = profile?.features?.values?.takeIf { mayExposeState }?.map {
                     CapabilityPayload(
                         it.featureId.name,
                         it.canRead,

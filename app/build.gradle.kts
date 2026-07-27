@@ -87,6 +87,7 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":engine"))
     implementation(project(":protocol:oppo"))
+    implementation(project(":protocol:sony"))
     implementation(project(":transport:android"))
     implementation(libs.coreKtx)
     compileOnly(libs.libxposedApi)

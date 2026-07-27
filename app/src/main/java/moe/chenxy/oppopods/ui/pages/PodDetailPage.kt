@@ -50,6 +50,7 @@ fun PodDetailPage(
     bottomContentPadding: Dp = 16.dp,
     podName: String,
     batteryParams: BatteryParams,
+    batteryTopology: String? = null,
     wearStatus: WearStatus = WearStatus(),
     ancMode: NoiseControlMode,
     onAncModeChange: (NoiseControlMode) -> Unit,
@@ -112,6 +113,7 @@ fun PodDetailPage(
             ) {
                 podControlItems(
                     batteryParams = batteryParams,
+                    batteryTopology = batteryTopology,
                     wearStatus = wearStatus,
                     ancMode = ancMode,
                     onAncModeChange = onAncModeChange,
@@ -155,6 +157,7 @@ fun PodDetailPage(
 
         podControlItems(
             batteryParams = batteryParams,
+            batteryTopology = batteryTopology,
             wearStatus = wearStatus,
             ancMode = ancMode,
             onAncModeChange = onAncModeChange,
@@ -189,6 +192,7 @@ private fun rememberPodImagePainter(path: String?) = remember(path) {
 
 private fun LazyListScope.podControlItems(
     batteryParams: BatteryParams,
+    batteryTopology: String?,
     wearStatus: WearStatus,
     ancMode: NoiseControlMode,
     onAncModeChange: (NoiseControlMode) -> Unit,
@@ -223,6 +227,7 @@ private fun LazyListScope.podControlItems(
         ) {
             PodStatus(
                 batteryParams = batteryParams,
+                batteryTopology = batteryTopology,
                 wearStatus = wearStatus,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp)
             )

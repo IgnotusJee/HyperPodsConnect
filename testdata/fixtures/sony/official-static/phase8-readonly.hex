@@ -1,0 +1,9 @@
+# Static specification vectors, not a device capture.
+# TX protocol-info GET
+3E0C000000000200000E3C
+# RX v2 protocol-info RET (protocol version 2, table1+table2 enabled)
+3E0C00000000080100000000020101193C
+# TX v2 single-battery GET
+3E0C00000000022200303C
+# RX v2 single-battery RET (76%, not charging)
+3E0C000000000423004C007F3C

@@ -44,6 +44,7 @@ import top.yukonga.miuix.kmp.basic.Text
 @Composable
 fun PodStatus(
     batteryParams: BatteryParams,
+    batteryTopology: String? = null,
     wearStatus: WearStatus = WearStatus(),
     modifier: Modifier = Modifier,
     compact: Boolean = false
@@ -55,39 +56,49 @@ fun PodStatus(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        BatteryColumn(
-            label = stringResource(R.string.batt_left_pod),
-            pod = batteryParams.left,
-            wearState = wearStatus.left,
-            modifier = Modifier.weight(1f),
-            compact = compact
-        )
-        Box(
-            modifier = Modifier
-                .width(0.5.dp)
-                .height(dividerHeight)
-                .background(dividerColor)
-        )
-        BatteryColumn(
-            label = stringResource(R.string.batt_right_pod),
-            pod = batteryParams.right,
-            wearState = wearStatus.right,
-            modifier = Modifier.weight(1f),
-            compact = compact
-        )
-        Box(
-            modifier = Modifier
-                .width(0.5.dp)
-                .height(dividerHeight)
-                .background(dividerColor)
-        )
-        BatteryColumn(
-            label = stringResource(R.string.pod_case),
-            pod = batteryParams.case,
-            wearState = wearStatus.case,
-            modifier = Modifier.weight(1f),
-            compact = compact
-        )
+        if (batteryTopology == "HEADBAND") {
+            BatteryColumn(
+                label = stringResource(R.string.earphones),
+                pod = batteryParams.left,
+                wearState = null,
+                modifier = Modifier.weight(1f),
+                compact = compact
+            )
+        } else {
+            BatteryColumn(
+                label = stringResource(R.string.batt_left_pod),
+                pod = batteryParams.left,
+                wearState = wearStatus.left,
+                modifier = Modifier.weight(1f),
+                compact = compact
+            )
+            Box(
+                modifier = Modifier
+                    .width(0.5.dp)
+                    .height(dividerHeight)
+                    .background(dividerColor)
+            )
+            BatteryColumn(
+                label = stringResource(R.string.batt_right_pod),
+                pod = batteryParams.right,
+                wearState = wearStatus.right,
+                modifier = Modifier.weight(1f),
+                compact = compact
+            )
+            Box(
+                modifier = Modifier
+                    .width(0.5.dp)
+                    .height(dividerHeight)
+                    .background(dividerColor)
+            )
+            BatteryColumn(
+                label = stringResource(R.string.pod_case),
+                pod = batteryParams.case,
+                wearState = wearStatus.case,
+                modifier = Modifier.weight(1f),
+                compact = compact
+            )
+        }
     }
 }
 

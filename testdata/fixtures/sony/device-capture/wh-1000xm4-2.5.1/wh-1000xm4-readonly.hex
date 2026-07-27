@@ -1,0 +1,28 @@
+# Sanitized WH-1000XM4 firmware 2.5.1 device capture.
+# Sony capability-info RET is intentionally omitted because it contains a
+# device-unique identifier. All remaining frames are complete Tandem frames.
+
+# TX protocol-info GET
+3E0C000000000200000E3C
+# RX protocol-info RET: v1, protocol 0x007000
+3E0C010000000401007000823C
+
+# TX model-name GET
+3E0C00000000020401133C
+# RX model-name RET: WH-1000XM4
+3E0C010000000D05010A57482D31303030584D34903C
+
+# TX firmware-version GET
+3E0C01000000020402153C
+# RX firmware-version RET: 2.5.1
+3E0C0000000008050205322E352E31143C
+
+# TX support-function GET
+3E0C00000000020600143C
+# RX support-function RET: 22 data bytes / 11 function pairs
+3E0C01000000190700167162F58151A1E1E2D2F6D1F4F33912131130C1142221783C
+
+# TX v1 COMMON single-battery GET
+3E0C010000000210001F3C
+# RX single-battery RET: 100%, not charging
+3E0C000000000411006400853C

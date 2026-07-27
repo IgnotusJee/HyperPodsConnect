@@ -9,6 +9,7 @@
 | --- | --- |
 | 整体架构要往哪走、分几个阶段 | [architecture/MULTI_BRAND_REFACTOR_PLAN.md](architecture/MULTI_BRAND_REFACTOR_PLAN.md) |
 | 当前 OPPO 实现的行为基线与真机验证结论 | [architecture/PHASE0_OPPO_BASELINE.md](architecture/PHASE0_OPPO_BASELINE.md) |
+| Sony Classic SPP 只读实现与验收进度 | [architecture/PHASE8_SONY_CLASSIC_SPP_READONLY.md](architecture/PHASE8_SONY_CLASSIC_SPP_READONLY.md) |
 | 官方 App 协议是怎么逆出来的 | [reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md](reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md) |
 | 怎么在真机上抓包取证 | [reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md](reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md) |
 | 抓包工具怎么用 | [../tools/bluetooth-capture/README.md](../tools/bluetooth-capture/README.md) |
@@ -18,11 +19,12 @@
 Phase 0（基线与保护网）、Phase 1（`:core` 与通用领域模型）、Phase 2（提取 OPPO
 流式协议）、Phase 3（提取通用 SPP transport）、Phase 4（建立 OPPO Session 和功能
 模块）、Phase 5（引入 engine 和版本化 IPC）、Phase 6（UI 与 HyperOS 去品牌化）、
-Phase 7（通用 GATT transport）**已完成**。下一阶段是 Phase 8：Sony Classic SPP
-只读 MVP。
+Phase 7（通用 GATT transport）、Phase 8（Sony Classic SPP 只读 MVP）
+**已完成**。Phase 8 已在 WH-1000XM4 / 2.5.1 上完成官方 App 对照、20/20 次
+连接/握手/断开和脱敏实机 fixture。
 
-模块结构目前是 `:app`、`:core`、`:engine`、`:protocol:oppo`、
-`:transport:android`。`:core`、`:engine` 与 `:protocol:oppo` 都是纯 Kotlin/JVM
+模块结构目前是 `:app`、`:core`、`:engine`、`:protocol:oppo`、`:protocol:sony`、
+`:transport:android`。`:core`、`:engine` 与两个 protocol 模块都是纯 Kotlin/JVM
 模块，编译期即无法触及 Android、Xposed 与 Compose。蓝牙进程中的
 `BluetoothProcessRuntimeHost` 是唯一真实会话 authority，由 `:engine` 的
 `HeadphoneSessionManager` 管理 driver、generation、重连和统一 snapshot。
@@ -35,11 +37,13 @@ App 页面由 `HeadphoneUiStateStore` 按 capability 动态渲染，HyperOS hook
 失败策略、writable length、写入/通知模式和分块策略全部来自 driver profile，所有
 callback-backed operation 串行执行并按 connection generation 隔离。
 
-协议 fixture 位于仓库根的 `testdata/`，由 `:app` 与 `:protocol:oppo` 共享，
-新旧两套实现对着同一份真机证据校验。
+协议 fixture 位于仓库根的 `testdata/`，由 `:app` 与各 protocol 模块共享，
+各层实现对着同一份证据校验。Sony 的静态向量位于 `official-static`，WH-1000XM4
+实机 trace 位于 `device-capture/wh-1000xm4-2.5.1`；capability response 因包含
+设备唯一标识而被完整排除。
 
 抓包工具链的里程碑 M0 到 M3 已交付，M5 的 UI 自动化部分交付。M4（Sony 协议发现）
-未开始。
+已完成静态证据整理、只读实现和 WH-1000XM4 动态真机闭环。
 
 ## 两类证据不可混淆
 

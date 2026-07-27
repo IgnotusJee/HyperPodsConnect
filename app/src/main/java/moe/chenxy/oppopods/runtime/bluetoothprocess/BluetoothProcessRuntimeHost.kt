@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,12 @@ import moe.chenxy.headphones.protocol.oppo.compatibility.OppoCompatibilityOverri
 import moe.chenxy.headphones.protocol.oppo.session.OppoDriverProvider
 import moe.chenxy.headphones.protocol.oppo.session.OppoSession
 import moe.chenxy.headphones.protocol.oppo.session.OppoSessionEvent
+import moe.chenxy.headphones.protocol.sony.frame.TandemCodec
+import moe.chenxy.headphones.protocol.sony.message.SonyCommand
+import moe.chenxy.headphones.protocol.sony.profile.SonyProfile
+import moe.chenxy.headphones.protocol.sony.session.SonyDriverProvider
+import moe.chenxy.headphones.protocol.sony.session.SonySession
+import moe.chenxy.headphones.protocol.sony.session.SonySessionEvent
 import moe.chenxy.headphones.transport.android.AndroidSppTransportFactory
 import moe.chenxy.oppopods.ipc.HeadphoneIpcContract
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotPayload
@@ -67,13 +74,28 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
         scope.launch {
             manager.snapshot.collect { value ->
                 value ?: return@collect
+                Log.d(
+                    "OppoPods-Engine",
+                    "snapshot generation=${value.generationId} " +
+                        "vendor=${value.profile?.vendorId?.value} " +
+                        "connection=${value.connection::class.simpleName.orEmpty()} compatibility=" +
+                        "${value.profile?.compatibilityLevel} model=${value.profile?.model} " +
+                        "firmware=${value.state.firmware ?: value.profile?.firmware} " +
+                        "batteries=${value.state.batteries}",
+                )
                 attachVendorEvents(value.generationId)
-                RfcommController.onEngineSnapshot(value)
+                if (value.profile?.vendorId == VendorId.OPPO) {
+                    RfcommController.onEngineSnapshot(value)
+                }
                 publishSnapshot(value)
             }
         }
         scope.launch {
-            manager.operations.collect(RfcommController::onEngineOperation)
+            manager.operations.collect { event ->
+                if (snapshot.value?.profile?.vendorId == VendorId.OPPO) {
+                    RfcommController.onEngineOperation(event)
+                }
+            }
         }
     }
 
@@ -85,6 +107,7 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
         initialize(context)
         activeDevice = device
         registry.register(OppoDriverProvider(overrides))
+        registry.register(SonyDriverProvider())
         scope.launch {
             connect(candidate(device), AndroidSppTransportFactory(device))
         }
@@ -153,12 +176,44 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
         if (vendorEventGeneration == generationId) return
         vendorEventJob?.cancel()
         vendorEventGeneration = generationId
-        val session = manager.activeSession() as? OppoSession ?: return
-        vendorEventJob = scope.launch {
-            session.events.collect { event ->
-                if (snapshot.value?.generationId != generationId) return@collect
-                RfcommController.onOppoSessionEvent(event)
+        when (val session = manager.activeSession()) {
+            is OppoSession -> {
+                vendorEventJob = scope.launch {
+                    session.events.collect { event ->
+                        if (snapshot.value?.generationId != generationId) return@collect
+                        RfcommController.onOppoSessionEvent(event)
+                    }
+                }
             }
+            is SonySession -> {
+                vendorEventJob = scope.launch {
+                    session.events.collect { event ->
+                        if (snapshot.value?.generationId != generationId) return@collect
+                        when (event) {
+                            is SonySessionEvent.TxFrame ->
+                                Log.d("OppoPods-Sony", "TX ${event.bytes.toLogHex()}")
+                            // Capability-info can contain a device-unique id.
+                            // Keep raw RX in memory for the active debug session,
+                            // but never copy it into Android's persistent log.
+                            is SonySessionEvent.RxChunk -> Unit
+                            is SonySessionEvent.RxFrame -> {
+                                val command = event.frame.payload.firstOrNull()?.toInt()?.and(0xFF)
+                                if (command == SonyCommand.CONNECT_RET_CAPABILITY_INFO) {
+                                    Log.d("OppoPods-Sony", "FRAME $event [redacted]")
+                                } else {
+                                    Log.d(
+                                        "OppoPods-Sony",
+                                        "RX ${TandemCodec.encode(event.frame).toLogHex()}",
+                                    )
+                                }
+                            }
+                            is SonySessionEvent.DecodeRejected ->
+                                Log.w("OppoPods-Sony", "REJECT ${event.reason}")
+                        }
+                    }
+                }
+            }
+            else -> Unit
         }
     }
 
@@ -192,17 +247,43 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
     }
 
     private fun candidate(device: BluetoothDevice): DeviceCandidate {
+        val advertisedUuids = device.uuids?.map { it.uuid.toString() }?.toSet().orEmpty()
         val identity = DeviceIdentity(
             id = DeviceId.fromAddress(device.address),
-            vendorId = VendorId.OPPO,
+            vendorId = inferredVendor(device.name, advertisedUuids),
             primaryAddress = device.address,
         )
         return DeviceCandidate(
             identity = identity,
             displayName = device.name,
             bonded = device.bondState == BluetoothDevice.BOND_BONDED,
-            advertisedUuids = device.uuids?.map { it.uuid.toString() }?.toSet().orEmpty(),
+            advertisedUuids = advertisedUuids,
             availableTransports = setOf(TransportKind.CLASSIC_SPP),
         )
     }
+
+    private fun inferredVendor(name: String?, advertisedUuids: Set<String>): VendorId? {
+        if (advertisedUuids.any {
+                it.equals(SonyProfile.SONY_SPP_V1_UUID, ignoreCase = true) ||
+                    it.equals(SonyProfile.SONY_SPP_V2_UUID, ignoreCase = true)
+            }
+        ) return VendorId.SONY
+        if (advertisedUuids.any {
+                it.equals(OppoSession.OPPO_SPP_UUID, ignoreCase = true)
+            }
+        ) return VendorId.OPPO
+        val displayName = name.orEmpty()
+        return when {
+            displayName.startsWith("WH-", ignoreCase = true) ||
+                displayName.startsWith("WF-", ignoreCase = true) ||
+                displayName.startsWith("WI-", ignoreCase = true) ||
+                displayName.contains("LinkBuds", ignoreCase = true) -> VendorId.SONY
+            displayName.contains("oppo", ignoreCase = true) ||
+                displayName.contains("oneplus", ignoreCase = true) -> VendorId.OPPO
+            else -> null
+        }
+    }
+
+    private fun ByteArray.toLogHex(): String =
+        joinToString(separator = "") { "%02X".format(it.toInt() and 0xFF) }
 }

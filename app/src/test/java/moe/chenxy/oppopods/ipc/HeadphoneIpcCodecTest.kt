@@ -123,6 +123,7 @@ class HeadphoneIpcCodecTest {
         assertEquals("11:22:33:44:55:66", decoded.primaryAddress)
         assertEquals("Ready", decoded.connection)
         assertTrue(decoded.protocolReady)
+        assertEquals("EARBUDS_WITH_CASE", decoded.topology)
         assertEquals(88, decoded.batteries.single().level)
         assertEquals("true", decoded.features[FeatureId.LOW_LATENCY.name]?.confirmed)
         assertEquals("READ_BACK_CONFIRMED", decoded.operation?.phase)
@@ -132,5 +133,53 @@ class HeadphoneIpcCodecTest {
             mapOf("false" to "Standard", "true" to "Low latency"),
             decoded.capabilities.single().valueLabels,
         )
+    }
+
+    @Test
+    fun `detected profile does not expose state before read-only evidence`() {
+        val identity = DeviceIdentity(
+            DeviceId("device:sony"),
+            VendorId.SONY,
+            "11:22:33:44:55:66",
+        )
+        val profile = DeviceProfile(
+            identity,
+            VendorId.SONY,
+            "WH-1000XM4",
+            "unverified",
+            DeviceTopology.HEADBAND,
+            TransportKind.CLASSIC_SPP,
+            ProtocolDescriptor("Sony Tandem"),
+            mapOf(
+                FeatureId.BATTERY to FeatureCapability(
+                    FeatureId.BATTERY,
+                    canRead = true,
+                    canWrite = false,
+                    evidence = EvidenceLevel.ASSUMED,
+                    availableOnTransports = setOf(TransportKind.CLASSIC_SPP),
+                ),
+            ),
+            CompatibilityLevel.DETECTED,
+        )
+        val snapshot = HeadphoneSnapshot(
+            identity.id,
+            1,
+            SessionState.ProtocolHandshaking(identity.id, 1, TransportKind.CLASSIC_SPP),
+            profile,
+            HeadphoneState(
+                batteries = mapOf(BatteryComponent.SINGLE to BatteryState(99, false)),
+                firmware = "unverified",
+            ),
+            emittedAtMillis = 2,
+        )
+
+        val payload = HeadphoneSnapshotPayload.from(snapshot)
+
+        assertNull(payload.deviceName)
+        assertNull(payload.topology)
+        assertNull(payload.firmware)
+        assertTrue(payload.batteries.isEmpty())
+        assertTrue(payload.features.isEmpty())
+        assertTrue(payload.capabilities.isEmpty())
     }
 }

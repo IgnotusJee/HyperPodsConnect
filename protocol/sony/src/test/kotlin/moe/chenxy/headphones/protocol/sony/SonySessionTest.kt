@@ -1,0 +1,194 @@
+package moe.chenxy.headphones.protocol.sony
+
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runBlocking
+import moe.chenxy.headphones.core.device.DeviceCandidate
+import moe.chenxy.headphones.core.device.DeviceId
+import moe.chenxy.headphones.core.device.DeviceIdentity
+import moe.chenxy.headphones.core.device.TransportKind
+import moe.chenxy.headphones.core.device.VendorId
+import moe.chenxy.headphones.core.driver.DriverSessionContext
+import moe.chenxy.headphones.core.feature.BatteryComponent
+import moe.chenxy.headphones.core.feature.CompatibilityLevel
+import moe.chenxy.headphones.core.feature.NoiseControlMode
+import moe.chenxy.headphones.core.operation.FailureReason
+import moe.chenxy.headphones.core.operation.FeatureCommand
+import moe.chenxy.headphones.core.session.DisconnectCause
+import moe.chenxy.headphones.core.session.SessionState
+import moe.chenxy.headphones.core.transport.ByteTransport
+import moe.chenxy.headphones.core.transport.TransportFactory
+import moe.chenxy.headphones.core.transport.TransportSpec
+import moe.chenxy.headphones.core.transport.TransportState
+import moe.chenxy.headphones.core.transport.TransportWriteResult
+import moe.chenxy.headphones.protocol.sony.frame.TandemCodec
+import moe.chenxy.headphones.protocol.sony.frame.TandemDecodeResult
+import moe.chenxy.headphones.protocol.sony.frame.TandemFrame
+import moe.chenxy.headphones.protocol.sony.frame.TandemStreamDecoder
+import moe.chenxy.headphones.protocol.sony.message.SonyCommand
+import moe.chenxy.headphones.protocol.sony.message.SonyDataType
+import moe.chenxy.headphones.protocol.sony.profile.SonyProfile
+import moe.chenxy.headphones.protocol.sony.session.SonySession
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class SonySessionTest {
+    @Test
+    fun `complete read-only handshake reaches ready and records evidence`() = runBlocking {
+        val transport = FakeSonyTransport()
+        val session = session(transport)
+
+        session.connect()
+
+        assertTrue(session.connection.value is SessionState.Ready)
+        assertEquals(CompatibilityLevel.READ_ONLY, session.profile.value?.compatibilityLevel)
+        assertEquals("WH-1000XM4", session.profile.value?.model)
+        assertEquals("2.5.1", session.state.value.firmware)
+        assertEquals(76, session.state.value.batteries[BatteryComponent.SINGLE]?.level)
+        assertTrue(session.state.value.vendorStates["sony.capability.fingerprint"]?.length == 64)
+        assertTrue(transport.ackWrites > 0)
+        session.disconnect()
+    }
+
+    @Test
+    fun `control is denied without emitting a Sony command`() = runBlocking {
+        val transport = FakeSonyTransport()
+        val session = session(transport)
+        session.connect()
+        val commandWrites = transport.commandWrites.size
+
+        val result = session.execute(
+            FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+        )
+
+        assertEquals(FailureReason.NOT_WRITABLE, result.failure)
+        assertFalse(result.succeeded)
+        assertEquals(commandWrites, transport.commandWrites.size)
+        session.disconnect()
+    }
+
+    @Test
+    fun `name hint without advertised uuid never opens a transport`() = runBlocking {
+        var factoryCalls = 0
+        val candidate = candidate(advertisedUuids = emptySet())
+        val factory = object : TransportFactory {
+            override suspend fun create(
+                device: DeviceIdentity,
+                spec: TransportSpec,
+            ): ByteTransport {
+                factoryCalls++
+                return FakeSonyTransport()
+            }
+        }
+        val session = SonySession(
+            DriverSessionContext(candidate, factory),
+            responseTimeoutMillis = 100,
+            transportSettleDelayMillis = 0,
+        )
+
+        session.connect()
+
+        assertTrue(session.connection.value is SessionState.Failed)
+        assertEquals(0, factoryCalls)
+    }
+
+    private fun session(transport: FakeSonyTransport): SonySession {
+        val factory = object : TransportFactory {
+            override suspend fun create(
+                device: DeviceIdentity,
+                spec: TransportSpec,
+            ): ByteTransport {
+                assertEquals(SonyProfile.SONY_SPP_V2_UUID, (spec as TransportSpec.Spp).serviceUuid)
+                assertTrue(spec.secure)
+                return transport
+            }
+        }
+        return SonySession(
+            DriverSessionContext(candidate(), factory),
+            responseTimeoutMillis = 300,
+            transportSettleDelayMillis = 0,
+        )
+    }
+
+    private fun candidate(advertisedUuids: Set<String> = setOf(SonyProfile.SONY_SPP_V2_UUID)) =
+        DeviceCandidate(
+            identity = DeviceIdentity(
+                DeviceId.fromAddress("11:22:33:44:55:66"),
+                VendorId.SONY,
+                "11:22:33:44:55:66",
+            ),
+            displayName = "WH-1000XM4",
+            bonded = true,
+            advertisedUuids = advertisedUuids,
+            availableTransports = setOf(TransportKind.CLASSIC_SPP),
+        )
+}
+
+private class FakeSonyTransport : ByteTransport {
+    override val kind: TransportKind = TransportKind.CLASSIC_SPP
+    private val _state = MutableStateFlow<TransportState>(TransportState.Closed)
+    override val state: StateFlow<TransportState> = _state.asStateFlow()
+    private val _incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 32)
+    override val incoming: Flow<ByteArray> = _incoming.asSharedFlow()
+    override val maxWriteSize: StateFlow<Int> = MutableStateFlow(512).asStateFlow()
+    val commandWrites = CopyOnWriteArrayList<ByteArray>()
+    var ackWrites = 0
+
+    override suspend fun open() {
+        _state.value = TransportState.Open
+    }
+
+    override suspend fun write(bytes: ByteArray): TransportWriteResult {
+        val frame = TandemStreamDecoder().feed(bytes)
+            .filterIsInstance<TandemDecodeResult.Frame>()
+            .singleOrNull()
+            ?.value
+            ?: return TransportWriteResult.Written
+        if (frame.dataType == SonyDataType.ACK.code) {
+            ackWrites++
+            return TransportWriteResult.Written
+        }
+        commandWrites += frame.payload.copyOf()
+        _incoming.emit(
+            TandemCodec.encode(
+                TandemFrame(SonyDataType.ACK.code, 1 - (frame.sequence and 1), byteArrayOf()),
+            ),
+        )
+        response(frame.payload)?.let { payload ->
+            _incoming.emit(
+                TandemCodec.encode(
+                    TandemFrame(SonyDataType.DATA_MDR.code, frame.sequence and 1, payload),
+                ),
+            )
+        }
+        return TransportWriteResult.Written
+    }
+
+    override suspend fun close(cause: DisconnectCause) {
+        _state.value = TransportState.Closed
+    }
+
+    private fun response(request: ByteArray): ByteArray? = when (request.firstOrNull()?.toInt()?.and(0xFF)) {
+        SonyCommand.CONNECT_GET_PROTOCOL_INFO ->
+            byteArrayOf(0x01, 0, 0, 0, 0, 2, 1, 1)
+        SonyCommand.CONNECT_GET_CAPABILITY_INFO ->
+            byteArrayOf(0x03, 0, 0x12, 0x34)
+        SonyCommand.CONNECT_GET_DEVICE_INFO -> {
+            val type = request.getOrNull(1) ?: return null
+            val value = if (type.toInt() == 1) "WH-1000XM4" else "2.5.1"
+            byteArrayOf(0x05, type, value.length.toByte()) + value.toByteArray()
+        }
+        SonyCommand.CONNECT_GET_SUPPORT_FUNCTION ->
+            byteArrayOf(0x07, 0, 2, 0, 1)
+        SonyCommand.POWER_GET_STATUS ->
+            byteArrayOf(0x23, request[1], 76, 0)
+        else -> null
+    }
+}
