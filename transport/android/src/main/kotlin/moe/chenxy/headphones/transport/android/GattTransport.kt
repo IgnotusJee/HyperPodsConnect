@@ -24,6 +24,8 @@ import moe.chenxy.headphones.core.session.DisconnectCause
 import moe.chenxy.headphones.core.transport.ByteTransport
 import moe.chenxy.headphones.core.transport.GattChunkPolicy
 import moe.chenxy.headphones.core.transport.GattMtuFailurePolicy
+import moe.chenxy.headphones.core.transport.GattNotificationMode
+import moe.chenxy.headphones.core.transport.GattPreparationStep
 import moe.chenxy.headphones.core.transport.GattWriteMode
 import moe.chenxy.headphones.core.transport.TransportFailure
 import moe.chenxy.headphones.core.transport.TransportSpec
@@ -179,45 +181,31 @@ class GattTransport(
                     return
                 }
 
-                when (
-                    val enabled = localClient.setCharacteristicNotification(
-                        spec.serviceUuid,
-                        spec.rxCharacteristicUuid,
-                        true,
-                    )
-                ) {
-                    GattStartResult.Started -> Unit
-                    is GattStartResult.Rejected -> {
-                        failOpen(
-                            generation,
-                            TransportFailure(
-                                DisconnectCause.TRANSPORT_ERROR,
-                                enabled.detail ?: "setCharacteristicNotification rejected",
-                                enabled.status,
-                            ),
+                for (step in spec.preparationSteps) {
+                    val prepared = when (step) {
+                        is GattPreparationStep.Subscribe -> subscribe(
+                            localClient,
+                            localQueue,
+                            step.characteristicUuid,
+                            step.cccdUuid,
+                            step.mode,
                         )
-                        return
+                        is GattPreparationStep.ReadWritableLength -> readWritableLength(
+                            localClient,
+                            localQueue,
+                            step.characteristicUuid,
+                        )
                     }
+                    if (!requireOpenSuccess(generation, prepared)) return
                 }
 
-                val subscribed = localQueue.execute(
-                    operation = "writeCccd",
-                    start = {
-                        localClient.writeDescriptor(
-                            spec.serviceUuid,
-                            spec.rxCharacteristicUuid,
-                            spec.cccdUuid,
-                            spec.notificationMode,
-                        )
-                    },
-                ) { event ->
-                    (event as? GattCallbackEvent.DescriptorWrite)
-                        ?.takeIf {
-                            it.characteristicUuid.uuidEquals(spec.rxCharacteristicUuid) &&
-                                it.descriptorUuid.uuidEquals(spec.cccdUuid)
-                        }
-                        ?.let { gattStatusResult("writeCccd", it.status, Unit) }
-                }
+                val subscribed = subscribe(
+                    localClient,
+                    localQueue,
+                    spec.rxCharacteristicUuid,
+                    spec.cccdUuid,
+                    spec.notificationMode,
+                )
                 if (!requireOpenSuccess(generation, subscribed)) return
 
                 if (activeGeneration == generation) _state.value = TransportState.Open
@@ -421,12 +409,101 @@ class GattTransport(
             spec.txCharacteristicUuid
         !localClient.hasCharacteristic(spec.serviceUuid, spec.rxCharacteristicUuid) ->
             spec.rxCharacteristicUuid
+        spec.preparationSteps.any { step ->
+            val uuid = when (step) {
+                is GattPreparationStep.Subscribe -> step.characteristicUuid
+                is GattPreparationStep.ReadWritableLength -> step.characteristicUuid
+            }
+            !localClient.hasCharacteristic(spec.serviceUuid, uuid)
+        } -> "preparation characteristic"
+        spec.preparationSteps.filterIsInstance<GattPreparationStep.Subscribe>().any { step ->
+            !localClient.hasDescriptor(spec.serviceUuid, step.characteristicUuid, step.cccdUuid)
+        } -> "preparation CCCD"
         !localClient.hasDescriptor(
             spec.serviceUuid,
             spec.rxCharacteristicUuid,
             spec.cccdUuid,
         ) -> spec.cccdUuid
         else -> null
+    }
+
+    private suspend fun subscribe(
+        localClient: GattClient,
+        localQueue: GattOperationQueue,
+        characteristicUuid: String,
+        cccdUuid: String,
+        mode: GattNotificationMode,
+    ): GattOperationResult<Unit> {
+        when (
+            val enabled = localClient.setCharacteristicNotification(
+                spec.serviceUuid,
+                characteristicUuid,
+                true,
+            )
+        ) {
+            GattStartResult.Started -> Unit
+            is GattStartResult.Rejected -> return GattOperationResult.Failure(
+                GattOperationFailure(
+                    GattOperationFailureKind.START_REJECTED,
+                    "setCharacteristicNotification",
+                    enabled.status,
+                    enabled.detail,
+                ),
+            )
+        }
+        return localQueue.execute(
+            operation = "writeCccd",
+            start = {
+                localClient.writeDescriptor(
+                    spec.serviceUuid,
+                    characteristicUuid,
+                    cccdUuid,
+                    mode,
+                )
+            },
+        ) { event ->
+            (event as? GattCallbackEvent.DescriptorWrite)
+                ?.takeIf {
+                    it.characteristicUuid.uuidEquals(characteristicUuid) &&
+                        it.descriptorUuid.uuidEquals(cccdUuid)
+                }
+                ?.let { gattStatusResult("writeCccd", it.status, Unit) }
+        }
+    }
+
+    private suspend fun readWritableLength(
+        localClient: GattClient,
+        localQueue: GattOperationQueue,
+        characteristicUuid: String,
+    ): GattOperationResult<Unit> {
+        val result = localQueue.execute(
+            operation = "readWritableLength",
+            start = {
+                localClient.readCharacteristic(spec.serviceUuid, characteristicUuid)
+            },
+        ) { event ->
+            (event as? GattCallbackEvent.CharacteristicRead)
+                ?.takeIf { it.characteristicUuid.uuidEquals(characteristicUuid) }
+                ?.let { gattStatusResult("readWritableLength", it.status, it.value.copyOf()) }
+        }
+        return when (result) {
+            is GattOperationResult.Failure -> result
+            is GattOperationResult.Success -> {
+                val writableLength = result.value.decodeUnsignedBigEndian()
+                if (writableLength == null) {
+                    GattOperationResult.Failure(
+                        GattOperationFailure(
+                            GattOperationFailureKind.STATUS_ERROR,
+                            "readWritableLength",
+                            detail = "invalid writable length",
+                        ),
+                    )
+                } else {
+                    _maxWriteSize.value = minOf(_maxWriteSize.value, writableLength)
+                    GattOperationResult.Success(Unit)
+                }
+            }
+        }
     }
 
     private fun requireOpenSuccess(
@@ -456,7 +533,10 @@ class GattTransport(
 
     private fun failOpen(generation: Long, failure: TransportFailure) {
         if (activeGeneration != generation && activeGeneration != NO_GENERATION) return
-        tearDown(failure.cause, requested = false)
+        // A failed operation can leave Android's GATT client logically connected
+        // even though this transport is no longer usable. Explicitly disconnect
+        // before close so a following generation cannot overlap that client.
+        tearDown(failure.cause, requested = true)
         _state.value = TransportState.Failed(failure)
     }
 
@@ -528,3 +608,10 @@ private fun GattOperationFailure.toTransportFailure(): TransportFailure = Transp
 )
 
 private fun String.uuidEquals(other: String): Boolean = equals(other, ignoreCase = true)
+
+private fun ByteArray.decodeUnsignedBigEndian(): Int? {
+    if (isEmpty() || size > Int.SIZE_BYTES) return null
+    var value = 0L
+    for (byte in this) value = (value shl 8) or (byte.toLong() and 0xFF)
+    return value.takeIf { it in 1..Int.MAX_VALUE }?.toInt()
+}

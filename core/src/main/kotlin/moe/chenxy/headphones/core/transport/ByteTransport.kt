@@ -39,6 +39,7 @@ sealed interface TransportSpec {
         val txCharacteristicUuid: String,
         val rxCharacteristicUuid: String,
         val cccdUuid: String,
+        val preparationSteps: List<GattPreparationStep> = emptyList(),
         val requestMtu: Int? = null,
         val writableLength: Int? = null,
         val writeMode: GattWriteMode = GattWriteMode.WITH_RESPONSE,
@@ -61,6 +62,26 @@ sealed interface TransportSpec {
             }
         }
     }
+}
+
+/**
+ * Ordered vendor-supplied GATT preparation performed after service discovery
+ * and before the primary RX characteristic is subscribed.
+ */
+sealed interface GattPreparationStep {
+    data class Subscribe(
+        val characteristicUuid: String,
+        val cccdUuid: String,
+        val mode: GattNotificationMode = GattNotificationMode.NOTIFICATION,
+    ) : GattPreparationStep
+
+    /**
+     * Reads an unsigned big-endian maximum write length of one to four bytes.
+     * The transport still caps it by the negotiated ATT payload size.
+     */
+    data class ReadWritableLength(
+        val characteristicUuid: String,
+    ) : GattPreparationStep
 }
 
 enum class GattWriteMode { WITH_RESPONSE, WITHOUT_RESPONSE }

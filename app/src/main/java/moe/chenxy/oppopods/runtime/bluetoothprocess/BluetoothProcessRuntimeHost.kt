@@ -39,7 +39,7 @@ import moe.chenxy.headphones.protocol.sony.profile.SonyProfile
 import moe.chenxy.headphones.protocol.sony.session.SonyDriverProvider
 import moe.chenxy.headphones.protocol.sony.session.SonySession
 import moe.chenxy.headphones.protocol.sony.session.SonySessionEvent
-import moe.chenxy.headphones.transport.android.AndroidSppTransportFactory
+import moe.chenxy.headphones.transport.android.AndroidBluetoothTransportFactory
 import moe.chenxy.oppopods.ipc.HeadphoneIpcContract
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotPayload
 import moe.chenxy.oppopods.pods.RfcommController
@@ -78,6 +78,7 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
                     "OppoPods-Engine",
                     "snapshot generation=${value.generationId} " +
                         "vendor=${value.profile?.vendorId?.value} " +
+                        "transport=${value.profile?.transport} " +
                         "connection=${value.connection::class.simpleName.orEmpty()} compatibility=" +
                         "${value.profile?.compatibilityLevel} model=${value.profile?.model} " +
                         "firmware=${value.state.firmware ?: value.profile?.firmware} " +
@@ -109,7 +110,13 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
         registry.register(OppoDriverProvider(overrides))
         registry.register(SonyDriverProvider())
         scope.launch {
-            connect(candidate(device), AndroidSppTransportFactory(device))
+            connect(
+                candidate(device),
+                AndroidBluetoothTransportFactory(
+                    this@BluetoothProcessRuntimeHost.context,
+                    device,
+                ),
+            )
         }
     }
 
@@ -258,7 +265,12 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
             displayName = device.name,
             bonded = device.bondState == BluetoothDevice.BOND_BONDED,
             advertisedUuids = advertisedUuids,
-            availableTransports = setOf(TransportKind.CLASSIC_SPP),
+            availableTransports = buildSet {
+                add(TransportKind.CLASSIC_SPP)
+                if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                    add(TransportKind.BLE_GATT)
+                }
+            },
         )
     }
 

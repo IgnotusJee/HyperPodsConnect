@@ -29,6 +29,7 @@ class FakeGattClient : GattClient {
     var txPresent = true
     var rxPresent = true
     var descriptorPresent = true
+    val additionalCharacteristics = mutableSetOf<String>()
 
     val operations = CopyOnWriteArrayList<String>()
     val writes = CopyOnWriteArrayList<ByteArray>()
@@ -75,7 +76,9 @@ class FakeGattClient : GattClient {
     ): Boolean = when (characteristicUuid.lowercase()) {
         TX_UUID -> txPresent
         RX_UUID -> rxPresent
-        else -> false
+        else -> additionalCharacteristics.any {
+            it.equals(characteristicUuid, ignoreCase = true)
+        }
     }
 
     override fun hasDescriptor(

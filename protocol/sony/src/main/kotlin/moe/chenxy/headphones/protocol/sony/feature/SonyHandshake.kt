@@ -89,9 +89,15 @@ object SonyHandshake {
             bytes.size < 3 ||
             (bytes[1].toInt() and 0xFF) != 0
         ) return null
-        val dataLength = bytes[2].toInt() and 0xFF
-        if (dataLength % 2 != 0 || bytes.size != 3 + dataLength) return null
-        val values = (0 until dataLength / 2).map { index ->
+        val lengthOrCount = bytes[2].toInt() and 0xFF
+        val functionCount = when {
+            lengthOrCount % 2 == 0 && bytes.size == 3 + lengthOrCount ->
+                lengthOrCount / 2
+            bytes.size == 3 + lengthOrCount * 2 ->
+                lengthOrCount
+            else -> return null
+        }
+        val values = (0 until functionCount).map { index ->
             val offset = 3 + index * 2
             ((bytes[offset].toInt() and 0xFF) shl 8) or
                 (bytes[offset + 1].toInt() and 0xFF)

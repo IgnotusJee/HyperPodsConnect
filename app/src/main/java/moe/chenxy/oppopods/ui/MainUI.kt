@@ -392,6 +392,15 @@ fun MainUI(
         selectedTab = MainTab.Earphones
     }
 
+    fun requestControlSession(context: Context, device: BluetoothDevice) {
+        Intent(OppoPodsAction.ACTION_CONNECT_POD_REQUEST).apply {
+            putExtra("device", device)
+            setPackage("com.android.bluetooth")
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+            context.sendBroadcast(this)
+        }
+    }
+
     fun onDeviceSelected(device: BluetoothDevice) {
         connectingDeviceAddress = device.address
         pendingOpenEarphonesAfterPickerLoaded = false
@@ -399,12 +408,7 @@ fun MainUI(
         showDevicePicker = true
         selectedTab = MainTab.Earphones
         hookConnectionState = "connecting"
-        Intent(OppoPodsAction.ACTION_CONNECT_POD_REQUEST).apply {
-            putExtra("device", device)
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
+        requestControlSession(context, device)
     }
 
     fun setSpatialAudioMode(mode: SpatialAudioMode) {
@@ -456,6 +460,9 @@ fun MainUI(
         hookConnectionState = "connected"
         showDevicePicker = false
         selectedTab = MainTab.Earphones
+        runCatching {
+            BluetoothAdapter.getDefaultAdapter()?.getRemoteDevice(connectedDeviceAddress)
+        }.getOrNull()?.let { requestControlSession(context, it) }
     }
 
     fun backToDevicePicker() {

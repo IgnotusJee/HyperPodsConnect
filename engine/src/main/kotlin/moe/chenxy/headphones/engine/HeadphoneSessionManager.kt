@@ -3,6 +3,7 @@ package moe.chenxy.headphones.engine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -50,6 +51,7 @@ class HeadphoneSessionManager(
     override val operations: Flow<OperationEvent> = _operations.asSharedFlow()
 
     private var generationCounter = 0L
+    private val transitionMutex = Mutex()
     @Volatile
     private var active: ActiveSession? = null
     private var desired: DesiredConnection? = null
@@ -74,7 +76,7 @@ class HeadphoneSessionManager(
             }
         }
         if (duplicate != null) return duplicate
-        reconnectJob?.cancel()
+        cancelReconnect()
         return startSession(candidate, transportFactory, reconnectAttempt = 0)
     }
 
@@ -106,14 +108,15 @@ class HeadphoneSessionManager(
     }
 
     override suspend fun disconnect(cause: DisconnectCause) {
-        reconnectJob?.cancel()
-        reconnectJob = null
-        val holder = mutex.withLock {
-            desired = null
-            active.also { active = null }
+        cancelReconnect()
+        transitionMutex.withLock {
+            val current = mutex.withLock {
+                desired = null
+                active.also { active = null }
+            }
+            current?.collectorJobs?.forEach(Job::cancel)
+            current?.session?.disconnect(cause)
         }
-        holder?.collectorJobs?.forEach(Job::cancel)
-        holder?.session?.disconnect(cause)
         val previous = _snapshot.value ?: return
         _snapshot.value = previous.copy(
             connection = SessionState.Idle(previous.deviceId, previous.generationId),
@@ -131,7 +134,11 @@ class HeadphoneSessionManager(
         candidate: DeviceCandidate,
         transportFactory: TransportFactory,
         reconnectAttempt: Int,
-    ): Long {
+        expectedCurrent: ActiveSession? = null,
+    ): Long = transitionMutex.withLock {
+        if (expectedCurrent != null && !isCurrent(expectedCurrent)) {
+            return@withLock expectedCurrent.generation
+        }
         val match = driverRegistry.resolve(candidate)
         val generation = mutex.withLock { ++generationCounter }
         if (match == null) {
@@ -260,8 +267,16 @@ class HeadphoneSessionManager(
                 stillWanted.candidate,
                 stillWanted.transportFactory,
                 reconnectAttempt = nextAttempt,
+                expectedCurrent = holder,
             )
         }
+    }
+
+    private suspend fun cancelReconnect() {
+        val pending = mutex.withLock {
+            reconnectJob.also { reconnectJob = null }
+        }
+        pending?.cancelAndJoin()
     }
 
     private fun isCurrent(holder: ActiveSession): Boolean =

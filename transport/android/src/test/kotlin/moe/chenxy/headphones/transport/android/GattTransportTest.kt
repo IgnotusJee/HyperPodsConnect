@@ -11,6 +11,7 @@ import kotlinx.coroutines.withTimeout
 import moe.chenxy.headphones.core.session.DisconnectCause
 import moe.chenxy.headphones.core.transport.GattChunkPolicy
 import moe.chenxy.headphones.core.transport.GattMtuFailurePolicy
+import moe.chenxy.headphones.core.transport.GattPreparationStep
 import moe.chenxy.headphones.core.transport.GattWriteMode
 import moe.chenxy.headphones.core.transport.TransportSpec
 import moe.chenxy.headphones.core.transport.TransportState
@@ -74,6 +75,7 @@ class GattTransportTest {
         val state = transport.state.value as TransportState.Failed
         assertEquals(133, state.failure.vendorStatus)
         assertFalse("discovery must not run", "discover" in fake.operations)
+        assertEquals(1, fake.disconnectCount.get())
         assertTrue(fake.closeCount.get() >= 1)
     }
 
@@ -92,6 +94,52 @@ class GattTransportTest {
         assertEquals(listOf(30, 30, 5), fake.writes.map(ByteArray::size))
         assertArrayEquals(ByteArray(30) { it.toByte() }, fake.writes[0])
         assertEquals(1, fake.maxOutstanding.get())
+        transport.close()
+    }
+
+    @Test
+    fun `vendor preparation subscribes then reads runtime writable length`() = runBlocking {
+        val determineMtu = "00000000-0000-0000-0000-000000000003"
+        val writableLength = "00000000-0000-0000-0000-000000000004"
+        val fake = FakeGattClient().apply {
+            additionalCharacteristics += determineMtu
+            additionalCharacteristics += writableLength
+            readValue = byteArrayOf(0, 30)
+        }
+        val transport = transport(
+            fake,
+            spec(
+                requestMtu = 100,
+                preparationSteps = listOf(
+                    GattPreparationStep.Subscribe(determineMtu, FakeGattClient.CCCD_UUID),
+                    GattPreparationStep.ReadWritableLength(writableLength),
+                ),
+            ),
+        )
+
+        transport.open()
+        val result = transport.write(ByteArray(65))
+
+        assertEquals(
+            listOf(
+                "connect",
+                "mtu",
+                "discover",
+                "setNotification",
+                "descriptor",
+                "read",
+                "setNotification",
+                "descriptor",
+                "write",
+                "write",
+                "write",
+            ),
+            fake.operations,
+        )
+        assertEquals(30, transport.maxWriteSize.value)
+        assertEquals(listOf(30, 30, 5), fake.writes.map(ByteArray::size))
+        assertEquals(1, fake.maxOutstanding.get())
+        assertEquals(TransportWriteResult.Written, result)
         transport.close()
     }
 
@@ -183,6 +231,7 @@ class GattTransportTest {
         assertTrue(result is TransportWriteResult.Rejected)
         assertTrue(transport.state.value is TransportState.Failed)
         assertTrue(transport.isOperationQueueClosedForTest())
+        assertEquals(1, fake.disconnectCount.get())
         assertTrue(fake.closeCount.get() >= 1)
     }
 
@@ -324,6 +373,7 @@ class GattTransportTest {
     private fun spec(
         requestMtu: Int? = null,
         writableLength: Int? = null,
+        preparationSteps: List<GattPreparationStep> = emptyList(),
         writeMode: GattWriteMode = GattWriteMode.WITH_RESPONSE,
         mtuFailurePolicy: GattMtuFailurePolicy = GattMtuFailurePolicy.CONTINUE_WITH_DEFAULT,
         chunkPolicy: GattChunkPolicy = GattChunkPolicy.SPLIT,
@@ -333,6 +383,7 @@ class GattTransportTest {
         txCharacteristicUuid = FakeGattClient.TX_UUID,
         rxCharacteristicUuid = FakeGattClient.RX_UUID,
         cccdUuid = FakeGattClient.CCCD_UUID,
+        preparationSteps = preparationSteps,
         requestMtu = requestMtu,
         writableLength = writableLength,
         writeMode = writeMode,

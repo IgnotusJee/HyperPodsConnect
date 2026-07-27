@@ -92,6 +92,29 @@ class TandemCodecTest {
             },
         )
     }
+
+    @Test
+    fun `sanitized LinkBuds S GATT capture contains valid frames and no capability response`() {
+        val lines = requireNotNull(
+            javaClass.getResourceAsStream(
+                "/fixtures/sony/device-capture/linkbuds-s-4.2.1/" +
+                    "linkbuds-s-gatt-readonly.hex",
+            ),
+        ).bufferedReader().readLines()
+        val frames = lines.filterNot { it.isBlank() || it.startsWith("#") }
+            .map { line ->
+                val result = TandemStreamDecoder().feed(line.hex()).single()
+                assertTrue("$line -> $result", result is TandemDecodeResult.Frame)
+                (result as TandemDecodeResult.Frame).value
+            }
+
+        assertEquals(14, frames.size)
+        assertTrue(
+            frames.none { frame ->
+                (frame.payload.firstOrNull()?.toInt()?.and(0xFF)) == 0x03
+            },
+        )
+    }
 }
 
 private fun String.hex(): ByteArray =

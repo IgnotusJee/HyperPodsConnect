@@ -73,7 +73,7 @@ sealed interface SonySessionEvent {
 }
 
 /**
- * Sony Phase 8 Classic-SPP session.
+ * Sony Phase 9 Tandem session shared by Classic SPP and BLE GATT.
  *
  * Only documented GET requests and mandatory Tandem ACK frames can leave this
  * class. Every feature write is rejected before packet construction.
@@ -84,14 +84,18 @@ class SonySession(
     private val transportSettleDelayMillis: Long = DEFAULT_TRANSPORT_SETTLE_DELAY_MS,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : HeadphoneSession {
-    private val serviceUuid = resolveServiceUuid(context.candidate)
+    private val transportRoute = resolveTransport(context.candidate)
     private val machine = SessionMachine(
         SessionState.Idle(context.candidate.identity.id, generationId = 0),
     )
     private val _connection = MutableStateFlow(machine.state)
     override val connection: StateFlow<SessionState> = _connection.asStateFlow()
     private val _profile = MutableStateFlow<DeviceProfile?>(
-        SonyProfile.initial(context.candidate, serviceUuid ?: "unresolved"),
+        SonyProfile.initial(
+            context.candidate,
+            transportRoute?.kind ?: TransportKind.CLASSIC_SPP,
+            transportRoute?.label ?: "unresolved",
+        ),
     )
     override val profile: StateFlow<DeviceProfile?> = _profile.asStateFlow()
     private val _state = MutableStateFlow(HeadphoneState())
@@ -124,20 +128,20 @@ class SonySession(
     override suspend fun connect(): Unit = lifecycleMutex.withLock {
         if (_connection.value.isActive) return
         transition(SessionEvent.ConnectRequested)
-        val uuid = serviceUuid
-        if (uuid == null) {
+        val route = transportRoute
+        if (route == null) {
             transition(
                 SessionEvent.DetectionFailed(
-                    "Sony model-name hint has no advertised Sony SPP UUID; refusing guessed RFCOMM",
+                    "Sony hint has neither an advertised SPP UUID nor a bonded GATT validation route",
                 ),
             )
             return
         }
-        transition(SessionEvent.DetectionSucceeded(TransportKind.CLASSIC_SPP))
+        transition(SessionEvent.DetectionSucceeded(route.kind))
         val created = try {
             context.transportFactory.create(
                 context.candidate.identity,
-                TransportSpec.Spp(uuid, secure = true),
+                route.spec,
             )
         } catch (error: Throwable) {
             fail(FailureCategory.TRANSPORT, DisconnectCause.TRANSPORT_ERROR, error.message)
@@ -209,6 +213,7 @@ class SonySession(
         applyReport(DeviceReport.Firmware(firmware), ValueSource.QUERY_RESPONSE)
         _state.value = _state.value.copy(
             vendorStates = mapOf(
+                "sony.transport" to route.kind.name,
                 "sony.protocol.generation" to protocol.generation.name,
                 "sony.protocol.fingerprint" to protocol.rawFingerprint,
                 "sony.capability.fingerprint" to capability.fingerprint,
@@ -291,7 +296,7 @@ class SonySession(
         val detail = if (reason == FailureReason.NOT_CONNECTED) {
             "Sony session is not ready"
         } else {
-            "Sony Phase 8 is read-only; no control bytes were emitted"
+            "Sony Phase 9 is read-only; no control bytes were emitted"
         }
         val event = OperationEvent(
             id,
@@ -493,5 +498,60 @@ class SonySession(
                 else -> null
             }
         }
+
+        fun resolveTransport(candidate: DeviceCandidate): SonyTransportRoute? {
+            val sppUuid = resolveServiceUuid(candidate)
+            if (sppUuid != null && TransportKind.CLASSIC_SPP in candidate.availableTransports) {
+                return SonyTransportRoute(
+                    TransportKind.CLASSIC_SPP,
+                    TransportSpec.Spp(sppUuid, secure = true),
+                    SonyProfile.sppTransportLabel(sppUuid),
+                    DetectionBasis.ADVERTISED_SERVICE,
+                )
+            }
+            val advertisedGatt = candidate.advertisedUuids.any {
+                it.equals(
+                    SonyProfile.SONY_GATT_TANDEM_V2_HPC_SERVICE_UUID,
+                    ignoreCase = true,
+                )
+            }
+            val bondedNameRoute = candidate.bonded && isSonyNameHint(candidate.displayName)
+            if (
+                TransportKind.BLE_GATT in candidate.availableTransports &&
+                (advertisedGatt || bondedNameRoute)
+            ) {
+                return SonyTransportRoute(
+                    TransportKind.BLE_GATT,
+                    SonyProfile.gattSpec(),
+                    "gatt-tandem-v2-hpc",
+                    if (advertisedGatt) {
+                        DetectionBasis.ADVERTISED_SERVICE
+                    } else {
+                        DetectionBasis.BONDED_SERVICE_VALIDATION
+                    },
+                )
+            }
+            return null
+        }
+
+        fun isSonyNameHint(name: String?): Boolean {
+            val value = name.orEmpty()
+            return value.startsWith("WH-", ignoreCase = true) ||
+                value.startsWith("WF-", ignoreCase = true) ||
+                value.startsWith("WI-", ignoreCase = true) ||
+                value.contains("LinkBuds", ignoreCase = true)
+        }
     }
+}
+
+data class SonyTransportRoute(
+    val kind: TransportKind,
+    val spec: TransportSpec,
+    val label: String,
+    val detectionBasis: DetectionBasis,
+)
+
+enum class DetectionBasis {
+    ADVERTISED_SERVICE,
+    BONDED_SERVICE_VALIDATION,
 }

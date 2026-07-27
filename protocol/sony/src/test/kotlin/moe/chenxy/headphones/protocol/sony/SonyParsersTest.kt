@@ -70,6 +70,27 @@ class SonyParsersTest {
     }
 
     @Test
+    fun `v2 support count yields forty two-byte functions from LinkBuds S fixture`() {
+        val functions = intArrayOf(
+            0x10FF, 0x12FF, 0x13FF, 0x14FF, 0x17FF, 0x23FF, 0x251F, 0x11FF,
+            0x27FF, 0x29FF, 0x2AFF, 0x92FF, 0x3224, 0x401A, 0x44FF, 0x94FF,
+            0x4222, 0x500A, 0x6B06, 0x7001, 0x90FF, 0xA20C, 0xC1FF, 0xC2FF,
+            0xE20F, 0xF121, 0xFC09, 0x93FF, 0xF61E, 0xF925, 0x4D2A, 0x472B,
+            0x4E2C, 0x4C2D, 0xFE15, 0x4BFF, 0x482E, 0x4AFF, 0x49FF, 0x46FF,
+        )
+        val payload = byteArrayOf(0x07, 0x00, functions.size.toByte()) +
+            functions.flatMap { value ->
+                listOf((value ushr 8).toByte(), value.toByte())
+            }.toByteArray()
+
+        val support = SonyHandshake.parseSupportFunction(message(payload))
+
+        assertEquals(40, support?.functions?.size)
+        assertEquals(0x10FF, support?.functions?.first())
+        assertEquals(0x46FF, support?.functions?.last())
+    }
+
+    @Test
     fun `maps left right and cradle battery without treating charged as charging`() {
         val pair = SonyBatteryFeature.parse(
             SonyProtocolGeneration.V2,

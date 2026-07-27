@@ -1,0 +1,39 @@
+# Sanitized LinkBuds S firmware 4.2.1 BLE GATT device capture.
+# Sony capability-info RET is intentionally omitted because it contains a
+# device-unique identifier. All remaining frames are complete Tandem frames.
+
+# TX protocol-info GET
+3E0C000000000200000E3C
+# RX protocol-info RET: v2, protocol 0x030020150000
+3E0C010000000801000300201500004E3C
+
+# TX model-name GET
+3E0C00000000020401133C
+# RX model-name RET: LinkBuds S
+3E0C010000000D05010A4C696E6B427564732053B93C
+
+# TX firmware-version GET
+3E0C01000000020402153C
+# RX firmware-version RET: 4.2.1
+3E0C0000000008050205342E322E31133C
+
+# TX support-function GET
+3E0C00000000020600143C
+# RX support-function RET: v2 count 40 / forty two-byte function codes
+3E0C010000005307002810FF12FF13FF14FF17FF23FF251F11FF27FF29FF2AFF92FF3224401A44FF94FF4222500A6B06700190FFA20CC1FFC2FFE20FF121FC0993FFF61EF9254D2A472B4E2C4C2DFE154BFF482E4AFF49FF46FF9D3C
+
+# TX v2 left/right battery GET
+3E0C01000000022201323C
+# RX left/right battery RET: left 87%, right 100%, neither charging
+3E0C0000000006230157006400F13C
+
+# TX v2 case battery GET
+3E0C00000000022202323C
+# RX case battery RET: 96%, not charging
+3E0C010000000423026000963C
+
+# RX single-ear left/right battery RET after right earbud entered its case:
+# left 78%, right unavailable (0%), neither charging
+3E0C000000000623014E000000843C
+# RX case battery RET remained 96%, not charging
+3E0C010000000423026000963C

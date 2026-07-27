@@ -99,6 +99,82 @@ class SonySessionTest {
         assertEquals(0, factoryCalls)
     }
 
+    @Test
+    fun `bonded Sony GATT route validates the exact profile and reuses handshake`() = runBlocking {
+        val transport = FakeSonyTransport(TransportKind.BLE_GATT)
+        val candidate = candidate(
+            advertisedUuids = emptySet(),
+            availableTransports = setOf(TransportKind.CLASSIC_SPP, TransportKind.BLE_GATT),
+        ).copy(displayName = "LinkBuds S")
+        val factory = object : TransportFactory {
+            override suspend fun create(
+                device: DeviceIdentity,
+                spec: TransportSpec,
+            ): ByteTransport {
+                val gatt = spec as TransportSpec.Gatt
+                assertEquals(
+                    SonyProfile.SONY_GATT_TANDEM_V2_HPC_SERVICE_UUID,
+                    gatt.serviceUuid,
+                )
+                assertEquals(
+                    SonyProfile.SONY_GATT_TANDEM_TO_ACCESSORY_UUID,
+                    gatt.txCharacteristicUuid,
+                )
+                assertEquals(
+                    SonyProfile.SONY_GATT_TANDEM_FROM_ACCESSORY_UUID,
+                    gatt.rxCharacteristicUuid,
+                )
+                assertEquals(2, gatt.preparationSteps.size)
+                return transport
+            }
+        }
+        val session = SonySession(
+            DriverSessionContext(candidate, factory),
+            responseTimeoutMillis = 300,
+            transportSettleDelayMillis = 0,
+        )
+
+        session.connect()
+
+        assertTrue(session.connection.value is SessionState.Ready)
+        assertEquals(TransportKind.BLE_GATT, session.profile.value?.transport)
+        assertEquals(
+            setOf(TransportKind.BLE_GATT),
+            session.profile.value?.features?.values?.first()?.availableOnTransports,
+        )
+        session.disconnect()
+    }
+
+    @Test
+    fun `failed GATT validation never falls back to an unadvertised SPP service`() = runBlocking {
+        val specs = CopyOnWriteArrayList<TransportSpec>()
+        val candidate = candidate(
+            advertisedUuids = emptySet(),
+            availableTransports = setOf(TransportKind.CLASSIC_SPP, TransportKind.BLE_GATT),
+        ).copy(displayName = "LinkBuds S")
+        val factory = object : TransportFactory {
+            override suspend fun create(
+                device: DeviceIdentity,
+                spec: TransportSpec,
+            ): ByteTransport {
+                specs += spec
+                return FailingSonyTransport()
+            }
+        }
+        val session = SonySession(
+            DriverSessionContext(candidate, factory),
+            responseTimeoutMillis = 100,
+            transportSettleDelayMillis = 0,
+        )
+
+        session.connect()
+
+        assertTrue(session.connection.value is SessionState.Failed)
+        assertEquals(1, specs.size)
+        assertTrue(specs.single() is TransportSpec.Gatt)
+        assertFalse(specs.any { it is TransportSpec.Spp })
+    }
+
     private fun session(transport: FakeSonyTransport): SonySession {
         val factory = object : TransportFactory {
             override suspend fun create(
@@ -117,7 +193,10 @@ class SonySessionTest {
         )
     }
 
-    private fun candidate(advertisedUuids: Set<String> = setOf(SonyProfile.SONY_SPP_V2_UUID)) =
+    private fun candidate(
+        advertisedUuids: Set<String> = setOf(SonyProfile.SONY_SPP_V2_UUID),
+        availableTransports: Set<TransportKind> = setOf(TransportKind.CLASSIC_SPP),
+    ) =
         DeviceCandidate(
             identity = DeviceIdentity(
                 DeviceId.fromAddress("11:22:33:44:55:66"),
@@ -127,12 +206,37 @@ class SonySessionTest {
             displayName = "WH-1000XM4",
             bonded = true,
             advertisedUuids = advertisedUuids,
-            availableTransports = setOf(TransportKind.CLASSIC_SPP),
+            availableTransports = availableTransports,
         )
 }
 
-private class FakeSonyTransport : ByteTransport {
-    override val kind: TransportKind = TransportKind.CLASSIC_SPP
+private class FailingSonyTransport : ByteTransport {
+    override val kind: TransportKind = TransportKind.BLE_GATT
+    private val _state = MutableStateFlow<TransportState>(TransportState.Closed)
+    override val state: StateFlow<TransportState> = _state.asStateFlow()
+    override val incoming: Flow<ByteArray> = MutableSharedFlow()
+    override val maxWriteSize: StateFlow<Int> = MutableStateFlow(20).asStateFlow()
+
+    override suspend fun open() {
+        _state.value = TransportState.Failed(
+            moe.chenxy.headphones.core.transport.TransportFailure(
+                DisconnectCause.TRANSPORT_ERROR,
+                "Sony GATT service missing",
+            ),
+        )
+    }
+
+    override suspend fun write(bytes: ByteArray): TransportWriteResult =
+        error("write must not run")
+
+    override suspend fun close(cause: DisconnectCause) {
+        _state.value = TransportState.Closed
+    }
+}
+
+private class FakeSonyTransport(
+    override val kind: TransportKind = TransportKind.CLASSIC_SPP,
+) : ByteTransport {
     private val _state = MutableStateFlow<TransportState>(TransportState.Closed)
     override val state: StateFlow<TransportState> = _state.asStateFlow()
     private val _incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 32)

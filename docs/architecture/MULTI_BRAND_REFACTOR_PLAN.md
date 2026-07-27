@@ -1100,6 +1100,12 @@ Executor，Android 35/36 保留兼容连接入口；读写和 notification callb
 
 ### Phase 9：Sony BLE GATT 只读 MVP
 
+当前状态（2026-07-27）：**已闭环**。LinkBuds S / 4.2.1 已在 Xiaomi 13 Pro 与
+Xiaomi 17 Pro 两台 Android 16 / HyperOS 手机完成 BLE GATT 只读验证；第一台覆盖
+双耳、单耳/入盒、完整断线、有界重试和恢复，第二台覆盖独立蓝牙作用域重载、TWS
+自动回连、完整握手与状态同步。完整证据见
+[PHASE9_SONY_BLE_GATT_READONLY.md](PHASE9_SONY_BLE_GATT_READONLY.md)。
+
 改动：
 
 - 定义 Sony GATT profile；
@@ -1110,10 +1116,10 @@ Executor，Android 35/36 保留兼容连接入口；读写和 notification callb
 
 完成标准：
 
-- 至少一款 Sony GATT 设备完成只读 handshake/battery；
-- 至少两台 Android/HyperOS 设备验证；
-- 单耳、双耳、入盒、断线场景有记录；
-- GATT 失败不会错误回退到无证据的 SPP UUID。
+- [x] 至少一款 Sony GATT 设备完成只读 handshake/battery；
+- [x] 至少两台 Android/HyperOS 设备验证（2/2）；
+- [x] 单耳、双耳、入盒、断线场景有记录；
+- [x] GATT 失败不会错误回退到无证据的 SPP UUID。
 
 ### Phase 10：Sony 可逆控制
 

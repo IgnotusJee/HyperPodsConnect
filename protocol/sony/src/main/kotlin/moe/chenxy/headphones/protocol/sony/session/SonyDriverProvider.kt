@@ -14,25 +14,26 @@ class SonyDriverProvider : HeadphoneDriverProvider {
     override val vendorId: VendorId = VendorId.SONY
 
     override fun inspect(candidate: DeviceCandidate): DetectionEvidence? {
-        val uuid = SonySession.resolveServiceUuid(candidate)
-        val name = candidate.displayName.orEmpty()
-        val nameHint = name.startsWith("WH-", ignoreCase = true) ||
-            name.startsWith("WF-", ignoreCase = true) ||
-            name.startsWith("WI-", ignoreCase = true) ||
-            name.contains("LinkBuds", ignoreCase = true)
-        if (uuid == null && !nameHint) return null
+        val route = SonySession.resolveTransport(candidate)
+        val nameHint = SonySession.isSonyNameHint(candidate.displayName)
+        if (route == null && !nameHint) return null
         return DetectionEvidence(
             vendorId = vendorId,
-            confidence = if (uuid != null) {
+            confidence = if (route?.detectionBasis == DetectionBasis.ADVERTISED_SERVICE) {
                 DetectionConfidence.TRANSPORT_EVIDENCE
             } else {
                 DetectionConfidence.HINT
             },
             reasons = buildList {
-                uuid?.let { add("advertised Sony SPP UUID $it") }
+                route?.takeIf {
+                    it.detectionBasis == DetectionBasis.ADVERTISED_SERVICE
+                }?.let { add("advertised Sony ${it.kind} service") }
+                route?.takeIf {
+                    it.detectionBasis == DetectionBasis.BONDED_SERVICE_VALIDATION
+                }?.let { add("bonded Sony candidate; GATT service validation required") }
                 if (nameHint) add("Sony-family model-name hint")
             },
-            preferredTransports = listOf(TransportKind.CLASSIC_SPP),
+            preferredTransports = route?.let { listOf(it.kind) }.orEmpty(),
         )
     }
 

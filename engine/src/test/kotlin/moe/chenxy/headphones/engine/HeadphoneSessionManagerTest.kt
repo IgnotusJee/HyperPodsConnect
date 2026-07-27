@@ -1,5 +1,6 @@
 package moe.chenxy.headphones.engine
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -183,6 +184,39 @@ class HeadphoneSessionManagerTest {
         assertEquals(1, provider.sessions.size)
     }
 
+    @Test
+    fun `switching device cancels pending reconnect before starting replacement`() = runTest {
+        val delayStarted = CompletableDeferred<Unit>()
+        val holdReconnect = CompletableDeferred<Unit>()
+        val provider = FakeProvider(
+            connectFailures = listOf(DisconnectCause.LINK_LOST, null),
+        )
+        val manager = HeadphoneSessionManager(
+            DriverRegistry(listOf(provider)),
+            backgroundScope,
+            reconnectPolicy = ReconnectPolicy(
+                maxAttempts = 1,
+                initialDelayMillis = 1,
+                maxDelayMillis = 1,
+            ),
+            delayForReconnect = {
+                delayStarted.complete(Unit)
+                holdReconnect.await()
+            },
+        )
+
+        manager.connect(candidate("11:22:33:44:55:66"), unusedFactory)
+        runCurrent()
+        assertTrue(delayStarted.isCompleted)
+
+        manager.connect(candidate("AA:BB:CC:DD:EE:FF"), unusedFactory)
+        runCurrent()
+
+        assertEquals(2, provider.sessions.size)
+        assertEquals(DeviceId.fromAddress("AA:BB:CC:DD:EE:FF"), manager.snapshot.value?.deviceId)
+        assertTrue(manager.snapshot.value?.connection is SessionState.Ready)
+    }
+
     private fun kotlinx.coroutines.test.TestScope.manager(provider: FakeProvider) =
         HeadphoneSessionManager(
             DriverRegistry(listOf(provider)),
@@ -214,6 +248,7 @@ class HeadphoneSessionManagerTest {
 
 private class FakeProvider(
     private val connectFailure: DisconnectCause? = null,
+    private val connectFailures: List<DisconnectCause?>? = null,
 ) : HeadphoneDriverProvider {
     override val vendorId: VendorId = VendorId.OPPO
     val sessions = mutableListOf<FakeSession>()
@@ -225,8 +260,10 @@ private class FakeProvider(
         listOf(TransportKind.CLASSIC_SPP),
     )
 
-    override suspend fun createSession(context: DriverSessionContext): HeadphoneSession =
-        FakeSession(context.candidate, connectFailure).also(sessions::add)
+    override suspend fun createSession(context: DriverSessionContext): HeadphoneSession {
+        val failure = connectFailures?.getOrNull(sessions.size) ?: connectFailure
+        return FakeSession(context.candidate, failure).also(sessions::add)
+    }
 }
 
 private class FakeSession(
