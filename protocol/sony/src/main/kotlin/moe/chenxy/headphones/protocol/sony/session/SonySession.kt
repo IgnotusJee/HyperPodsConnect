@@ -30,6 +30,7 @@ import moe.chenxy.headphones.core.feature.DeviceReport
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.HeadphoneState
 import moe.chenxy.headphones.core.feature.HeadphoneStateReducer
+import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.feature.StateUpdate
 import moe.chenxy.headphones.core.feature.ValueSource
 import moe.chenxy.headphones.core.operation.FailureReason
@@ -54,6 +55,8 @@ import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolInfo
 import moe.chenxy.headphones.protocol.sony.feature.SonySupportInfo
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryFeature
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryType
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlState
 import moe.chenxy.headphones.protocol.sony.frame.TandemCodec
 import moe.chenxy.headphones.protocol.sony.frame.TandemDecodeResult
 import moe.chenxy.headphones.protocol.sony.frame.TandemFrame
@@ -73,10 +76,10 @@ sealed interface SonySessionEvent {
 }
 
 /**
- * Sony Phase 9 Tandem session shared by Classic SPP and BLE GATT.
+ * Sony Tandem session shared by Classic SPP and BLE GATT.
  *
- * Only documented GET requests and mandatory Tandem ACK frames can leave this
- * class. Every feature write is rejected before packet construction.
+ * Writes are limited to exact dynamic-evidence profiles in [SonyProfile].
+ * Every accepted write is followed by an explicit GET and value comparison.
  */
 class SonySession(
     private val context: DriverSessionContext,
@@ -108,6 +111,7 @@ class SonySession(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lifecycleMutex = Mutex()
     private val exchangeMutex = Mutex()
+    private val operationMutex = Mutex()
     private val decoder = TandemStreamDecoder()
     private val requestCounter = AtomicLong()
     private var transport: ByteTransport? = null
@@ -124,6 +128,9 @@ class SonySession(
     private var protocolInfo: SonyProtocolInfo? = null
     private var capabilityInfo: SonyCapabilityInfo? = null
     private var supportInfo: SonySupportInfo? = null
+
+    @Volatile
+    private var noiseControlState: SonyNoiseControlState? = null
 
     override suspend fun connect(): Unit = lifecycleMutex.withLock {
         if (_connection.value.isActive) return
@@ -241,11 +248,22 @@ class SonySession(
             failAndClose(created, FailureCategory.CAPABILITY, "initial Sony battery read failed")
             return
         }
-        _profile.value = SonyProfile.readOnly(
+        var noiseControlObserved = false
+        if (SonyProfile.shouldQueryNoiseControl(protocol, support)) {
+            val response = exchange(
+                SonyNoiseControlFeature.query(),
+                SonyCommand.NCASM_RET_PARAM,
+                responsePredicate = SonyNoiseControlFeature::matches,
+            )
+            noiseControlObserved = response?.let(SonyNoiseControlFeature::parse) != null
+        }
+        _profile.value = SonyProfile.verified(
             requireNotNull(_profile.value),
             protocol,
             model,
             firmware,
+            support,
+            noiseControlObserved,
         )
         transition(SessionEvent.InitialStateSynchronized)
     }
@@ -254,7 +272,8 @@ class SonySession(
         if (!_connection.value.isProtocolReady) return
         val generation = protocolInfo?.generation ?: return
         val requested = if (featureIds.isEmpty()) {
-            setOf(FeatureId.BATTERY, FeatureId.FIRMWARE_VERSION)
+            _profile.value?.features?.keys
+                ?: setOf(FeatureId.BATTERY, FeatureId.FIRMWARE_VERSION)
         } else {
             featureIds
         }
@@ -276,6 +295,13 @@ class SonySession(
                 )
             }
         }
+        if (FeatureId.NOISE_CONTROL in requested) {
+            exchange(
+                SonyNoiseControlFeature.query(),
+                SonyCommand.NCASM_RET_PARAM,
+                responsePredicate = SonyNoiseControlFeature::matches,
+            )
+        }
     }
 
     override suspend fun execute(command: FeatureCommand): OperationResult {
@@ -288,27 +314,45 @@ class SonySession(
             refresh(setOf(command.featureId))
             return OperationResult(id, OperationPhase.READ_BACK_CONFIRMED)
         }
-        val reason = if (!_connection.value.isProtocolReady) {
-            FailureReason.NOT_CONNECTED
-        } else {
-            FailureReason.NOT_WRITABLE
+        if (!_connection.value.isProtocolReady) {
+            return terminalFailure(
+                id,
+                command,
+                FailureReason.NOT_CONNECTED,
+                "Sony session is not ready",
+            )
         }
-        val detail = if (reason == FailureReason.NOT_CONNECTED) {
-            "Sony session is not ready"
-        } else {
-            "Sony Phase 9 is read-only; no control bytes were emitted"
+        val capability = _profile.value?.capability(command.featureId)
+        if (capability?.isWritable != true) {
+            val reason = if (capability == null || !capability.canWrite) {
+                FailureReason.NOT_SUPPORTED
+            } else {
+                FailureReason.NOT_WRITABLE
+            }
+            return terminalFailure(
+                id,
+                command,
+                reason,
+                "Sony feature is outside the exact write whitelist",
+            )
         }
-        val event = OperationEvent(
-            id,
-            command,
-            OperationPhase.FAILED,
-            clock(),
-            _connection.value.generationId,
-            reason,
-            detail,
-        )
-        _operations.tryEmit(event)
-        return OperationResult(id, OperationPhase.FAILED, reason, detail)
+        if (command !is FeatureCommand.SetNoiseControl) {
+            return terminalFailure(
+                id,
+                command,
+                FailureReason.NOT_SUPPORTED,
+                "Sony command is not implemented",
+            )
+        }
+        if (command.mode !in SONY_NOISE_CONTROL_MODES) {
+            return terminalFailure(
+                id,
+                command,
+                FailureReason.NOT_SUPPORTED,
+                "Sony noise-control value is not in the verified set",
+            )
+        }
+        return executeNoiseControl(id, command)
     }
 
     override suspend fun disconnect(cause: DisconnectCause): Unit = lifecycleMutex.withLock {
@@ -385,6 +429,17 @@ class SonySession(
                 ) ValueSource.NOTIFICATION else ValueSource.QUERY_RESPONSE)
             }
         }
+        SonyNoiseControlFeature.parse(message)?.let { state ->
+            noiseControlState = state
+            applyReport(
+                DeviceReport.NoiseControl(state.mode),
+                if (message.command == SonyCommand.NCASM_NTFY_PARAM) {
+                    ValueSource.NOTIFICATION
+                } else {
+                    ValueSource.QUERY_RESPONSE
+                },
+            )
+        }
         if (message.command == SonyCommand.CONNECT_RET_DEVICE_INFO) {
             SonyHandshake.parseDeviceInfo(message, SonyDeviceInfoType.FIRMWARE_VERSION)?.let {
                 applyReport(DeviceReport.Firmware(it), ValueSource.QUERY_RESPONSE)
@@ -392,7 +447,11 @@ class SonySession(
             }
         }
         responseWaiter?.let { waiter ->
-            if (message.table == waiter.table && message.command == waiter.expectedCommand) {
+            if (
+                message.table == waiter.table &&
+                message.command == waiter.expectedCommand &&
+                waiter.predicate(message)
+            ) {
                 waiter.deferred.complete(message)
             }
         }
@@ -402,13 +461,35 @@ class SonySession(
         payload: ByteArray,
         expectedCommand: Int,
         table: SonyCommandTable = SonyCommandTable.TABLE1,
-    ): SonyMdrMessage? = exchangeMutex.withLock {
+        responsePredicate: (SonyMdrMessage) -> Boolean = { true },
+        onTransportAcknowledged: () -> Unit = {},
+    ): SonyMdrMessage? = exchangeDetailed(
+        payload,
+        expectedCommand,
+        table,
+        responsePredicate,
+        onTransportAcknowledged = onTransportAcknowledged,
+    )?.response
+
+    private suspend fun exchangeDetailed(
+        payload: ByteArray,
+        expectedCommand: Int,
+        table: SonyCommandTable = SonyCommandTable.TABLE1,
+        responsePredicate: (SonyMdrMessage) -> Boolean = { true },
+        responseWaitMillis: Long = responseTimeoutMillis,
+        onTransportAcknowledged: () -> Unit = {},
+    ): SonyExchangeResult? = exchangeMutex.withLock {
         val active = transport ?: return@withLock null
         val sequence = outgoingSequence and 1
         val ack = CompletableDeferred<Unit>()
         val response = CompletableDeferred<SonyMdrMessage>()
         val ackHolder = AckWaiter(1 - sequence, ack)
-        val responseHolder = ResponseWaiter(table, expectedCommand, response)
+        val responseHolder = ResponseWaiter(
+            table,
+            expectedCommand,
+            responsePredicate,
+            response,
+        )
         check(ackWaiter == null && responseWaiter == null) {
             "only one Sony request may be in flight"
         }
@@ -426,7 +507,10 @@ class SonySession(
             if (withTimeoutOrNull(responseTimeoutMillis) { ack.await() } == null) {
                 return@withLock null
             }
-            withTimeoutOrNull(responseTimeoutMillis) { response.await() }
+            onTransportAcknowledged()
+            SonyExchangeResult(
+                response = withTimeoutOrNull(responseWaitMillis) { response.await() },
+            )
         } finally {
             if (ackWaiter === ackHolder) ackWaiter = null
             if (responseWaiter === responseHolder) responseWaiter = null
@@ -451,6 +535,113 @@ class SonySession(
             _state.value,
             StateUpdate.DeviceReported(report, source, clock()),
         )
+    }
+
+    private suspend fun executeNoiseControl(
+        requestId: RequestId,
+        command: FeatureCommand.SetNoiseControl,
+    ): OperationResult = operationMutex.withLock {
+        val original = noiseControlState
+            ?: return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.NOT_WRITABLE,
+                "Sony noise-control state is not confirmed",
+            )
+        val payload = SonyNoiseControlFeature.set(command.mode, original)
+            ?: return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.VALUE_OUT_OF_RANGE,
+                "Sony noise-control value cannot be encoded",
+            )
+
+        apply(StateUpdate.LocalPending(command, clock()))
+        emit(requestId, command, OperationPhase.QUEUED)
+        emit(requestId, command, OperationPhase.SENT)
+        val setResult = exchangeDetailed(
+            payload,
+            SonyCommand.NCASM_NTFY_PARAM,
+            responsePredicate = SonyNoiseControlFeature::matches,
+            responseWaitMillis = NOTIFICATION_GRACE_MS,
+            onTransportAcknowledged = {
+                emit(requestId, command, OperationPhase.TRANSPORT_ACKNOWLEDGED)
+            },
+        )
+        if (setResult == null) {
+            abandon(command.featureId)
+            return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony SET transport acknowledgement timed out",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+        val notified = setResult.response?.let(SonyNoiseControlFeature::parse)
+        if (notified?.mode == command.mode) {
+            emit(requestId, command, OperationPhase.STATE_CONFIRMED)
+        }
+
+        val readback = exchange(
+            SonyNoiseControlFeature.query(),
+            SonyCommand.NCASM_RET_PARAM,
+            responsePredicate = SonyNoiseControlFeature::matches,
+        )?.let(SonyNoiseControlFeature::parse)
+        if (readback?.mode == command.mode) {
+            noiseControlState = readback
+            applyReport(DeviceReport.NoiseControl(readback.mode), ValueSource.READ_BACK)
+            emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
+            OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+        } else {
+            abandon(command.featureId)
+            terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony write was not confirmed by explicit GET readback",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+    }
+
+    private fun apply(update: StateUpdate) {
+        _state.value = HeadphoneStateReducer.reduce(_state.value, update)
+    }
+
+    private fun abandon(featureId: FeatureId) {
+        apply(StateUpdate.PendingAbandoned(featureId, clock()))
+    }
+
+    private fun emit(
+        requestId: RequestId,
+        command: FeatureCommand,
+        phase: OperationPhase,
+        failure: FailureReason? = null,
+        detail: String? = null,
+    ) {
+        _operations.tryEmit(
+            OperationEvent(
+                requestId,
+                command,
+                phase,
+                clock(),
+                _connection.value.generationId,
+                failure,
+                detail,
+            ),
+        )
+    }
+
+    private fun terminalFailure(
+        requestId: RequestId,
+        command: FeatureCommand,
+        reason: FailureReason,
+        detail: String,
+        phase: OperationPhase = OperationPhase.FAILED,
+    ): OperationResult {
+        emit(requestId, command, phase, reason, detail)
+        return OperationResult(requestId, phase, reason, detail)
     }
 
     private suspend fun failAndClose(
@@ -478,13 +669,24 @@ class SonySession(
     private data class ResponseWaiter(
         val table: SonyCommandTable,
         val expectedCommand: Int,
+        val predicate: (SonyMdrMessage) -> Boolean,
         val deferred: CompletableDeferred<SonyMdrMessage>,
+    )
+
+    private data class SonyExchangeResult(
+        val response: SonyMdrMessage?,
     )
 
     companion object {
         const val DEFAULT_RESPONSE_TIMEOUT_MS = 1_500L
         const val DEFAULT_TRANSPORT_SETTLE_DELAY_MS = 300L
         private const val INITIAL_PROTOCOL_ATTEMPTS = 3
+        private const val NOTIFICATION_GRACE_MS = 400L
+        private val SONY_NOISE_CONTROL_MODES = setOf(
+            NoiseControlMode.OFF,
+            NoiseControlMode.NOISE_CANCELLATION,
+            NoiseControlMode.TRANSPARENCY,
+        )
 
         fun resolveServiceUuid(candidate: DeviceCandidate): String? {
             val advertised = candidate.advertisedUuids

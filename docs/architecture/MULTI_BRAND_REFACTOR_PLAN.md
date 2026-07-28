@@ -1123,12 +1123,19 @@ Xiaomi 17 Pro 两台 Android 16 / HyperOS 手机完成 BLE GATT 只读验证；�
 
 ### Phase 10：Sony 可逆控制
 
+当前状态（2026-07-28）：**进行中，NC/ASM 三态模式切片已闭环**。LinkBuds S /
+4.2.1 的关闭、降噪、环境声三态已完成官方 App 动态证据、严格白名单、SET 前读取、
+独立 ACK、通知宽限、强制 GET readback、原值恢复、脱敏 fixture 与真机验证。环境
+声 level、EQ preset 和其他低风险功能尚未开始，Phase 10 因此不标记为整体完成。
+完整记录见
+[PHASE10_SONY_REVERSIBLE_CONTROLS.md](PHASE10_SONY_REVERSIBLE_CONTROLS.md)。
+
 逐项添加：
 
-1. NC 开关；
-2. ASM 开关/level；
-3. EQ preset；
-4. 其他低风险功能。
+1. [x] NC 开关；
+2. [x] ASM 开关；[ ] ASM level；
+3. [ ] EQ preset；
+4. [ ] 其他低风险功能。
 
 每项准入要求：
 
@@ -1143,9 +1150,10 @@ Xiaomi 17 Pro 两台 Android 16 / HyperOS 手机完成 BLE GATT 只读验证；�
 
 完成标准：
 
-- 只有达到 Controlled 的设备显示写控件；
-- 无 FOTA、关机、恢复出厂、配对管理和 raw 扫描；
-- 每个功能有真机记录和 fixture。
+- [x] 已交付切片只有达到 Controlled 的设备显示写控件；
+- [x] 已交付切片无 FOTA、关机、恢复出厂、配对管理和 raw 扫描；
+- [x] NC/ASM 三态模式有真机记录和 fixture；
+- [ ] ASM level、EQ 与后续功能按同一门禁逐项闭环。
 
 ### Phase 11：兼容性扩展和清理
 

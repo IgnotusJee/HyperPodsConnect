@@ -1,0 +1,52 @@
+{
+  "id": "sony-linkbuds-s-ncasm",
+  "deviceAlias": "sony-linkbuds-s-01",
+  "appPackage": "com.sony.songpal.mdr",
+  "expectedAppVersion": "13.0.8",
+  "mode": "guided",
+  "transportCandidates": [
+    "GATT"
+  ],
+  "steps": [
+    {
+      "id": "baseline_off",
+      "prompt": "保持当前关闭模式，不操作",
+      "settleSeconds": 5
+    },
+    {
+      "id": "noise_cancelling",
+      "prompt": "切换到降噪",
+      "settleSeconds": 6
+    },
+    {
+      "id": "restore_off_after_nc",
+      "prompt": "恢复关闭",
+      "settleSeconds": 6
+    },
+    {
+      "id": "ambient_sound",
+      "prompt": "切换到环境声音",
+      "settleSeconds": 6
+    },
+    {
+      "id": "restore_off_after_ambient",
+      "prompt": "恢复关闭",
+      "settleSeconds": 6
+    }
+  ],
+  "repeat": 3,
+  "forbiddenUiTerms": [
+    "固件升级",
+    "固件更新",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备",
+    "查找耳机",
+    "关闭音频设备",
+    "更多信息"
+  ],
+  "targetDeviceNames": [
+    "LinkBuds S"
+  ]
+}

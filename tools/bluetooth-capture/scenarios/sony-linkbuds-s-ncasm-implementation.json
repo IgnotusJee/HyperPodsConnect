@@ -1,0 +1,42 @@
+{
+  "id": "sony-linkbuds-s-ncasm-implementation",
+  "deviceAlias": "sony-linkbuds-s-01",
+  "appPackage": "moe.chenxy.oppopods",
+  "expectedAppVersion": "2.0.7",
+  "mode": "automated-whitelist",
+  "transportCandidates": [
+    "GATT"
+  ],
+  "steps": [
+    {
+      "id": "baseline_get_off",
+      "prompt": "确认初始 GET 为关闭",
+      "settleSeconds": 3
+    },
+    {
+      "id": "set_noise_cancelling",
+      "prompt": "单次切换到降噪并等待 NTFY 与 GET readback",
+      "settleSeconds": 5
+    },
+    {
+      "id": "restore_off",
+      "prompt": "单次恢复关闭并等待 NTFY 与 GET readback",
+      "settleSeconds": 5
+    }
+  ],
+  "repeat": 1,
+  "forbiddenUiTerms": [
+    "固件升级",
+    "固件更新",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备",
+    "查找耳机",
+    "关闭音频设备",
+    "更多信息"
+  ],
+  "targetDeviceNames": [
+    "LinkBuds S"
+  ]
+}

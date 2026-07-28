@@ -243,6 +243,9 @@ private fun LazyListScope.podControlItems(
                     ancStatus = ancMode,
                     onAncModeChange = onAncModeChange,
                     smartAncLevel = smartAncLevel,
+                    availableModes = noiseControl.options.mapNotNull {
+                        runCatching { NoiseControlMode.valueOf(it.value) }.getOrNull()
+                    }.toSet(),
                     enabled = noiseControl.writable,
                     adaptiveModeEnabled =
                         noiseControl.options.any { it.value == "ADAPTIVE" },

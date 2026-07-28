@@ -46,6 +46,22 @@ import top.yukonga.miuix.kmp.utils.pressable
 
 private const val ANIM_DURATION = 300
 
+private val NOISE_CANCELLATION_STRENGTH_MODES = listOf(
+    NoiseControlMode.NOISE_CANCELLATION_SMART,
+    NoiseControlMode.NOISE_CANCELLATION_LIGHT,
+    NoiseControlMode.NOISE_CANCELLATION_MEDIUM,
+    NoiseControlMode.NOISE_CANCELLATION_DEEP,
+)
+
+internal fun supportedNoiseCancellationStrengthModes(
+    availableModes: Set<NoiseControlMode>?,
+): List<NoiseControlMode> =
+    if (availableModes == null) {
+        NOISE_CANCELLATION_STRENGTH_MODES
+    } else {
+        NOISE_CANCELLATION_STRENGTH_MODES.filter { it in availableModes }
+    }
+
 private fun NoiseControlMode.isNoiseCancellation(): Boolean = this in setOf(
     NoiseControlMode.NOISE_CANCELLATION,
     NoiseControlMode.NOISE_CANCELLATION_SMART,
@@ -59,12 +75,16 @@ fun AncSwitch(
     ancStatus: NoiseControlMode,
     onAncModeChange: (NoiseControlMode) -> Unit,
     smartAncLevel: NoiseControlMode? = null,
+    availableModes: Set<NoiseControlMode>? = null,
     compact: Boolean = false,
     enabled: Boolean = true,
     adaptiveModeEnabled: Boolean = true,
     transparencyVocalEnhancement: Boolean = false,
     onTransparencyVocalEnhancementChange: ((Boolean) -> Unit)? = null
 ) {
+    fun isAvailable(mode: NoiseControlMode): Boolean =
+        availableModes == null || mode in availableModes
+
     val verticalPadding = if (compact) 8.dp else 16.dp
     val tabMinWidth = 0.dp
     val tabMaxWidth = if (compact) 72.dp else 98.dp
@@ -80,19 +100,21 @@ fun AncSwitch(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AncButton(
-                offIconRes = R.drawable.ic_openanc_off,
-                onIconRes = R.drawable.ic_openanc_on,
-                label = stringResource(R.string.noise_cancellation_title),
-                isSelected = ancStatus.isNoiseCancellation(),
-                onClick = {
-                    if (enabled) onAncModeChange(NoiseControlMode.NOISE_CANCELLATION)
-                },
-                modifier = Modifier.weight(1f),
-                compact = compact
-            )
+            if (isAvailable(NoiseControlMode.NOISE_CANCELLATION)) {
+                AncButton(
+                    offIconRes = R.drawable.ic_openanc_off,
+                    onIconRes = R.drawable.ic_openanc_on,
+                    label = stringResource(R.string.noise_cancellation_title),
+                    isSelected = ancStatus.isNoiseCancellation(),
+                    onClick = {
+                        if (enabled) onAncModeChange(NoiseControlMode.NOISE_CANCELLATION)
+                    },
+                    modifier = Modifier.weight(1f),
+                    compact = compact
+                )
+            }
             // Adaptive模式按钮：仅当设置中启用Adaptive模式时显示
-            if (adaptiveModeEnabled) {
+            if (adaptiveModeEnabled && isAvailable(NoiseControlMode.ADAPTIVE)) {
                 AncButton(
                     offIconRes = R.drawable.ic_adaptive_off,
                     onIconRes = R.drawable.ic_adaptive_on,
@@ -103,33 +125,32 @@ fun AncSwitch(
                     compact = compact
                 )
             }
-            AncButton(
-                offIconRes = R.drawable.ic_transparent_off,
-                onIconRes = R.drawable.ic_transparent_on,
-                label = stringResource(R.string.transparency_title),
-                isSelected = ancStatus == NoiseControlMode.TRANSPARENCY,
-                onClick = { if (enabled) onAncModeChange(NoiseControlMode.TRANSPARENCY) },
-                modifier = Modifier.weight(1f),
-                compact = compact
-            )
-            AncButton(
-                offIconRes = R.drawable.ic_closeanc_off,
-                onIconRes = R.drawable.ic_closeanc_on,
-                label = stringResource(R.string.off),
-                isSelected = ancStatus == NoiseControlMode.OFF,
-                onClick = { if (enabled) onAncModeChange(NoiseControlMode.OFF) },
-                modifier = Modifier.weight(1f),
-                compact = compact
-            )
+            if (isAvailable(NoiseControlMode.TRANSPARENCY)) {
+                AncButton(
+                    offIconRes = R.drawable.ic_transparent_off,
+                    onIconRes = R.drawable.ic_transparent_on,
+                    label = stringResource(R.string.transparency_title),
+                    isSelected = ancStatus == NoiseControlMode.TRANSPARENCY,
+                    onClick = { if (enabled) onAncModeChange(NoiseControlMode.TRANSPARENCY) },
+                    modifier = Modifier.weight(1f),
+                    compact = compact
+                )
+            }
+            if (isAvailable(NoiseControlMode.OFF)) {
+                AncButton(
+                    offIconRes = R.drawable.ic_closeanc_off,
+                    onIconRes = R.drawable.ic_closeanc_on,
+                    label = stringResource(R.string.off),
+                    isSelected = ancStatus == NoiseControlMode.OFF,
+                    onClick = { if (enabled) onAncModeChange(NoiseControlMode.OFF) },
+                    modifier = Modifier.weight(1f),
+                    compact = compact
+                )
+            }
         }
 
         if (ancStatus.isNoiseCancellation()) {
-            val modes = listOf(
-                NoiseControlMode.NOISE_CANCELLATION_SMART,
-                NoiseControlMode.NOISE_CANCELLATION_LIGHT,
-                NoiseControlMode.NOISE_CANCELLATION_MEDIUM,
-                NoiseControlMode.NOISE_CANCELLATION_DEEP
-            )
+            val modes = supportedNoiseCancellationStrengthModes(availableModes)
             val isSmart = ancStatus == NoiseControlMode.NOISE_CANCELLATION_SMART
             val smartLevelIndex = when (smartAncLevel) {
                 NoiseControlMode.NOISE_CANCELLATION_LIGHT -> 1
@@ -138,26 +159,40 @@ fun AncSwitch(
                 else -> null
             }
             val smartName = stringResource(R.string.noise_cancellation_smart)
-            val tabs = listOf(
-                smartName,
-                stringResource(R.string.noise_cancellation_light),
-                stringResource(R.string.noise_cancellation_medium),
-                stringResource(R.string.noise_cancellation_deep)
+            val labels = mapOf(
+                NoiseControlMode.NOISE_CANCELLATION_SMART to smartName,
+                NoiseControlMode.NOISE_CANCELLATION_LIGHT to
+                    stringResource(R.string.noise_cancellation_light),
+                NoiseControlMode.NOISE_CANCELLATION_MEDIUM to
+                    stringResource(R.string.noise_cancellation_medium),
+                NoiseControlMode.NOISE_CANCELLATION_DEEP to
+                    stringResource(R.string.noise_cancellation_deep)
             )
 
-            AncStrengthTabRow(
-                tabs = tabs,
-                selectedTabIndex = modes.indexOf(ancStatus).takeIf { it >= 0 } ?: 0,
-                assistHighlightedIndex = if (isSmart) smartLevelIndex else null,
-                onTabSelected = { if (enabled) onAncModeChange(modes[it]) },
-                compact = compact,
-                minWidth = tabMinWidth,
-                tabMaxWidth = tabMaxWidth,
-                height = tabHeight,
-                itemSpacing = tabSpacing,
-                outerPadding = tabOuterPadding,
-                topPadding = if (compact) 8.dp else 16.dp
-            )
+            if (modes.isNotEmpty()) {
+                AncStrengthTabRow(
+                    tabs = modes.map { labels.getValue(it) },
+                    selectedTabIndex = modes.indexOf(ancStatus).takeIf { it >= 0 } ?: 0,
+                    assistHighlightedIndex =
+                        if (isSmart) {
+                            smartLevelIndex
+                                ?.let { index -> modes.indexOf(
+                                    NOISE_CANCELLATION_STRENGTH_MODES[index]
+                                ) }
+                                ?.takeIf { it >= 0 }
+                        } else {
+                            null
+                        },
+                    onTabSelected = { if (enabled) onAncModeChange(modes[it]) },
+                    compact = compact,
+                    minWidth = tabMinWidth,
+                    tabMaxWidth = tabMaxWidth,
+                    height = tabHeight,
+                    itemSpacing = tabSpacing,
+                    outerPadding = tabOuterPadding,
+                    topPadding = if (compact) 8.dp else 16.dp
+                )
+            }
         }
 
         if (ancStatus == NoiseControlMode.TRANSPARENCY && onTransparencyVocalEnhancementChange != null) {

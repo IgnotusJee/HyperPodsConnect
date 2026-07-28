@@ -25,6 +25,7 @@ import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.headphones.core.operation.OperationEvent
 import moe.chenxy.headphones.core.operation.OperationResult
 import moe.chenxy.headphones.core.session.DisconnectCause
+import moe.chenxy.headphones.core.session.SessionState
 import moe.chenxy.headphones.engine.DriverRegistry
 import moe.chenxy.headphones.engine.HeadphoneSessionManager
 import moe.chenxy.headphones.engine.HeadphoneSnapshot
@@ -74,6 +75,7 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
         scope.launch {
             manager.snapshot.collect { value ->
                 value ?: return@collect
+                val failure = value.connection as? SessionState.Failed
                 Log.d(
                     "OppoPods-Engine",
                     "snapshot generation=${value.generationId} " +
@@ -82,7 +84,13 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
                         "connection=${value.connection::class.simpleName.orEmpty()} compatibility=" +
                         "${value.profile?.compatibilityLevel} model=${value.profile?.model} " +
                         "firmware=${value.state.firmware ?: value.profile?.firmware} " +
-                        "batteries=${value.state.batteries}",
+                        "batteries=${value.state.batteries}" +
+                        if (failure == null) {
+                            ""
+                        } else {
+                            " failure=${failure.category}/${failure.cause}" +
+                                " detail=${failure.detail?.redactBluetoothAddresses()}"
+                        },
                 )
                 attachVendorEvents(value.generationId)
                 if (value.profile?.vendorId == VendorId.OPPO) {
@@ -298,4 +306,10 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
 
     private fun ByteArray.toLogHex(): String =
         joinToString(separator = "") { "%02X".format(it.toInt() and 0xFF) }
+
+    private fun String.redactBluetoothAddresses(): String =
+        replace(BLUETOOTH_ADDRESS_PATTERN, "<redacted-address>")
+
+    private val BLUETOOTH_ADDRESS_PATTERN =
+        Regex("(?i)(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
 }

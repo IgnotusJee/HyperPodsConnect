@@ -50,13 +50,23 @@ def load_frida_events(events_path, payloads_path):
     return events, payloads
 
 
-def extract_hci_rfcomm(tshark, capture, handles):
+def extract_hci_values(tshark, capture, handles, transport):
     handle_filter = " || ".join(f"bthci_acl.chandle == {h}" for h in handles)
-    display = f"btrfcomm && data && ({handle_filter})"
+    if transport == "rfcomm":
+        display = f"btrfcomm && data && ({handle_filter})"
+        value_field = "data.data"
+    else:
+        display = (
+            "btatt.value && "
+            "(btatt.opcode == 0x52 || btatt.opcode == 0x1b || "
+            "btatt.opcode == 0x1d) && "
+            f"({handle_filter})"
+        )
+        value_field = "btatt.value"
     result = subprocess.run(
         [tshark, "-r", capture, "-Y", display, "-T", "fields",
          "-e", "frame.number", "-e", "frame.time_epoch",
-         "-e", "hci_h4.direction", "-e", "data.data"],
+         "-e", "hci_h4.direction", "-e", value_field],
         capture_output=True, text=True, check=True,
     )
 
@@ -87,7 +97,7 @@ def stream_of(items, direction, key):
     return b"".join(item[key] for item in items if item["direction"] == direction)
 
 
-def correlate(events, payloads, hci_frames):
+def correlate(events, payloads, hci_frames, event_kinds):
     index = {}
     for frame in hci_frames:
         index.setdefault((frame["direction"], frame["payload"]), []).append(frame)
@@ -95,7 +105,7 @@ def correlate(events, payloads, hci_frames):
     candidates_for = []
     unmatched = []
     for event in events:
-        if event.get("kind") != "spp.data" or event["seq"] not in payloads:
+        if event.get("kind") not in event_kinds or event["seq"] not in payloads:
             continue
         payload = payloads[event["seq"]]
         direction = event.get("direction")
@@ -144,6 +154,12 @@ def main():
     parser.add_argument("--session", required=True, help="会话目录")
     parser.add_argument("--capture", help="btsnoop 文件；默认取会话 raw/ 下第一个")
     parser.add_argument("--handles", default="6", help="逗号分隔的连接句柄十进制值")
+    parser.add_argument(
+        "--transport",
+        choices=("auto", "rfcomm", "gatt"),
+        default="auto",
+        help="链路类型；auto 根据 Frida 事件选择",
+    )
     parser.add_argument("--tshark", default=DEFAULT_TSHARK)
     parser.add_argument("--json", dest="json_path")
     args = parser.parse_args()
@@ -164,14 +180,35 @@ def main():
     handles = [int(h.strip()) for h in args.handles.split(",") if h.strip()]
 
     events, payloads = load_frida_events(events_path, payloads_path)
-    hci_frames = extract_hci_rfcomm(args.tshark, capture, handles)
-    matches, unmatched = correlate(events, payloads, hci_frames)
+    transport = args.transport
+    if transport == "auto":
+        transport = "gatt" if any(
+            event.get("kind") in ("gatt.write", "gatt.notify")
+            for event in events
+        ) else "rfcomm"
+    if transport == "rfcomm":
+        event_kinds = {"spp.data"}
+    else:
+        # API 33+ exposes the notification byte[] directly and produces
+        # gatt.notify. Older callback overloads first populate the RX
+        # characteristic through setValue(); use that only as a fallback to
+        # avoid double-counting captures where both hooks fire.
+        has_notify = any(event.get("kind") == "gatt.notify" for event in events)
+        rx_kind = "gatt.notify" if has_notify else "gatt.setvalue"
+        event_kinds = {"gatt.write", rx_kind}
+        if rx_kind == "gatt.setvalue":
+            for event in events:
+                if event.get("kind") == rx_kind and "direction" not in event:
+                    event["direction"] = "rx"
+    hci_frames = extract_hci_values(args.tshark, capture, handles, transport)
+    matches, unmatched = correlate(events, payloads, hci_frames, event_kinds)
 
     total = len(matches) + len(unmatched)
     tx_matches = [m for m in matches if m["direction"] == "tx"]
 
-    print(f"Frida spp.data 事件 : {total}")
-    print(f"HCI RFCOMM 数据帧   : {len(hci_frames)}")
+    print(f"Transport           : {transport}")
+    print(f"Frida 链路事件      : {total}")
+    print(f"HCI 链路数据帧      : {len(hci_frames)}")
     print(f"字节级匹配          : {len(matches)}（TX {len(tx_matches)}，RX {len(matches) - len(tx_matches)}）")
     print(f"未匹配              : {len(unmatched)}")
 
@@ -203,38 +240,43 @@ def main():
     # socket in arbitrary chunks, so one HCI frame routinely arrives as several
     # read() results. The plan allows equality "after link reassembly", which at
     # this layer means comparing the concatenated per-direction byte streams.
-    frida_data = [
-        {"direction": e.get("direction"), "payload": payloads[e["seq"]]}
-        for e in events
-        if e.get("kind") == "spp.data" and e["seq"] in payloads
-    ]
-    print("\n流级比对（分片重组后）：")
     stream_results = {}
-    for direction in ("tx", "rx"):
-        frida_stream = stream_of(frida_data, direction, "payload")
-        hci_stream = stream_of(hci_frames, direction, "payload")
-        if not frida_stream and not hci_stream:
-            continue
-        if frida_stream == hci_stream:
-            verdict = "完全一致"
-        elif frida_stream and hci_stream.endswith(frida_stream):
-            verdict = "Frida 流是 HCI 流的后缀（attach 晚于连接建立）"
-        elif frida_stream and frida_stream in hci_stream:
-            verdict = "Frida 流是 HCI 流的连续子串"
-        else:
-            verdict = "不一致"
-        stream_results[direction] = {
-            "fridaBytes": len(frida_stream),
-            "hciBytes": len(hci_stream),
-            "verdict": verdict,
-        }
-        print(f"  {direction}: Frida {len(frida_stream)}B / HCI {len(hci_stream)}B -> {verdict}")
+    if transport == "rfcomm":
+        frida_data = [
+            {"direction": e.get("direction"), "payload": payloads[e["seq"]]}
+            for e in events
+            if e.get("kind") == "spp.data" and e["seq"] in payloads
+        ]
+        print("\n流级比对（分片重组后）：")
+        for direction in ("tx", "rx"):
+            frida_stream = stream_of(frida_data, direction, "payload")
+            hci_stream = stream_of(hci_frames, direction, "payload")
+            if not frida_stream and not hci_stream:
+                continue
+            if frida_stream == hci_stream:
+                verdict = "完全一致"
+            elif frida_stream and hci_stream.endswith(frida_stream):
+                verdict = "Frida 流是 HCI 流的后缀（attach 晚于连接建立）"
+            elif frida_stream and frida_stream in hci_stream:
+                verdict = "Frida 流是 HCI 流的连续子串"
+            else:
+                verdict = "不一致"
+            stream_results[direction] = {
+                "fridaBytes": len(frida_stream),
+                "hciBytes": len(hci_stream),
+                "verdict": verdict,
+            }
+            print(
+                f"  {direction}: Frida {len(frida_stream)}B / "
+                f"HCI {len(hci_stream)}B -> {verdict}"
+            )
 
     if args.json_path:
         with open(args.json_path, "w", encoding="utf-8") as handle:
             json.dump({
-                "fridaDataEvents": total,
-                "hciRfcommFrames": len(hci_frames),
+                "transport": transport,
+                "fridaLinkEvents": total,
+                "hciLinkFrames": len(hci_frames),
                 "matched": len(matches),
                 "txMatched": len(tx_matches),
                 "unmatched": len(unmatched),

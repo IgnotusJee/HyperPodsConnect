@@ -1,0 +1,42 @@
+# Sanitized Sony Sound Connect 13.0.8 / LinkBuds S 4.2.1 NCASM capture.
+# Device identifiers and unrelated notifications are omitted.
+
+# Cold-start GET before control
+3E0C000000000266178B3C
+# RET: off, ambient selector off, level 10
+3E0C01000000076717010000000A9D3C
+
+# SET noise cancellation
+3E0C00000000076817010100000A9E3C
+# Tandem ACK
+3E010100000000023C
+# NTFY noise cancellation
+3E0C00000000076917010100000A9F3C
+
+# SET off after noise cancellation
+3E0C01000000076817010000000A9E3C
+# NTFY off
+3E0C00000000076917010000000A9E3C
+
+# SET ambient sound
+3E0C00000000076817010101000A9F3C
+# NTFY ambient sound
+3E0C00000000076917010101000AA03C
+
+# SET off while preserving the ambient selector
+3E0C01000000076817010001000A9F3C
+# Device normalizes the off notification to ambient selector off
+3E0C00000000076917010000000A9E3C
+
+# Project implementation: the headset ACKs SET but emits no NCASM NTFY.
+# Explicit GET readback confirms noise cancellation.
+3E0C00000000076817010100000A9E3C
+3E010100000000023C
+3E0C010000000266178C3C
+3E0C00000000076717010100000A9D3C
+
+# Explicit GET readback confirms restoration to off.
+3E0C00000000076817010000000A9D3C
+3E010100000000023C
+3E0C010000000266178C3C
+3E0C00000000076717010000000A9C3C

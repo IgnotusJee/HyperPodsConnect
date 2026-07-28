@@ -51,8 +51,11 @@ object SonyHandshake {
         return SonyProtocolInfo(
             generation = generation,
             version = version,
-            table1Enabled = bytes.getOrNull(6)?.toInt()?.and(0xFF)?.let { it != 0 } ?: true,
-            table2Enabled = bytes.getOrNull(7)?.toInt()?.and(0xFF)?.let { it != 0 } ?: false,
+            // The two trailing bytes in the v2 response are reserved, not
+            // command-table flags. LinkBuds S 4.2.1 reports 00 00 and the
+            // official app immediately uses both DATA_MDR and DATA_MDR_NO2.
+            table1Enabled = true,
+            table2Enabled = generation == SonyProtocolGeneration.V2,
             rawFingerprint = fingerprint(bytes),
         )
     }

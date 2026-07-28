@@ -15,12 +15,11 @@ import moe.chenxy.headphones.core.transport.GattPreparationStep
 import moe.chenxy.headphones.core.transport.GattWriteMode
 import moe.chenxy.headphones.core.transport.TransportSpec
 import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolInfo
+import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolGeneration
+import moe.chenxy.headphones.protocol.sony.feature.SonySupportInfo
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryType
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
 
-/**
- * Phase 8 safety profile. Sony writes stay disabled even when a read is
- * verified; control commands need separate per-model dynamic evidence.
- */
 object SonyProfile {
     fun initial(
         candidate: DeviceCandidate,
@@ -41,26 +40,83 @@ object SonyProfile {
         compatibilityLevel = CompatibilityLevel.DETECTED,
     )
 
-    fun readOnly(
+    fun verified(
         initial: DeviceProfile,
         protocolInfo: SonyProtocolInfo,
         model: String,
         firmware: String,
-    ): DeviceProfile = initial.copy(
-        model = model,
-        firmware = firmware,
-        topology = topology(model),
-        protocol = initial.protocol.copy(
-            version = protocolInfo.version?.toString()
-                ?: protocolInfo.generation.name.lowercase(),
-            commandTable = buildString {
-                append("table1")
-                if (protocolInfo.table2Enabled) append("+table2")
+        supportInfo: SonySupportInfo,
+        noiseControlReadVerified: Boolean,
+    ): DeviceProfile {
+        val noiseControlWritable = noiseControlReadVerified &&
+            isNoiseControlWriteWhitelisted(
+                initial.transport,
+                protocolInfo,
+                model,
+                firmware,
+                supportInfo,
+            )
+        val capabilities = readCapabilities(EvidenceLevel.VERIFIED, initial.transport).toMutableMap()
+        if (noiseControlReadVerified) {
+            capabilities[FeatureId.NOISE_CONTROL] = FeatureCapability(
+                featureId = FeatureId.NOISE_CONTROL,
+                canRead = true,
+                canWrite = noiseControlWritable,
+                evidence = EvidenceLevel.VERIFIED,
+                availableOnTransports = setOf(initial.transport),
+                requiresReadback = true,
+                allowedValues = setOf(
+                    "OFF",
+                    "NOISE_CANCELLATION",
+                    "TRANSPARENCY",
+                ),
+                source = if (noiseControlWritable) {
+                    "LinkBuds S 4.2.1 / GATT / table1 official-app dynamic evidence"
+                } else {
+                    "Sony NC/ASM parameter 0x17 read verified; writes not whitelisted"
+                },
+            )
+        }
+        return initial.copy(
+            model = model,
+            firmware = firmware,
+            topology = topology(model),
+            protocol = initial.protocol.copy(
+                version = protocolInfo.version?.toString()
+                    ?: protocolInfo.generation.name.lowercase(),
+                commandTable = buildString {
+                    append("table1")
+                    if (protocolInfo.table2Enabled) append("+table2")
+                },
+            ),
+            features = capabilities,
+            compatibilityLevel = if (noiseControlWritable) {
+                CompatibilityLevel.CONTROLLED
+            } else {
+                CompatibilityLevel.READ_ONLY
             },
-        ),
-        features = readCapabilities(EvidenceLevel.VERIFIED, initial.transport),
-        compatibilityLevel = CompatibilityLevel.READ_ONLY,
-    )
+        )
+    }
+
+    fun shouldQueryNoiseControl(
+        protocolInfo: SonyProtocolInfo,
+        supportInfo: SonySupportInfo,
+    ): Boolean =
+        protocolInfo.generation == SonyProtocolGeneration.V2 &&
+            protocolInfo.table1Enabled &&
+            SonyNoiseControlFeature.FUNCTION_ID in supportInfo.functions
+
+    fun isNoiseControlWriteWhitelisted(
+        transportKind: TransportKind,
+        protocolInfo: SonyProtocolInfo,
+        model: String,
+        firmware: String,
+        supportInfo: SonySupportInfo,
+    ): Boolean =
+        transportKind == TransportKind.BLE_GATT &&
+            model == "LinkBuds S" &&
+            firmware == "4.2.1" &&
+            shouldQueryNoiseControl(protocolInfo, supportInfo)
 
     fun batteryTypes(model: String?): List<SonyBatteryType> = when (topology(model)) {
         DeviceTopology.EARBUDS_WITH_CASE ->
@@ -112,7 +168,7 @@ object SonyProfile {
             evidence = evidence,
             availableOnTransports = setOf(transportKind),
             requiresReadback = false,
-            source = "Sony official-app static reverse engineering; writes disabled in Phase 9",
+            source = "Sony official-app static reverse engineering; read verified on device",
         )
     }
 

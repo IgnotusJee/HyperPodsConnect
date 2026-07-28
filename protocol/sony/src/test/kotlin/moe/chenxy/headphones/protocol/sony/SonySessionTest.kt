@@ -16,6 +16,7 @@ import moe.chenxy.headphones.core.device.VendorId
 import moe.chenxy.headphones.core.driver.DriverSessionContext
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
+import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.operation.FailureReason
 import moe.chenxy.headphones.core.operation.FeatureCommand
@@ -68,7 +69,7 @@ class SonySessionTest {
             FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
         )
 
-        assertEquals(FailureReason.NOT_WRITABLE, result.failure)
+        assertEquals(FailureReason.NOT_SUPPORTED, result.failure)
         assertFalse(result.succeeded)
         assertEquals(commandWrites, transport.commandWrites.size)
         session.disconnect()
@@ -175,6 +176,144 @@ class SonySessionTest {
         assertFalse(specs.any { it is TransportSpec.Spp })
     }
 
+    @Test
+    fun `exact LinkBuds S profile writes notifies reads back and restores noise control`() =
+        runBlocking {
+            val transport = FakeSonyTransport(
+                kind = TransportKind.BLE_GATT,
+                model = "LinkBuds S",
+                firmware = "4.2.1",
+                supportFunctions = intArrayOf(0x17FF),
+            )
+            val candidate = candidate(
+                advertisedUuids = emptySet(),
+                availableTransports = setOf(TransportKind.BLE_GATT),
+            ).copy(displayName = "LinkBuds S")
+            val factory = object : TransportFactory {
+                override suspend fun create(
+                    device: DeviceIdentity,
+                    spec: TransportSpec,
+                ): ByteTransport = transport
+            }
+            val session = SonySession(
+                DriverSessionContext(candidate, factory),
+                responseTimeoutMillis = 300,
+                transportSettleDelayMillis = 0,
+            )
+
+            session.connect()
+
+            assertEquals(CompatibilityLevel.CONTROLLED, session.profile.value?.compatibilityLevel)
+            assertTrue(session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.isWritable == true)
+            assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
+
+            val enable = session.execute(
+                FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+            )
+            assertTrue(enable.succeeded)
+            assertEquals(NoiseControlMode.NOISE_CANCELLATION, session.state.value.noiseControl.confirmed)
+            assertEquals(
+                byteArrayOf(0x68, 0x17, 0x01, 0x01, 0x00, 0x00, 0x0A).toList(),
+                transport.commandWrites.last {
+                    it.first().toInt() and 0xFF == SonyCommand.NCASM_SET_PARAM
+                }.toList(),
+            )
+            assertEquals(
+                SonyCommand.NCASM_GET_PARAM,
+                transport.commandWrites.last().first().toInt() and 0xFF,
+            )
+
+            val restore = session.execute(
+                FeatureCommand.SetNoiseControl(NoiseControlMode.OFF),
+            )
+            assertTrue(restore.succeeded)
+            assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
+            session.disconnect()
+        }
+
+    @Test
+    fun `nearby firmware misses Sony write whitelist without emitting SET`() = runBlocking {
+        val transport = FakeSonyTransport(
+            kind = TransportKind.BLE_GATT,
+            model = "LinkBuds S",
+            firmware = "4.2.2",
+            supportFunctions = intArrayOf(0x17FF),
+        )
+        val candidate = candidate(
+            advertisedUuids = emptySet(),
+            availableTransports = setOf(TransportKind.BLE_GATT),
+        ).copy(displayName = "LinkBuds S")
+        val session = SonySession(
+            DriverSessionContext(
+                candidate,
+                object : TransportFactory {
+                    override suspend fun create(
+                        device: DeviceIdentity,
+                        spec: TransportSpec,
+                    ): ByteTransport = transport
+                },
+            ),
+            responseTimeoutMillis = 300,
+            transportSettleDelayMillis = 0,
+        )
+        session.connect()
+        val writesBefore = transport.commandWrites.size
+
+        val result = session.execute(
+            FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+        )
+
+        assertEquals(FailureReason.NOT_SUPPORTED, result.failure)
+        assertEquals(writesBefore, transport.commandWrites.size)
+        assertFalse(
+            transport.commandWrites.any {
+                it.first().toInt() and 0xFF == SonyCommand.NCASM_SET_PARAM
+            },
+        )
+        session.disconnect()
+    }
+
+    @Test
+    fun `missing NCASM notification falls back to explicit GET readback`() = runBlocking {
+        val transport = FakeSonyTransport(
+            kind = TransportKind.BLE_GATT,
+            model = "LinkBuds S",
+            firmware = "4.2.1",
+            supportFunctions = intArrayOf(0x17FF),
+            notifyOnSet = false,
+        )
+        val candidate = candidate(
+            advertisedUuids = emptySet(),
+            availableTransports = setOf(TransportKind.BLE_GATT),
+        ).copy(displayName = "LinkBuds S")
+        val session = SonySession(
+            DriverSessionContext(
+                candidate,
+                object : TransportFactory {
+                    override suspend fun create(
+                        device: DeviceIdentity,
+                        spec: TransportSpec,
+                    ): ByteTransport = transport
+                },
+            ),
+            responseTimeoutMillis = 300,
+            transportSettleDelayMillis = 0,
+        )
+        session.connect()
+
+        val result = session.execute(
+            FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+        )
+
+        assertTrue(result.succeeded)
+        assertEquals(NoiseControlMode.NOISE_CANCELLATION, session.state.value.noiseControl.confirmed)
+        assertEquals(
+            SonyCommand.NCASM_GET_PARAM,
+            transport.commandWrites.last().first().toInt() and 0xFF,
+        )
+        session.disconnect()
+    }
+
     private fun session(transport: FakeSonyTransport): SonySession {
         val factory = object : TransportFactory {
             override suspend fun create(
@@ -236,6 +375,10 @@ private class FailingSonyTransport : ByteTransport {
 
 private class FakeSonyTransport(
     override val kind: TransportKind = TransportKind.CLASSIC_SPP,
+    private val model: String = "WH-1000XM4",
+    private val firmware: String = "2.5.1",
+    private val supportFunctions: IntArray = intArrayOf(0x0001),
+    private val notifyOnSet: Boolean = true,
 ) : ByteTransport {
     private val _state = MutableStateFlow<TransportState>(TransportState.Closed)
     override val state: StateFlow<TransportState> = _state.asStateFlow()
@@ -244,6 +387,7 @@ private class FakeSonyTransport(
     override val maxWriteSize: StateFlow<Int> = MutableStateFlow(512).asStateFlow()
     val commandWrites = CopyOnWriteArrayList<ByteArray>()
     var ackWrites = 0
+    private var noiseControl = byteArrayOf(0x17, 0x01, 0x00, 0x00, 0x00, 0x0A)
 
     override suspend fun open() {
         _state.value = TransportState.Open
@@ -286,13 +430,26 @@ private class FakeSonyTransport(
             byteArrayOf(0x03, 0, 0x12, 0x34)
         SonyCommand.CONNECT_GET_DEVICE_INFO -> {
             val type = request.getOrNull(1) ?: return null
-            val value = if (type.toInt() == 1) "WH-1000XM4" else "2.5.1"
+            val value = if (type.toInt() == 1) model else firmware
             byteArrayOf(0x05, type, value.length.toByte()) + value.toByteArray()
         }
         SonyCommand.CONNECT_GET_SUPPORT_FUNCTION ->
-            byteArrayOf(0x07, 0, 2, 0, 1)
+            byteArrayOf(0x07, 0, supportFunctions.size.toByte()) +
+                supportFunctions.flatMap { value ->
+                    listOf((value ushr 8).toByte(), value.toByte())
+                }.toByteArray()
         SonyCommand.POWER_GET_STATUS ->
             byteArrayOf(0x23, request[1], 76, 0)
+        SonyCommand.NCASM_GET_PARAM ->
+            byteArrayOf(SonyCommand.NCASM_RET_PARAM.toByte()) + noiseControl
+        SonyCommand.NCASM_SET_PARAM -> {
+            noiseControl = request.copyOfRange(1, request.size)
+            if (notifyOnSet) {
+                byteArrayOf(SonyCommand.NCASM_NTFY_PARAM.toByte()) + noiseControl
+            } else {
+                null
+            }
+        }
         else -> null
     }
 }

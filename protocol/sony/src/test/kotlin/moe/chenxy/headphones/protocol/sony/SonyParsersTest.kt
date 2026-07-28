@@ -1,9 +1,13 @@
 package moe.chenxy.headphones.protocol.sony
 
 import moe.chenxy.headphones.core.feature.BatteryComponent
+import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.protocol.sony.feature.SonyHandshake
 import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolGeneration
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryFeature
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
+import moe.chenxy.headphones.protocol.sony.frame.TandemDecodeResult
+import moe.chenxy.headphones.protocol.sony.frame.TandemStreamDecoder
 import moe.chenxy.headphones.protocol.sony.message.SonyDataType
 import moe.chenxy.headphones.protocol.sony.message.SonyDeviceInfoType
 import moe.chenxy.headphones.protocol.sony.message.SonyMdrMessage
@@ -32,6 +36,17 @@ class SonyParsersTest {
         assertTrue(protocol!!.table1Enabled)
         assertTrue(protocol.table2Enabled)
         assertEquals("LinkBuds S", model)
+    }
+
+    @Test
+    fun `captured v2 reserved zeros do not disable MDR command tables`() {
+        val protocol = SonyHandshake.parseProtocolInfo(
+            message(byteArrayOf(0x01, 0x00, 0x03, 0x00, 0x20, 0x15, 0x00, 0x00)),
+        )
+
+        assertEquals(SonyProtocolGeneration.V2, protocol?.generation)
+        assertTrue(protocol!!.table1Enabled)
+        assertTrue(protocol.table2Enabled)
     }
 
     @Test
@@ -108,6 +123,63 @@ class SonyParsersTest {
     }
 
     @Test
+    fun `parses captured LinkBuds S NCASM readback and builds exact reversible writes`() {
+        val off = SonyNoiseControlFeature.parse(
+            message(byteArrayOf(0x67, 0x17, 0x01, 0x00, 0x00, 0x00, 0x0A)),
+        )!!
+        val ambient = SonyNoiseControlFeature.parse(
+            message(byteArrayOf(0x69, 0x17, 0x01, 0x01, 0x01, 0x00, 0x0A)),
+        )!!
+
+        assertEquals(NoiseControlMode.OFF, off.mode)
+        assertEquals(10, off.ambientLevel)
+        assertEquals(
+            byteArrayOf(0x68, 0x17, 0x01, 0x01, 0x00, 0x00, 0x0A).toList(),
+            SonyNoiseControlFeature.set(NoiseControlMode.NOISE_CANCELLATION, off)?.toList(),
+        )
+        assertEquals(NoiseControlMode.TRANSPARENCY, ambient.mode)
+        assertEquals(
+            byteArrayOf(0x68, 0x17, 0x01, 0x00, 0x01, 0x00, 0x0A).toList(),
+            SonyNoiseControlFeature.set(NoiseControlMode.OFF, ambient)?.toList(),
+        )
+    }
+
+    @Test
+    fun `rejects unobserved NCASM layouts and unsupported modes`() {
+        val off = SonyNoiseControlFeature.parse(
+            message(byteArrayOf(0x67, 0x17, 0x01, 0x00, 0x00, 0x00, 0x0A)),
+        )!!
+
+        assertNull(
+            SonyNoiseControlFeature.parse(
+                message(byteArrayOf(0x67, 0x17, 0x02, 0x00, 0x00, 0x00, 0x0A)),
+            ),
+        )
+        assertNull(
+            SonyNoiseControlFeature.set(NoiseControlMode.ADAPTIVE, off),
+        )
+    }
+
+    @Test
+    fun `sanitized NCASM fixture contains only valid Tandem frames`() {
+        val frames = requireNotNull(
+            javaClass.getResourceAsStream(
+                "/fixtures/sony/device-capture/linkbuds-s-4.2.1/linkbuds-s-ncasm.hex",
+            ),
+        ).bufferedReader().readLines()
+            .map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .map(::hex)
+
+        assertEquals(19, frames.size)
+        assertTrue(
+            frames.all { frame ->
+                TandemStreamDecoder().feed(frame).singleOrNull() is TandemDecodeResult.Frame
+            },
+        )
+    }
+
+    @Test
     fun `router distinguishes command tables and preserves unknown payload`() {
         val table2 = SonyMdrMessage(
             SonyDataType.DATA_MDR_NO2,
@@ -128,4 +200,7 @@ class SonyParsersTest {
         command = payload.first().toInt() and 0xFF,
         payload = payload,
     )
+
+    private fun hex(value: String): ByteArray =
+        value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 }
