@@ -1,6 +1,6 @@
 package moe.chenxy.oppopods.pods
 
-import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
+import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -28,11 +28,11 @@ class RawHexSessionGateTest {
     fun `raw HEX receiver action group cannot omit unlock or lock`() {
         assertEquals(
             setOf(
-                OppoPodsAction.ACTION_RFCOMM_DEBUG_UNLOCK,
-                OppoPodsAction.ACTION_RFCOMM_DEBUG_LOCK,
-                OppoPodsAction.ACTION_RFCOMM_DEBUG_SEND,
+                LegacyPodsAction.ACTION_RFCOMM_DEBUG_UNLOCK,
+                LegacyPodsAction.ACTION_RFCOMM_DEBUG_LOCK,
+                LegacyPodsAction.ACTION_RFCOMM_DEBUG_SEND,
             ),
-            OppoPodsAction.RFCOMM_DEBUG_CONTROL_ACTIONS.toSet(),
+            LegacyPodsAction.RFCOMM_DEBUG_CONTROL_ACTIONS.toSet(),
         )
     }
 }

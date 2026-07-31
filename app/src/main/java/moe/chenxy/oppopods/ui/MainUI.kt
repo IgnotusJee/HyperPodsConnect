@@ -67,7 +67,7 @@ import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.oppopods.ui.state.UiConnectionState
 import moe.chenxy.oppopods.utils.RootManager
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
-import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
+import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -298,7 +298,7 @@ fun MainUI(
         object : BroadcastReceiver() {
             override fun onReceive(p0: Context?, p1: Intent?) {
                 when (p1?.action) {
-                    OppoPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE -> {
+                    LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE -> {
                         lastBluetoothServiceAliveMs = SystemClock.elapsedRealtime()
                         bluetoothServiceResponsive = true
                     }
@@ -319,16 +319,16 @@ fun MainUI(
         OppoPodsApp.addServiceListener(serviceListener)
 
         context.registerReceiver(broadcastReceiver, IntentFilter().apply {
-            addAction(OppoPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE)
+            addAction(LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE)
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         }, Context.RECEIVER_EXPORTED)
 
         HeadphoneSnapshotReceiver.requestSnapshot(context)
-        sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_PODS_UI_INIT)
+        sendBluetoothModuleBroadcast(context, LegacyPodsAction.ACTION_PODS_UI_INIT)
 
         onDispose {
-            sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_PODS_UI_CLOSED)
+            sendBluetoothModuleBroadcast(context, LegacyPodsAction.ACTION_PODS_UI_CLOSED)
             try {
                 context.unregisterReceiver(broadcastReceiver)
             } catch (_: Exception) {}
@@ -338,14 +338,14 @@ fun MainUI(
 
     LaunchedEffect(Unit) {
         while (true) {
-            sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_PODS_UI_INIT)
+            sendBluetoothModuleBroadcast(context, LegacyPodsAction.ACTION_PODS_UI_INIT)
             HeadphoneCommandClient.execute(context, FeatureCommand.RefreshAll)
             delay(30_000L)
         }
     }
 
     LaunchedEffect(selectedTab, hookConnected.value) {
-        sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_PODS_UI_INIT)
+        sendBluetoothModuleBroadcast(context, LegacyPodsAction.ACTION_PODS_UI_INIT)
         if (selectedTab == MainTab.Module || hookConnected.value) {
             HeadphoneCommandClient.execute(context, FeatureCommand.RefreshAll)
         }
@@ -394,7 +394,7 @@ fun MainUI(
     }
 
     fun requestControlSession(context: Context, device: BluetoothDevice) {
-        Intent(OppoPodsAction.ACTION_CONNECT_POD_REQUEST).apply {
+        Intent(LegacyPodsAction.ACTION_CONNECT_POD_REQUEST).apply {
             putExtra("device", device)
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
@@ -446,7 +446,7 @@ fun MainUI(
             connectedDeviceAddress = ""
             mainTitle.value = ""
         }
-        Intent(OppoPodsAction.ACTION_DISCONNECT_POD_REQUEST).apply {
+        Intent(LegacyPodsAction.ACTION_DISCONNECT_POD_REQUEST).apply {
             putExtra("device", device)
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
@@ -635,7 +635,7 @@ fun MainUI(
                 onAutoGameModeChange = {
                     autoGameMode.value = it
                     prefs.edit().putBoolean("auto_game_mode", it).apply()
-                    Intent(OppoPodsAction.ACTION_AUTO_GAME_MODE_CHANGED).apply {
+                    Intent(LegacyPodsAction.ACTION_AUTO_GAME_MODE_CHANGED).apply {
                         setPackage("com.android.bluetooth")
                         putExtra("enabled", it)
                         addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
@@ -648,7 +648,7 @@ fun MainUI(
                     prefs.edit()
                         .putString(GameModeImplementation.PREF_KEY, it.preferenceValue)
                         .apply()
-                    Intent(OppoPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED).apply {
+                    Intent(LegacyPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED).apply {
                         setPackage("com.android.bluetooth")
                         putExtra(GameModeImplementation.PREF_KEY, it.preferenceValue)
                         addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
@@ -930,7 +930,7 @@ private fun setLauncherIconHidden(context: Context, hidden: Boolean) {
 }
 
 private fun broadcastConfigChanged(context: Context, packageName: String) {
-    Intent(OppoPodsAction.ACTION_CONFIG_CHANGED).apply {
+    Intent(LegacyPodsAction.ACTION_CONFIG_CHANGED).apply {
         setPackage(packageName)
         addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         context.sendBroadcast(this)

@@ -166,7 +166,8 @@ connection、领域 state 和最近 operation，成为各进程恢复状态的�
 
 蓝牙进程中的 `BluetoothProcessRuntimeHost` 持有唯一 manager，并通过 version 2
 command/event IPC 接收命令、发布完整 JSON snapshot。App、MiLink、小米蓝牙和 Settings
-侧安装事件桥；旧 `OppoPodsAction` 仍可双向工作，Parcelable 电量/耳机 DTO 也被保留，
+侧安装事件桥；旧 action 现在集中在 `LegacyPodsAction` 兼容边界，Parcelable 电量/耳机
+展示模型仍被保留，
 因此迁移期旧 UI 与 HyperOS 接入无需同时改完。
 
 2026-07-27 在 Xiaomi 13 Pro（Android 16 / API 36、LSPosed 2.1.1 API 102）与

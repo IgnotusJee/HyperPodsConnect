@@ -1,6 +1,6 @@
 # Phase 11：兼容性扩展和清理
 
-状态：执行中。启动日期：2026-08-01。
+状态：代码侧完成，等待真机验收。启动日期：2026-08-01。
 
 ## 已完成的第一批基础工作
 
@@ -35,6 +35,8 @@
   同时删除了无调用者的 RFCOMM connection observable 与旧 Intent 电量解析器；
 - 智能 ANC 当前强度已建模为通用 `HeadphoneState.noiseControlActiveMode`，通过版本化
   snapshot 到达 UI，最后一个逐功能状态广播及 OPPO session 专用事件已删除。
+- 内部 action 容器已改名为 `LegacyPodsAction`；保留字符串有精确 allowlist 测试，新增
+  功能不得再向该容器添加逐功能 command/state action。
 
 ## 产品身份决策
 
@@ -71,3 +73,24 @@ compatibility level、fixture 和回归验证；不得通过在通用 transport/
 
 Release 构建仅出现项目既有的 compileSdk 37 / AGP 9.1 支持范围提示、
 `extractNativeLibs` manifest 提示及若干 deprecated API warning；无失败。
+
+收尾批次再次通过：
+
+- `:core:test`、`:engine:test`；
+- `:protocol:oppo:test`、`:protocol:sony:test`；
+- `:transport:android:testDebugUnitTest`、`:app:testDebugUnitTest`；
+- `:app:assembleRelease`。
+
+本轮未安装 APK、未重启 LSPosed scope、未进行真机连接或控制操作。
+
+## 真机验收待办
+
+1. 使用 `.\gradlew.bat :app:installDebug` 安装完整 APK，并重启已选 LSPosed scope 进程；
+2. OPPO Enco Air5s：连接、初始状态、ANC/EQ/空间音频/低延迟/双设备、智能 ANC 当前强度、
+   通知/灵动岛、媒体路由和断线重连；
+3. Sony WH-1000XM4：SPP 只读状态回归，确认仍为 `READ_ONLY` 且不展示写控件；
+4. Sony LinkBuds S：GATT 连接、只读状态及 Phase 10 可逆控制回归；
+5. App、MiLink、Settings、Xiaomi 蓝牙 Hook 跨进程 snapshot 一致性与蓝牙服务存活检测；
+6. profile 在进程/设备重启后的持久化，schema v0→v1 迁移，以及 JSON 导入/导出；
+7. 从旧版本覆盖安装，确认 applicationId、LSPosed 授权、作用域和旧偏好不丢失；
+8. Release 构建无法解锁或发送 raw HEX，Debug 构建必须使用当前页面 session token。

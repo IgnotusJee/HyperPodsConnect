@@ -25,7 +25,7 @@ import moe.chenxy.oppopods.integration.toIntegrationState
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
-import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
+import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
 import org.json.JSONObject
 
@@ -171,11 +171,11 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
         context = ctx.applicationContext ?: ctx
         HeadphoneSnapshotReceiver.register(context ?: ctx)
         val filter = IntentFilter().apply {
-            addAction(OppoPodsAction.ACTION_CONFIG_CHANGED)
+            addAction(LegacyPodsAction.ACTION_CONFIG_CHANGED)
         }
         context?.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action != OppoPodsAction.ACTION_CONFIG_CHANGED) return
+                if (intent?.action != LegacyPodsAction.ACTION_CONFIG_CHANGED) return
                 refreshConfig()
                 notifyRealStatus("config-changed")
             }
@@ -201,7 +201,7 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
         }
         receiverRegistered = true
         context?.let(HeadphoneSnapshotReceiver::requestSnapshot)
-        context?.sendBroadcast(Intent(OppoPodsAction.ACTION_REFRESH_STATUS).apply {
+        context?.sendBroadcast(Intent(LegacyPodsAction.ACTION_REFRESH_STATUS).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         })

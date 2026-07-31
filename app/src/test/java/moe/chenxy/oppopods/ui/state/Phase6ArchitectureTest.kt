@@ -30,7 +30,7 @@ class Phase6ArchitectureTest {
         assertTrue(main.contains("HeadphoneCommandClient.execute"))
         assertTrue(main.contains("FeatureCommand.SetEqualizerPreset"))
         assertFalse(main.contains("detectDeviceCapabilities("))
-        assertFalse(main.contains("OppoPodsAction.ACTION_ANC_SELECT"))
+        assertFalse(main.contains("LegacyPodsAction.ACTION_ANC_SELECT"))
         assertFalse(main.contains("\"oppo:"))
     }
 
@@ -64,7 +64,7 @@ class Phase6ArchitectureTest {
             assumeTrue(value != null)
             assertTrue(value!!.contains("HyperOsHeadphoneAdapter"))
             assertFalse(value.contains("knownOppoAddresses"))
-            assertFalse(value.contains("Intent(OppoPodsAction.ACTION_ANC_SELECT)"))
+            assertFalse(value.contains("Intent(LegacyPodsAction.ACTION_ANC_SELECT)"))
         }
     }
 
@@ -88,7 +88,7 @@ class Phase6ArchitectureTest {
     fun `migration keeps application id and legacy action contract`() {
         val build = source("app/build.gradle.kts")
         val legacy = source(
-            "src/main/java/moe/chenxy/oppopods/utils/miuiStrongToast/data/OppoPodsAction.kt",
+            "src/main/java/moe/chenxy/oppopods/utils/miuiStrongToast/data/LegacyPodsAction.kt",
         )
         assumeTrue(build != null)
         assumeTrue(legacy != null)
@@ -98,5 +98,32 @@ class Phase6ArchitectureTest {
         assertFalse(legacy.contains("ACTION_ANC_SELECT"))
         assertFalse(legacy.contains("ACTION_GAME_MODE_SET"))
         assertFalse(legacy.contains("ACTION_EQ_PRESET_SET"))
+
+        val actions = Regex("const val (ACTION_[A-Z0-9_]+)")
+            .findAll(legacy)
+            .map { it.groupValues[1] }
+            .toSet()
+        assertEquals(
+            setOf(
+                "ACTION_PODS_UI_INIT",
+                "ACTION_PODS_UI_CLOSED",
+                "ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE",
+                "ACTION_CONNECT_POD_REQUEST",
+                "ACTION_DISCONNECT_POD_REQUEST",
+                "ACTION_REFRESH_STATUS",
+                "ACTION_CYCLE_ANC",
+                "ACTION_AUTO_GAME_MODE_CHANGED",
+                "ACTION_GAME_MODE_IMPLEMENTATION_CHANGED",
+                "ACTION_RFCOMM_LOG_CONNECT",
+                "ACTION_RFCOMM_LOG_DISCONNECT",
+                "ACTION_RFCOMM_LOG_CLEAR",
+                "ACTION_RFCOMM_LOG",
+                "ACTION_RFCOMM_DEBUG_UNLOCK",
+                "ACTION_RFCOMM_DEBUG_LOCK",
+                "ACTION_RFCOMM_DEBUG_SEND",
+                "ACTION_CONFIG_CHANGED",
+            ),
+            actions,
+        )
     }
 }

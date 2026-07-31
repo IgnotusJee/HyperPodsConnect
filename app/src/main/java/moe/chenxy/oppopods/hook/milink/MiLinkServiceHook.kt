@@ -24,7 +24,7 @@ import moe.chenxy.oppopods.hook.getObjectField
 import moe.chenxy.oppopods.hook.setObjectField
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
-import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
+import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
 
 @SuppressLint("MissingPermission")
@@ -183,11 +183,11 @@ object MiLinkServiceHook : HookContext() {
         context = ctx.applicationContext ?: ctx
         HeadphoneSnapshotReceiver.register(context ?: ctx)
         val filter = IntentFilter().apply {
-            addAction(OppoPodsAction.ACTION_CONFIG_CHANGED)
+            addAction(LegacyPodsAction.ACTION_CONFIG_CHANGED)
         }
         context?.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == OppoPodsAction.ACTION_CONFIG_CHANGED) refreshConfig()
+                if (intent?.action == LegacyPodsAction.ACTION_CONFIG_CHANGED) refreshConfig()
             }
         }, filter, Context.RECEIVER_EXPORTED)
         stateScope.launch {
@@ -203,7 +203,7 @@ object MiLinkServiceHook : HookContext() {
         }
         receiverRegistered = true
         context?.let(HeadphoneSnapshotReceiver::requestSnapshot)
-        context?.sendBroadcast(Intent(OppoPodsAction.ACTION_PODS_UI_INIT).apply {
+        context?.sendBroadcast(Intent(LegacyPodsAction.ACTION_PODS_UI_INIT).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         })

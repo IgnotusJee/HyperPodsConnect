@@ -53,7 +53,7 @@ class Phase5ArchitectureTest {
 
         assertFalse(receiver!!.contains("publishLegacy"))
         assertFalse(receiver.contains("legacyIntents"))
-        assertFalse(receiver.contains("OppoPodsAction"))
+        assertFalse(receiver.contains("LegacyPodsAction"))
     }
 
     @Test

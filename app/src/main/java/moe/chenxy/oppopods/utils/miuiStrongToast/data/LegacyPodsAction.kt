@@ -1,6 +1,11 @@
 package moe.chenxy.oppopods.utils.miuiStrongToast.data
 
-object OppoPodsAction {
+/**
+ * Frozen compatibility actions used by existing LSPosed scope processes and upgrade paths.
+ *
+ * New state and feature commands must use HeadphoneIpcContract instead of adding constants here.
+ */
+object LegacyPodsAction {
     const val ACTION_PODS_UI_INIT = "chen.action.oppopods.ui_init"
     const val ACTION_PODS_UI_CLOSED = "chen.action.oppopods.ui_closed"
     const val ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE = "chen.action.oppopods.module_bluetooth_service_alive"

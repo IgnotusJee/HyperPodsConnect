@@ -1159,7 +1159,7 @@ readback、脱敏 fixture、项目 App 真机验证与原值恢复。完整 Grad
 
 ### Phase 11：兼容性扩展和清理
 
-当前状态（2026-08-01）：**执行中**。schema v1、兼容档案迁移与导入导出、首版精确
+当前状态（2026-08-01）：**代码侧完成，等待真机验收**。schema v1、兼容档案迁移与导入导出、首版精确
 兼容矩阵、`STABLE` 分级、产品显示名称决策和 release/raw 显式门禁已落地；旧广播
 bridge 与 `RfcommController` facade 已删除，剩余系统副作用集中到显式的
 `OppoSystemIntegrationAdapter`；旧功能写 action 与 snapshot 到逐功能状态广播均已删除，

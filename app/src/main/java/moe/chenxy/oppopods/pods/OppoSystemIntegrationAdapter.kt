@@ -47,7 +47,7 @@ import moe.chenxy.oppopods.utils.SystemApisUtils.setIconVisibility
 import moe.chenxy.oppopods.utils.miuiStrongToast.MiuiStrongToastUtil
 import moe.chenxy.oppopods.utils.miuiStrongToast.MiuiStrongToastUtil.cancelPodsNotificationByMiuiBt
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
-import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
+import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
 
 /**
@@ -103,30 +103,30 @@ object OppoSystemIntegrationAdapter {
 
     fun handleUIEvent(intent: Intent) {
         when (intent.action) {
-            OppoPodsAction.ACTION_PODS_UI_CLOSED -> {
+            LegacyPodsAction.ACTION_PODS_UI_CLOSED -> {
                 rawHexSessionGate.lock()
             }
-            OppoPodsAction.ACTION_REFRESH_STATUS -> queryStatus(immediateReconnect = true)
-            OppoPodsAction.ACTION_AUTO_GAME_MODE_CHANGED ->
+            LegacyPodsAction.ACTION_REFRESH_STATUS -> queryStatus(immediateReconnect = true)
+            LegacyPodsAction.ACTION_AUTO_GAME_MODE_CHANGED ->
                 autoGameModeEnabled = intent.getBooleanExtra("enabled", autoGameModeEnabled)
-            OppoPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED -> {
+            LegacyPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED -> {
                 gameModeImplementation = GameModeImplementation.fromPreference(
                     intent.getStringExtra(GameModeImplementation.PREF_KEY),
                 )
             }
-            OppoPodsAction.ACTION_CYCLE_ANC -> cycleAnc()
-            OppoPodsAction.ACTION_CONFIG_CHANGED -> {
+            LegacyPodsAction.ACTION_CYCLE_ANC -> cycleAnc()
+            LegacyPodsAction.ACTION_CONFIG_CHANGED -> {
                 ConfigManager.refreshFromPrefs(mPrefs)
                 if (!currentCompatibility().adaptiveSupported && currentAnc == 4) setANCMode(2)
             }
-            OppoPodsAction.ACTION_RFCOMM_LOG_CONNECT -> {
+            LegacyPodsAction.ACTION_RFCOMM_LOG_CONNECT -> {
                 if (!RfcommLog.isEnabled()) RfcommLog.setEnabled(true, mContext)
             }
-            OppoPodsAction.ACTION_RFCOMM_LOG_DISCONNECT -> RfcommLog.setEnabled(false)
-            OppoPodsAction.ACTION_RFCOMM_LOG_CLEAR -> RfcommLog.clear()
-            OppoPodsAction.ACTION_RFCOMM_DEBUG_UNLOCK -> {
+            LegacyPodsAction.ACTION_RFCOMM_LOG_DISCONNECT -> RfcommLog.setEnabled(false)
+            LegacyPodsAction.ACTION_RFCOMM_LOG_CLEAR -> RfcommLog.clear()
+            LegacyPodsAction.ACTION_RFCOMM_DEBUG_UNLOCK -> {
                 val token = intent.getStringExtra(
-                    OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN,
+                    LegacyPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN,
                 ).orEmpty()
                 if (rawHexSessionGate.unlock(token)) {
                     RfcommLog.w(mContext, "RFCOMM/DEBUG", "raw HEX unlocked for this debug-page session")
@@ -134,15 +134,15 @@ object OppoSystemIntegrationAdapter {
                     RfcommLog.e(mContext, "RFCOMM/DEBUG", "raw HEX is unavailable in release builds")
                 }
             }
-            OppoPodsAction.ACTION_RFCOMM_DEBUG_LOCK -> {
+            LegacyPodsAction.ACTION_RFCOMM_DEBUG_LOCK -> {
                 rawHexSessionGate.lock(
-                    intent.getStringExtra(OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN),
+                    intent.getStringExtra(LegacyPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN),
                 )
                 RfcommLog.i(mContext, "RFCOMM/DEBUG", "raw HEX locked")
             }
-            OppoPodsAction.ACTION_RFCOMM_DEBUG_SEND -> sendDebugHex(
+            LegacyPodsAction.ACTION_RFCOMM_DEBUG_SEND -> sendDebugHex(
                 intent.getStringExtra("hex").orEmpty(),
-                intent.getStringExtra(OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN),
+                intent.getStringExtra(LegacyPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN),
             )
         }
     }
@@ -164,16 +164,16 @@ object OppoSystemIntegrationAdapter {
 
         if (!receiverRegistered) {
             context.registerReceiver(broadcastReceiver, IntentFilter().apply {
-                addAction(OppoPodsAction.ACTION_PODS_UI_CLOSED)
-                addAction(OppoPodsAction.ACTION_REFRESH_STATUS)
-                addAction(OppoPodsAction.ACTION_AUTO_GAME_MODE_CHANGED)
-                addAction(OppoPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED)
-                addAction(OppoPodsAction.ACTION_CYCLE_ANC)
-                addAction(OppoPodsAction.ACTION_CONFIG_CHANGED)
-                addAction(OppoPodsAction.ACTION_RFCOMM_LOG_CONNECT)
-                addAction(OppoPodsAction.ACTION_RFCOMM_LOG_DISCONNECT)
-                addAction(OppoPodsAction.ACTION_RFCOMM_LOG_CLEAR)
-                OppoPodsAction.RFCOMM_DEBUG_CONTROL_ACTIONS.forEach(::addAction)
+                addAction(LegacyPodsAction.ACTION_PODS_UI_CLOSED)
+                addAction(LegacyPodsAction.ACTION_REFRESH_STATUS)
+                addAction(LegacyPodsAction.ACTION_AUTO_GAME_MODE_CHANGED)
+                addAction(LegacyPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED)
+                addAction(LegacyPodsAction.ACTION_CYCLE_ANC)
+                addAction(LegacyPodsAction.ACTION_CONFIG_CHANGED)
+                addAction(LegacyPodsAction.ACTION_RFCOMM_LOG_CONNECT)
+                addAction(LegacyPodsAction.ACTION_RFCOMM_LOG_DISCONNECT)
+                addAction(LegacyPodsAction.ACTION_RFCOMM_LOG_CLEAR)
+                LegacyPodsAction.RFCOMM_DEBUG_CONTROL_ACTIONS.forEach(::addAction)
             }, Context.RECEIVER_EXPORTED)
             receiverRegistered = true
         }

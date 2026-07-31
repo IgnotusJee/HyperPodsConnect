@@ -26,7 +26,7 @@ import moe.chenxy.oppopods.utils.SystemApisUtils.cancelAsUser
 import moe.chenxy.oppopods.utils.SystemApisUtils.notifyAsUser
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
-import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
+import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
 import moe.chenxy.oppopods.integration.toIntegrationState
@@ -115,7 +115,7 @@ object MiBluetoothToastHook : HookContext() {
                     PendingIntent.getBroadcast(context, 0, intent, 201326592)
                 )
                 // 循环切换降噪模式，指定 package 确保广播路由到 com.android.bluetooth 进程
-                val ancCycleIntent = Intent(OppoPodsAction.ACTION_CYCLE_ANC)
+                val ancCycleIntent = Intent(LegacyPodsAction.ACTION_CYCLE_ANC)
                 ancCycleIntent.setPackage("com.android.bluetooth")
                 ancCycleIntent.setIdentifier("BTHeadset$address")
                 ancCycleIntent.putExtra("device_name", alias ?: bluetoothDevice.name ?: "")
@@ -280,7 +280,7 @@ object MiBluetoothToastHook : HookContext() {
                             } else if (p1?.action == "chen.action.oppopods.cancelpodsnotification") {
                                 val device = p1.getParcelableExtra("device", BluetoothDevice::class.java) as BluetoothDevice
                                 cancelNotification(device, context)
-                            } else if (p1?.action == OppoPodsAction.ACTION_CYCLE_ANC) {
+                            } else if (p1?.action == LegacyPodsAction.ACTION_CYCLE_ANC) {
                                 val adaptiveSupported = HyperOsHeadphoneAdapter.state
                                     .feature(FeatureId.NOISE_CONTROL.name)
                                     ?.options?.any { it.value == "ADAPTIVE" } == true
@@ -301,7 +301,7 @@ object MiBluetoothToastHook : HookContext() {
                     val intentFilter = IntentFilter("chen.action.oppopods.sendstrongtoast")
                     intentFilter.addAction("chen.action.oppopods.updatepodsnotification")
                     intentFilter.addAction("chen.action.oppopods.cancelpodsnotification")
-                    intentFilter.addAction(OppoPodsAction.ACTION_CYCLE_ANC)
+                    intentFilter.addAction(LegacyPodsAction.ACTION_CYCLE_ANC)
                     context.registerReceiver(broadcastReceiver, intentFilter,
                         Context.RECEIVER_EXPORTED)
         }
