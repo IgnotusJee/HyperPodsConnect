@@ -36,6 +36,7 @@ class HeadphoneIpcCodecTest {
             FeatureCommand.RefreshAll,
             FeatureCommand.Refresh(FeatureId.BATTERY),
             FeatureCommand.SetNoiseControl(NoiseControlMode.ADAPTIVE),
+            FeatureCommand.SetAmbientSoundLevel(17),
             FeatureCommand.SetTransparencyVocalEnhancement(true),
             FeatureCommand.SetEqualizerPreset(EqualizerPreset("oppo:2")),
             FeatureCommand.SetLowLatency(true),

@@ -18,6 +18,7 @@ import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolInfo
 import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolGeneration
 import moe.chenxy.headphones.protocol.sony.feature.SonySupportInfo
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryType
+import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeature
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
 
 object SonyProfile {
@@ -47,6 +48,7 @@ object SonyProfile {
         firmware: String,
         supportInfo: SonySupportInfo,
         noiseControlReadVerified: Boolean,
+        equalizerReadVerified: Boolean,
     ): DeviceProfile {
         val noiseControlWritable = noiseControlReadVerified &&
             isNoiseControlWriteWhitelisted(
@@ -55,6 +57,13 @@ object SonyProfile {
                 model,
                 firmware,
                 supportInfo,
+            )
+        val equalizerWritable = equalizerReadVerified &&
+            isEqualizerWriteWhitelisted(
+                initial.transport,
+                protocolInfo,
+                model,
+                firmware,
             )
         val capabilities = readCapabilities(EvidenceLevel.VERIFIED, initial.transport).toMutableMap()
         if (noiseControlReadVerified) {
@@ -76,6 +85,54 @@ object SonyProfile {
                     "Sony NC/ASM parameter 0x17 read verified; writes not whitelisted"
                 },
             )
+            capabilities[FeatureId.AMBIENT_SOUND_LEVEL] = FeatureCapability(
+                featureId = FeatureId.AMBIENT_SOUND_LEVEL,
+                canRead = true,
+                canWrite = noiseControlWritable,
+                evidence = EvidenceLevel.VERIFIED,
+                availableOnTransports = setOf(initial.transport),
+                requiresReadback = true,
+                allowedValues = (
+                    SonyNoiseControlFeature.AMBIENT_LEVEL_MIN..
+                        SonyNoiseControlFeature.AMBIENT_LEVEL_MAX
+                    ).map(Int::toString).toSet(),
+                source = if (noiseControlWritable) {
+                    "LinkBuds S 4.2.1 / GATT / table1 ambient-level dynamic evidence"
+                } else {
+                    "Sony NC/ASM ambient level read verified; writes not whitelisted"
+                },
+            )
+            capabilities[FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT] = FeatureCapability(
+                featureId = FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
+                canRead = true,
+                canWrite = noiseControlWritable,
+                evidence = EvidenceLevel.VERIFIED,
+                availableOnTransports = setOf(initial.transport),
+                requiresReadback = true,
+                allowedValues = setOf("false", "true"),
+                source = if (noiseControlWritable) {
+                    "LinkBuds S 4.2.1 / GATT / table1 ambient NORMAL-VOICE dynamic evidence"
+                } else {
+                    "Sony NC/ASM ambient sub-mode read verified; writes not whitelisted"
+                },
+            )
+        }
+        if (equalizerReadVerified) {
+            capabilities[FeatureId.EQUALIZER] = FeatureCapability(
+                featureId = FeatureId.EQUALIZER,
+                canRead = true,
+                canWrite = equalizerWritable,
+                evidence = EvidenceLevel.VERIFIED,
+                availableOnTransports = setOf(initial.transport),
+                requiresReadback = true,
+                allowedValues = SonyEqualizerFeature.allowedPresetIds,
+                valueLabels = SonyEqualizerFeature.valueLabels,
+                source = if (equalizerWritable) {
+                    "LinkBuds S 4.2.1 / GATT / table1 EQ preset dynamic evidence"
+                } else {
+                    "Sony EQEBB parameter read verified; writes not whitelisted"
+                },
+            )
         }
         return initial.copy(
             model = model,
@@ -90,7 +147,7 @@ object SonyProfile {
                 },
             ),
             features = capabilities,
-            compatibilityLevel = if (noiseControlWritable) {
+            compatibilityLevel = if (noiseControlWritable || equalizerWritable) {
                 CompatibilityLevel.CONTROLLED
             } else {
                 CompatibilityLevel.READ_ONLY
@@ -106,6 +163,9 @@ object SonyProfile {
             protocolInfo.table1Enabled &&
             SonyNoiseControlFeature.FUNCTION_ID in supportInfo.functions
 
+    fun shouldQueryEqualizer(protocolInfo: SonyProtocolInfo): Boolean =
+        protocolInfo.generation == SonyProtocolGeneration.V2 && protocolInfo.table1Enabled
+
     fun isNoiseControlWriteWhitelisted(
         transportKind: TransportKind,
         protocolInfo: SonyProtocolInfo,
@@ -117,6 +177,17 @@ object SonyProfile {
             model == "LinkBuds S" &&
             firmware == "4.2.1" &&
             shouldQueryNoiseControl(protocolInfo, supportInfo)
+
+    fun isEqualizerWriteWhitelisted(
+        transportKind: TransportKind,
+        protocolInfo: SonyProtocolInfo,
+        model: String,
+        firmware: String,
+    ): Boolean =
+        transportKind == TransportKind.BLE_GATT &&
+            model == "LinkBuds S" &&
+            firmware == "4.2.1" &&
+            shouldQueryEqualizer(protocolInfo)
 
     fun batteryTypes(model: String?): List<SonyBatteryType> = when (topology(model)) {
         DeviceTopology.EARBUDS_WITH_CASE ->

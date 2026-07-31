@@ -44,6 +44,8 @@
     <string name="noise_cancellation_medium">Medium</string>
     <string name="noise_cancellation_deep">Deep</string>
     <string name="transparency_title">Transparency</string>
+    <string name="ambient_sound_level">Ambient sound level</string>
+    <string name="ambient_sound_level_summary">Level %1$d</string>
     <string name="transparency_vocal_enhancement">Vocal Enhancement</string>
     <string name="transparency_vocal_enhancement_summary">Enhance voices in Transparency mode</string>
     <string name="adaptive_title">Adaptive</string>

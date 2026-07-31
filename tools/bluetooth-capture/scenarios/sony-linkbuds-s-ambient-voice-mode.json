@@ -1,0 +1,42 @@
+{
+  "id": "sony-linkbuds-s-ambient-voice-mode",
+  "deviceAlias": "sony-linkbuds-s-01",
+  "appPackage": "com.sony.songpal.mdr",
+  "expectedAppVersion": "13.2.0",
+  "mode": "guided",
+  "transportCandidates": [
+    "GATT"
+  ],
+  "steps": [
+    {
+      "id": "baseline_normal",
+      "prompt": "保持环境声音且不勾选关注语音，不调整等级",
+      "settleSeconds": 5
+    },
+    {
+      "id": "voice",
+      "prompt": "勾选关注语音",
+      "settleSeconds": 6
+    },
+    {
+      "id": "restore_normal",
+      "prompt": "取消勾选关注语音，恢复 NORMAL",
+      "settleSeconds": 6
+    }
+  ],
+  "repeat": 3,
+  "forbiddenUiTerms": [
+    "固件升级",
+    "固件更新",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备",
+    "查找耳机",
+    "关闭音频设备",
+    "更多信息"
+  ],
+  "targetDeviceNames": [
+    "LinkBuds S"
+  ]
+}

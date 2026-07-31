@@ -15,7 +15,7 @@
 第一阶段服务于 Phase 0 OPPO 真机证据闭环，随后复用到 Sony WH-1000XM4 和
 Sony LinkBuds S。它不是固件升级、模糊写入、漏洞测试或系统蓝牙栈修改方案。
 
-## 2. 当前已验证环境
+## 2. 基线已验证环境
 
 下表每一行都在 2026-07-26 由实际命令确认，不是预期值。
 
@@ -34,9 +34,14 @@ Sony LinkBuds S。它不是固件升级、模糊写入、漏洞测试或系统�
 | Wireshark CLI | `C:\Program Files\Wireshark\tshark.exe` 4.2.3 | `tshark.exe --version` |
 | Sony App | `com.sony.songpal.mdr` 13.0.8，已验证 Java Bridge attach/detach | `dumpsys package` |
 | HeyMelody | `com.heytap.headset` 当前未安装；静态分析样本为 **16.7.1** | `pm list packages` |
-| 本项目模块 | 当前未安装在测试机上，必须保持该状态，理由见 2.2 | `pm list packages` |
+| 本项目模块 | 基线采集时未安装在测试机上，并按 2.2 保持该状态 | `pm list packages` |
 | HCI 完整 snoop | **未启用**：`sSnoopLogSettingAtEnable = DISABLED`，三个 `persist.bluetooth.btsnoop*` 均为关闭 | `dumpsys bluetooth_manager` |
 | btsnooz 环形日志 | **存在**：`/data/misc/bluetooth/logs/btsnooz_hci.log` 及 `.last`，各约 104 KB | `su -c 'ls -la ...'` |
+
+上表是 2026-07-26 的基线快照。2026-07-31 的 Sony Phase 10 会话使用 Sound Connect
+13.2.0；官方证据采集时停用项目模块，项目实现验证时则通过 `gradlew installDebug`
+完整安装、重新启用模块并重启 LSPosed 作用域。原始产物写入 Git 忽略的项目内
+`.codex_tmp/captures`，不进入版本控制。
 
 ### 2.1 Frida 与 conda 的调用方式
 
@@ -202,7 +207,8 @@ import Java from "frida-java-bridge";
 
 ## 5. 会话和产物
 
-原始材料必须位于仓库外，例如：
+原始材料必须位于 Git 不跟踪的位置。优先使用仓库外目录；需要项目内临时目录时，只能
+使用被 `.gitignore` 明确保护的 `.codex_tmp/captures`。仓库外示例：
 
 ```text
 D:\HeadphoneCaptures\
@@ -324,7 +330,7 @@ docs/reverse-engineering/fixtures/oppo/device-capture/
 [ ] 会话窗口内 HCI 文件字节数确实增长
 [ ] 目标官方 App 版本与预期一致（OPPO 场景要求 com.heytap.headset 16.7.1）
 [ ] 目标耳机已配对，但实验开始时无其他耳机控制 App 竞争
-[ ] 输出目录不在 Git 工作区
+[ ] 输出目录不被 Git 跟踪（仓库外，或项目内受 `.gitignore` 保护的 `.codex_tmp`）
 [ ] 磁盘空间满足至少 2 GiB
 ```
 
@@ -414,7 +420,8 @@ Root 用于定位和只读复制日志。实测的搜索根目录：
 并校验 SHA-256 后删除该精确临时文件。
 
 后处理按 `events.jsonl` 的最早 `BEGIN - 10 秒` 到最晚 `END + 10 秒` 裁剪。保留完整
-原始 HCI 于仓库外，`derived` 中仅保留目标时间窗和目标连接。
+原始 HCI 保存在 Git 不跟踪的位置（仓库外或被忽略的项目内临时目录）；`derived`
+中仅保留目标时间窗和目标连接。
 
 ### 8.3 本机 ROM 的两个必须校正项
 
@@ -797,8 +804,8 @@ pcapng，Wireshark 与 TShark 均可正常打开，协议层级解析为 59 帧 
 - **已达成**：Sony App（`com.sony.songpal.mdr` 13.0.8，Android 16/API 36）attach
   前后 PID 均为同一值，进程存活无 ANR/FATAL，agent 报告 rfcomm 与 gatt 两组 hook
   均安装成功；payload 链路自检字节级一致，覆盖 `0x00`/`0x80`/`0xFF` 等符号边界。
-- **待硬件**：`同一 TX payload 能在 HCI 中找到` 需要目标耳机实际连接后才能验证。
-  无连接设备时官方 App 不发起任何蓝牙传输，因此该项与 M3 同受配对阻塞。
+- **已达成**：后续 Sony 13.0.8/13.2.0 与 OPPO 真机动作会话均完成 Frida/HCI
+  payload 字节级关联；目标耳机未连接时官方 App 不发传输仍是有效的采集前提。
 
 实现要点见 9.1 与 9.2；实测确认的三项约束记录在 9.4。
 
@@ -822,8 +829,6 @@ EQ 三预设、固件版本双来源、空间声开关、批量状态回读。�
 `encoair5s-anc-eq.hex`：ANC 三模式设置与响应、三种状态通知、EQ 三预设设置与响应及
 查询响应，`DeviceCaptureAncEqTest` 7 项回归通过。写入路径确认与本项目实现字节一致。
 
-仍缺固件版本、`0x0106` 电量查询与空间声开关行为。
-
 以下为佩戴前的排查记录，保留以说明该前提条件：
 
 `ui-drive.ps1` 已能按 resource-id 正确解析并点中 ANC 三档的可点击节点（四次切换全部
@@ -838,16 +843,19 @@ EQ 三预设、固件版本双来源、空间声开关、批量状态回读。�
 冷启动握手必须用 `--spawn` 门控采集：握手在 App 连接后一秒内完成，attach 永远来不及。
 spawn 会改变 PID，因此该模式与 M2 的 PID 稳定性验收互斥，是显式选项。
 
-### M4：Sony 协议发现
+### M4：Sony 协议发现（已交付，2026-07-31）
 
 交付：
 
 - WH-1000XM4 和 LinkBuds S transport 证据；
 - 稳定调用栈聚类；
-- 第一版命令差分矩阵；
-- 可重复的 ANC/EQ 场景材料。
+- 命令差分矩阵与脱敏 fixture；
+- WH-1000XM4 2.5.1 SPP 只读与 LinkBuds S 4.2.1 GATT 只读闭环；
+- LinkBuds S NC/ASM 三态、环境声 level `1..20`、NORMAL/VOICE 与全部 12 个官方
+  EQ preset 的可逆控制证据。
 
-验收：同一动作重复三次得到稳定候选帧，且反向恢复操作也得到可解释差分。
+验收：同一动作重复三次得到稳定候选帧，反向恢复操作得到可解释差分；项目实现使用
+相同 payload，并由 ACK、可选 NTFY、强制 GET/RET 与最终恢复完成真机闭环。
 
 ### M3 补充：白名单只读探针
 
@@ -868,7 +876,9 @@ spawn 会改变 PID，因此该模式与 M2 的 PID 稳定性验收互斥，是�
 从实时 UIAutomator dump 定位，坐标每次重新解析；标签不可点击时回退到同容器内可点击
 节点；危险词永不点击，页面级危险流程标记触发整体停止；控件不唯一时按 13 节停止。
 
-尚未实现的是场景文件驱动的自动编排与页面断言，目前仍由调用方按步骤传入动作列表。
+OPPO 与 Sony 场景 JSON 已用于版本校验、安全提示和 HCI 会话窗口。尚未实现的是把场景
+动作与页面断言整合成单一无人值守执行器；当前仍由 `ui-drive.ps1` 或调用方 ADB 自动化
+按场景步骤执行并保存截图/UI hierarchy。
 
 交付：
 
@@ -884,21 +894,21 @@ spawn 会改变 PID，因此该模式与 M2 的 PID 稳定性验收互斥，是�
 OPPO Enco Air 5s 只有同时满足以下条件，才能把真机部分标记为完成：
 
 ```text
-[ ] 型号、固件、手机、Android、App 版本完整
-[ ] 固件版本具备 UI 与协议双来源，非 ui-only
-[ ] 采集窗口两端 sSnoopLogSettingAtEnable 均非 DISABLED
-[ ] 证据来自完整 snoop，不含任何 btsnooz 环形缓冲内容
-[ ] 采集期间本项目模块确认未启用
-[ ] transport 和实际 UUID 已由 HCI 证明
-[ ] 0x0100 capability 闭环
-[ ] 通知能力与注册闭环
-[ ] 电量查询与主动通知闭环
-[ ] ANC set/response/readback 或 notify 闭环
-[ ] EQ set/response/readback 或 notify 闭环
-[ ] Frida inner/link 与 HCI payload 可关联
-[ ] 原始材料位于仓库外
-[ ] fixture 已脱敏并人工复核
-[ ] fixture 进入 JVM 回归且测试通过
+[x] 型号、固件、手机、Android、App 版本完整
+[x] 固件版本具备 UI 与协议双来源，非 ui-only
+[x] 采集窗口两端 sSnoopLogSettingAtEnable 均非 DISABLED
+[x] 证据来自完整 snoop，不含任何 btsnooz 环形缓冲内容
+[x] 采集期间本项目模块确认未启用
+[x] transport 和实际 UUID 已由 HCI 证明
+[x] 0x0100 capability 闭环
+[x] 通知能力与注册闭环
+[x] 电量查询与主动通知闭环
+[x] ANC set/response/readback 或 notify 闭环
+[x] EQ set/response/readback 或 notify 闭环
+[x] Frida inner/link 与 HCI payload 可关联
+[x] 原始材料位于 Git 不跟踪的位置
+[x] fixture 已脱敏并人工复核
+[x] fixture 进入 JVM 回归且测试通过
 ```
 
 任何仅来自 DEX、白名单、UI 显示或单边 TX 的信息，都不能替代上述真机闭环。

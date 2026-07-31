@@ -366,6 +366,10 @@ fun MainUI(
         HeadphoneCommandClient.execute(context, FeatureCommand.SetNoiseControl(mode))
     }
 
+    fun setAmbientSoundLevel(level: Int) {
+        HeadphoneCommandClient.execute(context, FeatureCommand.SetAmbientSoundLevel(level))
+    }
+
     fun setGameMode(enabled: Boolean) {
         HeadphoneCommandClient.execute(context, FeatureCommand.SetLowLatency(enabled))
     }
@@ -575,6 +579,7 @@ fun MainUI(
                 displayWearStatus = displayWearStatus,
                 displayAnc = displayAnc,
                 onAncModeChange = { setAncMode(it) },
+                onAmbientSoundLevelChange = { setAmbientSoundLevel(it) },
                 smartAncLevel = smartAncLevel.value,
                 displayTransparencyVocalEnhancement = displayTransparencyVocalEnhancement,
                 onTransparencyVocalEnhancementChange = { setTransparencyVocalEnhancement(it) },

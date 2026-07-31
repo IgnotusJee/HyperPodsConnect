@@ -1,0 +1,42 @@
+{
+  "id": "sony-linkbuds-s-eq-all-presets-implementation",
+  "deviceAlias": "sony-linkbuds-s-01",
+  "appPackage": "moe.chenxy.oppopods",
+  "expectedAppVersion": "2.0.7",
+  "mode": "automated-whitelist",
+  "transportCandidates": [
+    "GATT"
+  ],
+  "steps": [
+    {
+      "id": "baseline_bass_boost",
+      "prompt": "Confirm the initial strict GET/RET readback is Bass Boost.",
+      "settleSeconds": 3
+    },
+    {
+      "id": "all_presets",
+      "prompt": "Select every advertised EQ option once; require SET ACK, matching NTFY and explicit matching GET/RET readback for each.",
+      "settleSeconds": 3
+    },
+    {
+      "id": "restore_bass_boost",
+      "prompt": "Restore Bass Boost and verify confirmed UI state.",
+      "settleSeconds": 5
+    }
+  ],
+  "repeat": 1,
+  "forbiddenUiTerms": [
+    "固件升级",
+    "固件更新",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备",
+    "查找耳机",
+    "关闭音频设备",
+    "更多信息"
+  ],
+  "targetDeviceNames": [
+    "LinkBuds S"
+  ]
+}

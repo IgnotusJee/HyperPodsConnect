@@ -10,6 +10,8 @@
 | 整体架构要往哪走、分几个阶段 | [architecture/MULTI_BRAND_REFACTOR_PLAN.md](architecture/MULTI_BRAND_REFACTOR_PLAN.md) |
 | 当前 OPPO 实现的行为基线与真机验证结论 | [architecture/PHASE0_OPPO_BASELINE.md](architecture/PHASE0_OPPO_BASELINE.md) |
 | Sony Classic SPP 只读实现与验收进度 | [architecture/PHASE8_SONY_CLASSIC_SPP_READONLY.md](architecture/PHASE8_SONY_CLASSIC_SPP_READONLY.md) |
+| Sony BLE GATT 只读实现与双机验收 | [architecture/PHASE9_SONY_BLE_GATT_READONLY.md](architecture/PHASE9_SONY_BLE_GATT_READONLY.md) |
+| Sony 可逆控制与 Phase 10 闭环 | [architecture/PHASE10_SONY_REVERSIBLE_CONTROLS.md](architecture/PHASE10_SONY_REVERSIBLE_CONTROLS.md) |
 | 官方 App 协议是怎么逆出来的 | [reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md](reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md) |
 | 怎么在真机上抓包取证 | [reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md](reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md) |
 | 抓包工具怎么用 | [../tools/bluetooth-capture/README.md](../tools/bluetooth-capture/README.md) |
@@ -19,9 +21,11 @@
 Phase 0（基线与保护网）、Phase 1（`:core` 与通用领域模型）、Phase 2（提取 OPPO
 流式协议）、Phase 3（提取通用 SPP transport）、Phase 4（建立 OPPO Session 和功能
 模块）、Phase 5（引入 engine 和版本化 IPC）、Phase 6（UI 与 HyperOS 去品牌化）、
-Phase 7（通用 GATT transport）、Phase 8（Sony Classic SPP 只读 MVP）
-**已完成**。Phase 8 已在 WH-1000XM4 / 2.5.1 上完成官方 App 对照、20/20 次
-连接/握手/断开和脱敏实机 fixture。
+Phase 7（通用 GATT transport）、Phase 8（Sony Classic SPP 只读 MVP）、Phase 9
+（Sony BLE GATT 只读 MVP）与 Phase 10（Sony 可逆控制）**已完成**。Phase 8 已在
+WH-1000XM4 / 2.5.1 上完成官方 App 对照和 20/20 次稳定性循环；Phase 9 已在两台
+Android 16 / HyperOS 手机上闭环 LinkBuds S 4.2.1 GATT 只读路径；Phase 10 已闭环
+NC/ASM 三态、环境声 level `1..20`、NORMAL/VOICE 与全部 12 个官方 EQ preset。
 
 模块结构目前是 `:app`、`:core`、`:engine`、`:protocol:oppo`、`:protocol:sony`、
 `:transport:android`。`:core`、`:engine` 与两个 protocol 模块都是纯 Kotlin/JVM
@@ -39,11 +43,11 @@ callback-backed operation 串行执行并按 connection generation 隔离。
 
 协议 fixture 位于仓库根的 `testdata/`，由 `:app` 与各 protocol 模块共享，
 各层实现对着同一份证据校验。Sony 的静态向量位于 `official-static`，WH-1000XM4
-实机 trace 位于 `device-capture/wh-1000xm4-2.5.1`；capability response 因包含
-设备唯一标识而被完整排除。
+与 LinkBuds S 实机 trace 分别位于 `device-capture/wh-1000xm4-2.5.1` 和
+`device-capture/linkbuds-s-4.2.1`；capability response 因包含设备唯一标识而被完整排除。
 
-抓包工具链的里程碑 M0 到 M3 已交付，M5 的 UI 自动化部分交付。M4（Sony 协议发现）
-已完成静态证据整理、只读实现和 WH-1000XM4 动态真机闭环。
+抓包工具链的里程碑 M0 到 M4 已交付，M5 的安全 UI 自动化部分交付。M4（Sony 协议
+发现）现已覆盖 WH-1000XM4 SPP 只读、LinkBuds S GATT 只读与 Phase 10 可逆控制。
 
 ## 两类证据不可混淆
 
@@ -170,5 +174,5 @@ QUEUED → SENT → TRANSPORT_ACKNOWLEDGED → DEVICE_ACCEPTED → READ_BACK_CON
 ## 安全边界
 
 抓包与探测遵循计划第 10 节的策略：默认只观察；只读命令允许主动发送，且限定在白名单内；
-不提供任意字节控制台；禁止 OTA、恢复出厂、解除配对与设备发声等入口。原始抓包材料一律
-留在仓库外，进入仓库的 fixture 必须脱敏并经人工复核。
+不提供任意字节控制台；禁止 OTA、恢复出厂、解除配对与设备发声等入口。原始抓包材料保留在
+Git 不跟踪的位置（仓库外或被忽略的项目内临时目录），进入仓库的 fixture 必须脱敏并经人工复核。

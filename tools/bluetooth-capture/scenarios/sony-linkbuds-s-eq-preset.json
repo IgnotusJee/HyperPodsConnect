@@ -1,0 +1,43 @@
+{
+  "id": "sony-linkbuds-s-eq-preset",
+  "deviceAlias": "sony-linkbuds-s-01",
+  "appPackage": "com.sony.songpal.mdr",
+  "expectedAppVersion": "13.2.0",
+  "mode": "guided",
+  "transportCandidates": [
+    "GATT"
+  ],
+  "steps": [
+    {
+      "id": "baseline_preset",
+      "prompt": "打开均衡器预设页，记录当前选中的预设，不修改",
+      "settleSeconds": 5
+    },
+    {
+      "id": "adjacent_preset",
+      "prompt": "只切换到列表中相邻的一个官方预设，不进入自定义均衡器",
+      "settleSeconds": 6
+    },
+    {
+      "id": "restore_preset",
+      "prompt": "恢复到本轮开始时记录的预设",
+      "settleSeconds": 6
+    }
+  ],
+  "repeat": 3,
+  "forbiddenUiTerms": [
+    "自定义均衡器",
+    "固件升级",
+    "固件更新",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备",
+    "查找耳机",
+    "关闭音频设备",
+    "更多信息"
+  ],
+  "targetDeviceNames": [
+    "LinkBuds S"
+  ]
+}

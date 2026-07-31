@@ -1,0 +1,43 @@
+{
+  "id": "sony-linkbuds-s-eq-all-presets",
+  "deviceAlias": "sony-linkbuds-s-01",
+  "appPackage": "com.sony.songpal.mdr",
+  "expectedAppVersion": "13.2.0",
+  "mode": "automated",
+  "transportCandidates": [
+    "GATT"
+  ],
+  "steps": [
+    {
+      "id": "baseline",
+      "prompt": "Open the EQ detail page and verify Bass Boost is selected without editing bands.",
+      "settleSeconds": 5
+    },
+    {
+      "id": "complete_carousel",
+      "prompt": "Use the hierarchy-bounded next arrow to select Speech, Manual, Custom 1, Custom 2, Off, Bright, Excited, Mellow, Relaxed, Vocal, Treble Boost and Bass Boost, waiting for each device notification.",
+      "settleSeconds": 4
+    },
+    {
+      "id": "restore_confirm",
+      "prompt": "Verify the final official UI and device notification both report Bass Boost.",
+      "settleSeconds": 5
+    }
+  ],
+  "repeat": 1,
+  "forbiddenUiTerms": [
+    "编辑",
+    "固件升级",
+    "固件更新",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备",
+    "查找耳机",
+    "关闭音频设备",
+    "更多信息"
+  ],
+  "targetDeviceNames": [
+    "LinkBuds S"
+  ]
+}

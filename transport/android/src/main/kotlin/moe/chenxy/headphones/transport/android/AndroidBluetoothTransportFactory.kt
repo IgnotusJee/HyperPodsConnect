@@ -26,9 +26,13 @@ class AndroidBluetoothTransportFactory(
         spec: TransportSpec,
     ): ByteTransport = when (spec) {
         is TransportSpec.Spp -> spp.create(device, spec)
-        is TransportSpec.Gatt -> AndroidGattTransportFactory(
-            appContext,
-            leAudioGroupResolver.resolveConnectedGroupLead(platformDevice),
-        ).create(device, spec)
+        is TransportSpec.Gatt -> {
+            val connectedGroupLead = leAudioGroupResolver.resolveConnectedGroupLead(platformDevice)
+            AndroidGattTransportFactory(
+                context = appContext,
+                platformDevice = connectedGroupLead,
+                sessionIdentityAddress = platformDevice.address,
+            ).create(device, spec)
+        }
     }
 }

@@ -54,6 +54,7 @@ fun PodDetailPage(
     wearStatus: WearStatus = WearStatus(),
     ancMode: NoiseControlMode,
     onAncModeChange: (NoiseControlMode) -> Unit,
+    onAmbientSoundLevelChange: (Int) -> Unit = {},
     smartAncLevel: NoiseControlMode? = null,
     transparencyVocalEnhancement: Boolean = false,
     onTransparencyVocalEnhancementChange: (Boolean) -> Unit = {},
@@ -117,6 +118,7 @@ fun PodDetailPage(
                     wearStatus = wearStatus,
                     ancMode = ancMode,
                     onAncModeChange = onAncModeChange,
+                    onAmbientSoundLevelChange = onAmbientSoundLevelChange,
                     smartAncLevel = smartAncLevel,
                     transparencyVocalEnhancement = transparencyVocalEnhancement,
                     onTransparencyVocalEnhancementChange = onTransparencyVocalEnhancementChange,
@@ -161,6 +163,7 @@ fun PodDetailPage(
             wearStatus = wearStatus,
             ancMode = ancMode,
             onAncModeChange = onAncModeChange,
+            onAmbientSoundLevelChange = onAmbientSoundLevelChange,
             smartAncLevel = smartAncLevel,
             transparencyVocalEnhancement = transparencyVocalEnhancement,
             onTransparencyVocalEnhancementChange = onTransparencyVocalEnhancementChange,
@@ -196,6 +199,7 @@ private fun LazyListScope.podControlItems(
     wearStatus: WearStatus,
     ancMode: NoiseControlMode,
     onAncModeChange: (NoiseControlMode) -> Unit,
+    onAmbientSoundLevelChange: (Int) -> Unit,
     smartAncLevel: NoiseControlMode?,
     transparencyVocalEnhancement: Boolean,
     onTransparencyVocalEnhancementChange: (Boolean) -> Unit,
@@ -214,6 +218,7 @@ private fun LazyListScope.podControlItems(
     bottomContentPadding: Dp
 ) {
     val noiseControl = features["NOISE_CONTROL"]
+    val ambientLevel = features["AMBIENT_SOUND_LEVEL"]
     val transparency = features["TRANSPARENCY_VOCAL_ENHANCEMENT"]
     val lowLatency = features["LOW_LATENCY"]
     val spatialAudio = features["SPATIAL_AUDIO"]
@@ -257,6 +262,38 @@ private fun LazyListScope.podControlItems(
                             null
                         },
                 )
+                if (
+                    ancMode == NoiseControlMode.TRANSPARENCY &&
+                    ambientLevel?.visible == true &&
+                    ambientLevel.options.isNotEmpty()
+                ) {
+                    val levels = ambientLevel.options.mapNotNull { option ->
+                        option.value.toIntOrNull()
+                            ?.let { it to option.label }
+                    }
+                    val displayedLevel = ambientLevel.displayed?.toIntOrNull()
+                    if (levels.isNotEmpty()) {
+                        OverlayDropdownPreference(
+                            title = stringResource(R.string.ambient_sound_level),
+                            summary = if (ambientLevel.readOnly) {
+                                stringResource(R.string.feature_read_only)
+                            } else {
+                                stringResource(
+                                    R.string.ambient_sound_level_summary,
+                                    displayedLevel ?: levels.first().first,
+                                )
+                            },
+                            items = levels.map { it.second },
+                            selectedIndex = levels.indexOfFirst {
+                                it.first == displayedLevel
+                            }.coerceAtLeast(0),
+                            onSelectedIndexChange = {
+                                onAmbientSoundLevelChange(levels[it].first)
+                            },
+                            enabled = ambientLevel.writable,
+                        )
+                    }
+                }
                 if (noiseControl.readOnly) {
                     Text(
                         text = stringResource(R.string.feature_read_only),

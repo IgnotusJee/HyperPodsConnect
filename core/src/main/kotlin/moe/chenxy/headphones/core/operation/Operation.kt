@@ -28,6 +28,10 @@ sealed interface FeatureCommand {
         override val featureId: FeatureId get() = FeatureId.NOISE_CONTROL
     }
 
+    data class SetAmbientSoundLevel(val level: Int) : FeatureCommand {
+        override val featureId: FeatureId get() = FeatureId.AMBIENT_SOUND_LEVEL
+    }
+
     data class SetTransparencyVocalEnhancement(val enabled: Boolean) : FeatureCommand {
         override val featureId: FeatureId get() = FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT
     }

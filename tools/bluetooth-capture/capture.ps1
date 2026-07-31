@@ -258,9 +258,26 @@ function Test-OwnModuleAbsent {
     $packages = Invoke-Adb @('shell', 'pm', 'list', 'packages')
     $found = @($script:OwnModulePackages | Where-Object { $packages -match [regex]::Escape($_) })
     if ($found.Count -eq 0) {
-        Add-Result -Name '本项目模块未安装' -Status PASS -Detail '无 RFCOMM 争用与自证据污染风险'
+        Add-Result -Name '本项目模块已隔离' -Status PASS -Detail '模块未安装，无 RFCOMM 争用与自证据污染风险'
+        return
+    }
+
+    $lsposedDb = '/data/adb/lspd/config/modules_config.db'
+    $dbExists = Invoke-RootCommand "test -f $lsposedDb"
+    if ($LASTEXITCODE -ne 0) {
+        Add-Result -Name '本项目模块已隔离' -Status FAIL -Detail "检测到 $($found -join ', ') 且无法读取 LSPosed 状态；必须停用模块并重启蓝牙进程"
+        return
+    }
+
+    $dump = Invoke-RootCommand "sqlite3 $lsposedDb .dump"
+    $enabled = @($found | Where-Object {
+        $package = [regex]::Escape($_)
+        $dump -match "INSERT INTO modules_state VALUES\('$package',\d+,1,"
+    })
+    if ($enabled.Count -gt 0) {
+        Add-Result -Name '本项目模块已隔离' -Status FAIL -Detail "LSPosed 中仍启用 $($enabled -join ', ')：必须停用并重启蓝牙进程，否则抓包会混入本项目自己的流量"
     } else {
-        Add-Result -Name '本项目模块未安装' -Status FAIL -Detail "检测到 $($found -join ', ')：必须在 LSPosed 中对 com.android.bluetooth 停用并重启蓝牙进程，否则抓包会混入本项目自己的流量"
+        Add-Result -Name '本项目模块已隔离' -Status PASS -Detail "已安装但 LSPosed 状态为停用；采集前仍须确认蓝牙进程已在停用后重启"
     }
 }
 
@@ -394,18 +411,30 @@ function Test-OutputRoot {
 
     # Raw captures contain unsanitized MACs and link keys. They must never sit
     # inside a git work tree where they could be committed.
-    $probe = (Resolve-Path $OutputRoot).Path
+    $resolvedOutputRoot = (Resolve-Path $OutputRoot).Path
+    $probe = $resolvedOutputRoot
     $inGit = $false
+    $gitRoot = $null
     while ($probe) {
-        if (Test-Path (Join-Path $probe '.git')) { $inGit = $true; break }
+        if (Test-Path (Join-Path $probe '.git')) {
+            $inGit = $true
+            $gitRoot = $probe
+            break
+        }
         $next = Split-Path $probe -Parent
         if ($next -eq $probe -or [string]::IsNullOrEmpty($next)) { break }
         $probe = $next
     }
     if ($inGit) {
-        Add-Result -Name '输出根不在 Git 工作区' -Status FAIL -Detail "$OutputRoot 位于 Git 工作区内，原始材料可能被提交"
+        $relativeOutputRoot = [IO.Path]::GetRelativePath($gitRoot, $resolvedOutputRoot)
+        & git -C $gitRoot -c core.excludesFile=NUL check-ignore --quiet -- $relativeOutputRoot
+        if ($LASTEXITCODE -eq 0) {
+            Add-Result -Name '输出根已与 Git 隔离' -Status PASS -Detail "$OutputRoot 位于工作区内，但整个目录已由 Git ignore"
+        } else {
+            Add-Result -Name '输出根已与 Git 隔离' -Status FAIL -Detail "$OutputRoot 位于 Git 工作区内且未被 ignore，原始材料可能被提交"
+        }
     } else {
-        Add-Result -Name '输出根不在 Git 工作区' -Status PASS -Detail '原始材料与仓库隔离'
+        Add-Result -Name '输出根已与 Git 隔离' -Status PASS -Detail '原始材料位于 Git 工作区外'
     }
 
     $drive = (Get-PSDrive -Name (Split-Path $OutputRoot -Qualifier).TrimEnd(':'))

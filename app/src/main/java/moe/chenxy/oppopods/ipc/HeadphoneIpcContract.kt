@@ -31,6 +31,7 @@ object HeadphoneIpcContract {
     const val TYPE_REFRESH_ALL = "refresh_all"
     const val TYPE_REFRESH_FEATURE = "refresh_feature"
     const val TYPE_SET_NOISE_CONTROL = "set_noise_control"
+    const val TYPE_SET_AMBIENT_SOUND_LEVEL = "set_ambient_sound_level"
     const val TYPE_SET_TRANSPARENCY_VOCAL_ENHANCEMENT =
         "set_transparency_vocal_enhancement"
     const val TYPE_SET_EQUALIZER = "set_equalizer"
@@ -127,6 +128,8 @@ data class IpcCommandPayload(
         HeadphoneIpcContract.TYPE_SET_NOISE_CONTROL ->
             value?.let { runCatching { NoiseControlMode.valueOf(it) }.getOrNull() }
                 ?.let(FeatureCommand::SetNoiseControl)
+        HeadphoneIpcContract.TYPE_SET_AMBIENT_SOUND_LEVEL ->
+            value?.toIntOrNull()?.let(FeatureCommand::SetAmbientSoundLevel)
         HeadphoneIpcContract.TYPE_SET_TRANSPARENCY_VOCAL_ENHANCEMENT ->
             value?.toBooleanStrictOrNull()
                 ?.let(FeatureCommand::SetTransparencyVocalEnhancement)
@@ -154,6 +157,11 @@ data class IpcCommandPayload(
                 IpcCommandPayload(HeadphoneIpcContract.TYPE_REFRESH_FEATURE, command.featureId.name)
             is FeatureCommand.SetNoiseControl ->
                 IpcCommandPayload(HeadphoneIpcContract.TYPE_SET_NOISE_CONTROL, command.mode.name)
+            is FeatureCommand.SetAmbientSoundLevel ->
+                IpcCommandPayload(
+                    HeadphoneIpcContract.TYPE_SET_AMBIENT_SOUND_LEVEL,
+                    command.level.toString(),
+                )
             is FeatureCommand.SetTransparencyVocalEnhancement ->
                 IpcCommandPayload(
                     HeadphoneIpcContract.TYPE_SET_TRANSPARENCY_VOCAL_ENHANCEMENT,
@@ -245,6 +253,12 @@ data class HeadphoneSnapshotPayload(
                         state.noiseControl.pending?.name,
                         state.noiseControl.stale,
                         state.noiseControl.source,
+                    ),
+                    FeatureId.AMBIENT_SOUND_LEVEL.name to feature(
+                        state.ambientSoundLevel.confirmed,
+                        state.ambientSoundLevel.pending,
+                        state.ambientSoundLevel.stale,
+                        state.ambientSoundLevel.source,
                     ),
                     FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT.name to feature(
                         state.transparencyVocalEnhancement.confirmed,

@@ -115,6 +115,52 @@ class TandemCodecTest {
             },
         )
     }
+
+    @Test
+    fun `sanitized LinkBuds S ambient level capture proves boundaries and restoration`() {
+        val lines = requireNotNull(
+            javaClass.getResourceAsStream(
+                "/fixtures/sony/device-capture/linkbuds-s-4.2.1/" +
+                    "linkbuds-s-ambient-level.hex",
+            ),
+        ).bufferedReader().readLines()
+        val frames = lines.filterNot { it.isBlank() || it.startsWith("#") }
+            .map { line ->
+                val result = TandemStreamDecoder().feed(line.hex()).single()
+                assertTrue("$line -> $result", result is TandemDecodeResult.Frame)
+                (result as TandemDecodeResult.Frame).value
+            }
+
+        assertEquals(30, frames.size)
+        val ncasmFrames = frames.filter { frame ->
+            frame.payload.size == 7 &&
+                (frame.payload[1].toInt() and 0xFF) == 0x17
+        }
+        ncasmFrames.forEach { frame ->
+            assertEquals(0x01, frame.payload[3].toInt() and 0xFF)
+            assertEquals(0x01, frame.payload[4].toInt() and 0xFF)
+            assertEquals(0x00, frame.payload[5].toInt() and 0xFF)
+            assertTrue((frame.payload[6].toInt() and 0xFF) in 1..20)
+        }
+
+        val committedLevels = ncasmFrames.filter { frame ->
+            (frame.payload[0].toInt() and 0xFF) == 0x68 &&
+                (frame.payload[2].toInt() and 0xFF) == 0x01
+        }.map { frame -> frame.payload[6].toInt() and 0xFF }
+        val notifiedLevels = ncasmFrames.filter { frame ->
+            (frame.payload[0].toInt() and 0xFF) == 0x69
+        }.map { frame -> frame.payload[6].toInt() and 0xFF }
+        val transientLevels = ncasmFrames.filter { frame ->
+            (frame.payload[0].toInt() and 0xFF) == 0x68 &&
+                (frame.payload[2].toInt() and 0xFF) == 0x00
+        }.map { frame -> frame.payload[6].toInt() and 0xFF }
+
+        assertEquals(listOf(10, 1, 20, 10), committedLevels)
+        assertEquals(listOf(10, 1, 20, 10), notifiedLevels)
+        assertTrue(transientLevels.isNotEmpty())
+        assertEquals(1, transientLevels.minOrNull())
+        assertEquals(20, transientLevels.maxOrNull())
+    }
 }
 
 private fun String.hex(): ByteArray =

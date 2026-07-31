@@ -1,8 +1,8 @@
 # 蓝牙采集工具链
 
 实现 `docs/reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md` 的执行侧。
-当前已交付 **M0：环境和安全门禁**，后续里程碑（M1 HCI 提取、M2 Frida collector、
-M3 OPPO fixture）尚未实现。
+当前 M0 到 M4 已交付；M5 已具备安全 UI 驱动和 OPPO/Sony 场景文件，但尚未把页面
+断言与动作编排整合成单一无人值守执行器。
 
 ## 当前状态
 
@@ -12,11 +12,12 @@ M3 OPPO fixture）尚未实现。
 | M1 HCI 自动提取 | 已交付，已对一条真实 LE 连接完成验收 |
 | M2 通用 Frida transport collector | 已交付并全部验收，含 Frida/HCI 字节级关联 |
 | M3 OPPO Phase 0 fixture | 已交付，7 份 fixture 全部闭合，含白名单只读探针 |
-| M4 Sony 协议发现 | 未开始 |
-| M5 白名单 UI 自动化 | 部分交付：`ui-drive.ps1` 可用，场景文件驱动的编排未实现 |
+| M4 Sony 协议发现 | 已交付：WH-1000XM4 与 LinkBuds S Phase 8–10 均有真机 fixture |
+| M5 白名单 UI 自动化 | 部分交付：安全 UI driver 与场景文件可用；端到端页面断言仍由调用方执行 |
 
-`scenarios/` 下已备好 OPPO Enco Air 5s 的四个 Phase 0 场景。Sony 场景暂缺：其 UI 步骤
-序列必须先做一轮实机观察，凭空写入等于猜测。
+`scenarios/` 下包含 OPPO Enco Air 5s Phase 0 场景，以及 LinkBuds S 的 NC/ASM、环境声
+等级、NORMAL/VOICE 与 EQ 官方/项目实现验证场景。场景 JSON 驱动版本、安全词、步骤
+提示与采集窗口；具体页面断言和点击仍由 `ui-drive.ps1` 或调用方自动化完成。
 
 ## 用法
 
@@ -48,7 +49,7 @@ M3 OPPO fixture）尚未实现。
 SHA-256、做结构校验与连接句柄映射，最后产出：
 
 ```text
-raw/<name>.log                      原始捕获（仓库外）
+raw/<name>.log                      原始捕获（不得被 Git 跟踪）
 derived/<name>.log.inspect.json     结构校验与连接句柄映射
 derived/<name>.protocol-hierarchy.txt
 derived/<name>.rfcomm-att.json
@@ -136,8 +137,9 @@ python .\analysis\sanitize.py --session D:\HeadphoneCaptures\<id> --handles 6 --
 
 产物落在会话的 `sanitized/`，复制进仓库仍是人工步骤，需人工复核。
 
-主要参数：`-OutputRoot`（默认 `D:\HeadphoneCaptures`）、`-FridaHome`、`-Tshark`、
-`-ExpectedFridaVersion`、`-FridaPort`、`-MinFreeGiB`。默认值对应当前工作机，换机时覆盖。
+主要参数：`-OutputRoot`（默认 `D:\HeadphoneCaptures`；也可使用被 `.gitignore` 保护的
+项目内 `.codex_tmp/captures`）、`-FridaHome`、`-Tshark`、`-ExpectedFridaVersion`、
+`-FridaPort`、`-MinFreeGiB`。默认值对应当前工作机，换机时覆盖。
 
 ## preflight 只读保证
 

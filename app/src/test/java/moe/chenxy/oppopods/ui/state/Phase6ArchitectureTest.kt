@@ -40,6 +40,9 @@ class Phase6ArchitectureTest {
         assumeTrue(detail != null)
 
         assertTrue(detail!!.contains("features[\"NOISE_CONTROL\"]"))
+        assertTrue(detail.contains("features[\"AMBIENT_SOUND_LEVEL\"]"))
+        assertTrue(detail.contains("ancMode == NoiseControlMode.TRANSPARENCY"))
+        assertFalse(detail.contains("it in 1..20"))
         assertTrue(detail.contains("equalizer.options"))
         assertTrue(detail.contains("feature_read_only"))
         assertTrue(detail.contains("UiOperationStatus.PENDING"))

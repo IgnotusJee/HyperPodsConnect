@@ -111,6 +111,46 @@ class HeadphoneStateReducerTest {
     }
 
     @Test
+    fun `ambient level pending is confirmed only by device evidence and rolls back independently`() {
+        val pending = reduce(
+            StateUpdate.DeviceReported(
+                DeviceReport.AmbientSoundLevel(10),
+                ValueSource.QUERY_RESPONSE,
+                1,
+            ),
+            StateUpdate.LocalPending(FeatureCommand.SetAmbientSoundLevel(11), 2),
+            StateUpdate.WriteAcknowledged(
+                FeatureId.AMBIENT_SOUND_LEVEL,
+                accepted = true,
+                atMillis = 3,
+            ),
+        )
+        assertEquals(10, pending.ambientSoundLevel.confirmed)
+        assertEquals(11, pending.ambientSoundLevel.pending)
+
+        val confirmed = HeadphoneStateReducer.reduce(
+            pending,
+            StateUpdate.DeviceReported(
+                DeviceReport.AmbientSoundLevel(11),
+                ValueSource.READ_BACK,
+                4,
+            ),
+        )
+        assertEquals(11, confirmed.ambientSoundLevel.confirmed)
+        assertNull(confirmed.ambientSoundLevel.pending)
+
+        val abandoned = HeadphoneStateReducer.reduceAll(
+            confirmed,
+            listOf(
+                StateUpdate.LocalPending(FeatureCommand.SetAmbientSoundLevel(12), 5),
+                StateUpdate.PendingAbandoned(FeatureId.AMBIENT_SOUND_LEVEL, 6),
+            ),
+        )
+        assertEquals(11, abandoned.ambientSoundLevel.confirmed)
+        assertNull(abandoned.ambientSoundLevel.pending)
+    }
+
+    @Test
     fun `battery components are replaced so a vanished case cannot linger`() {
         val withCase = HeadphoneStateReducer.reduce(
             empty,

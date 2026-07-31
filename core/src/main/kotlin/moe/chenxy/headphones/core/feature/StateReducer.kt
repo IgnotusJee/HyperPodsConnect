@@ -45,6 +45,7 @@ sealed interface DeviceReport {
     data class Batteries(val values: Map<BatteryComponent, BatteryState>) : DeviceReport
     data class Wearing(val values: Map<WearComponent, WearState>) : DeviceReport
     data class NoiseControl(val mode: NoiseControlMode) : DeviceReport
+    data class AmbientSoundLevel(val level: Int) : DeviceReport
     data class TransparencyVocalEnhancement(val enabled: Boolean) : DeviceReport
     data class Equalizer(val preset: EqualizerPreset) : DeviceReport
     data class LowLatency(val enabled: Boolean) : DeviceReport
@@ -83,6 +84,12 @@ object HeadphoneStateReducer {
             is FeatureCommand.SetNoiseControl ->
                 state.copy(noiseControl = state.noiseControl.withPending(command.mode, update.atMillis))
 
+            is FeatureCommand.SetAmbientSoundLevel ->
+                state.copy(
+                    ambientSoundLevel =
+                        state.ambientSoundLevel.withPending(command.level, update.atMillis),
+                )
+
             is FeatureCommand.SetTransparencyVocalEnhancement ->
                 state.copy(
                     transparencyVocalEnhancement =
@@ -120,6 +127,12 @@ object HeadphoneStateReducer {
             is DeviceReport.NoiseControl ->
                 state.copy(noiseControl = state.noiseControl.withConfirmed(report.mode, source, at))
 
+            is DeviceReport.AmbientSoundLevel ->
+                state.copy(
+                    ambientSoundLevel =
+                        state.ambientSoundLevel.withConfirmed(report.level, source, at),
+                )
+
             is DeviceReport.TransparencyVocalEnhancement ->
                 state.copy(
                     transparencyVocalEnhancement =
@@ -147,6 +160,8 @@ object HeadphoneStateReducer {
 
     private fun rollback(state: HeadphoneState, featureId: FeatureId): HeadphoneState = when (featureId) {
         FeatureId.NOISE_CONTROL -> state.copy(noiseControl = state.noiseControl.rollbackPending())
+        FeatureId.AMBIENT_SOUND_LEVEL ->
+            state.copy(ambientSoundLevel = state.ambientSoundLevel.rollbackPending())
         FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT ->
             state.copy(
                 transparencyVocalEnhancement = state.transparencyVocalEnhancement.rollbackPending(),

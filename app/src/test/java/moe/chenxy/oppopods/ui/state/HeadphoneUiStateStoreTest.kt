@@ -105,6 +105,28 @@ class HeadphoneUiStateStoreTest {
     }
 
     @Test
+    fun `ambient level exposes only the driver supplied verified range`() {
+        val store = HeadphoneUiStateStore()
+        val snapshot = fakeSnapshot().copy(
+            features = fakeSnapshot().features + (
+                "AMBIENT_SOUND_LEVEL" to
+                    FeatureValuePayload("10", null, false, "QUERY_RESPONSE")
+                ),
+            capabilities = fakeSnapshot().capabilities + capability(
+                "AMBIENT_SOUND_LEVEL",
+                options = (1..20).map(Int::toString),
+            ),
+        )
+
+        store.accept(snapshot)
+
+        val level = store.state.value.feature("AMBIENT_SOUND_LEVEL")!!
+        assertTrue(level.writable)
+        assertEquals("10", level.displayed)
+        assertEquals((1..20).map(Int::toString), level.options.map { it.value })
+    }
+
+    @Test
     fun `older generation cannot replace current UI state`() {
         val store = HeadphoneUiStateStore()
         store.accept(fakeSnapshot(generation = 7, title = "Current"))

@@ -1123,19 +1123,21 @@ Xiaomi 17 Pro 两台 Android 16 / HyperOS 手机完成 BLE GATT 只读验证；�
 
 ### Phase 10：Sony 可逆控制
 
-当前状态（2026-07-28）：**进行中，NC/ASM 三态模式切片已闭环**。LinkBuds S /
-4.2.1 的关闭、降噪、环境声三态已完成官方 App 动态证据、严格白名单、SET 前读取、
-独立 ACK、通知宽限、强制 GET readback、原值恢复、脱敏 fixture 与真机验证。环境
-声 level、EQ preset 和其他低风险功能尚未开始，Phase 10 因此不标记为整体完成。
+当前状态（2026-07-31）：**已闭环**。LinkBuds S / 4.2.1 的关闭、降噪、环境声三态、
+环境声 level `1..20`、NORMAL/VOICE（通透/人声增强）与全部 12 个官方 EQ preset 均已
+完成官方 App 动态证据、严格白名单、SET 前读取、独立 ACK、通知宽限、强制 GET
+readback、脱敏 fixture、项目 App 真机验证与原值恢复。完整 Gradle/App 构建、
+`installDebug` 和自动化回归通过。危险或不可逆功能继续保持关闭，不计为 Phase 10
+遗留项。
 完整记录见
 [PHASE10_SONY_REVERSIBLE_CONTROLS.md](PHASE10_SONY_REVERSIBLE_CONTROLS.md)。
 
 逐项添加：
 
 1. [x] NC 开关；
-2. [x] ASM 开关；[ ] ASM level；
-3. [ ] EQ preset；
-4. [ ] 其他低风险功能。
+2. [x] ASM 开关与 level `1..20`；
+3. [x] 全部 12 个官方 EQ preset；
+4. [x] 环境声 NORMAL/VOICE（通透/人声增强）。
 
 每项准入要求：
 
@@ -1153,7 +1155,7 @@ Xiaomi 17 Pro 两台 Android 16 / HyperOS 手机完成 BLE GATT 只读验证；�
 - [x] 已交付切片只有达到 Controlled 的设备显示写控件；
 - [x] 已交付切片无 FOTA、关机、恢复出厂、配对管理和 raw 扫描；
 - [x] NC/ASM 三态模式有真机记录和 fixture；
-- [ ] ASM level、EQ 与后续功能按同一门禁逐项闭环。
+- [x] ASM level、NORMAL/VOICE 与 EQ 按同一门禁逐项闭环。
 
 ### Phase 11：兼容性扩展和清理
 
@@ -1295,16 +1297,17 @@ sony_read_only_enabled
 sony_verified_writes_enabled
 ```
 
-## 12. 首个可交付里程碑
+## 12. 已交付的多品牌里程碑
 
-首个对用户可发布的多品牌版本应限定为：
+截至 Phase 10，已交付范围为：
 
 ```text
 现有 OPPO 功能无回退
 + 通用 SPP/GATT transport
 + 品牌无关的设备 profile/state/UI
-+ Sony 已知、已配对设备只读连接
-+ 指定型号电量读取
++ Sony 已知、已配对设备的 SPP/GATT 只读连接
++ LinkBuds S 4.2.1 的 NC/ASM、环境声 level、NORMAL/VOICE 与全部官方 EQ preset
++ 指定型号电量读取与精确写入白名单
 + 完整 trace 和兼容等级
 ```
 
@@ -1319,10 +1322,11 @@ sony_verified_writes_enabled
 
 ## 13. 下一步执行顺序
 
-后续开始编码时，严格按以下前三项启动：
+Phase 0–10 已完成，下一步进入 Phase 11：
 
-1. 完成 Phase 0 的 OPPO fixture 和 parser 回归测试；
-2. 创建 `:core`，只添加模型、接口和 adapter，不切换运行路径；
-3. 创建 `:protocol:oppo` 并首先实现流式 frame decoder。
+1. 扩展设备、固件与 OEM 兼容矩阵；
+2. 版本化 profile schema，并补兼容档案导入导出；
+3. 清理旧广播 bridge、空 facade 与残余 OPPO 命名泄漏；
+4. 保持 release 构建中的危险操作禁用门禁。
 
-这三项完成并通过 OPPO 真机回归后，才提取 `SppTransport` 和替换 `RfcommController`。Sony 与 GATT 不应早于 OPPO 新会话链路稳定进入主运行路径。
+新增型号仍必须逐设备满足动态证据、精确白名单、读回与恢复验证，不从现有型号外推。

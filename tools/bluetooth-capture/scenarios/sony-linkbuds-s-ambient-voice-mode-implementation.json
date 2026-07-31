@@ -1,0 +1,40 @@
+{
+  "id": "sony-linkbuds-s-ambient-voice-mode-implementation",
+  "deviceAlias": "sony-linkbuds-s-01",
+  "appPackage": "moe.chenxy.oppopods",
+  "expectedAppVersion": "2.0.7",
+  "mode": "guided",
+  "transportCandidates": [
+    "GATT"
+  ],
+  "steps": [
+    {
+      "id": "baseline_normal",
+      "prompt": "确认项目 App 为通透、等级 20、人声增强关闭",
+      "settleSeconds": 5
+    },
+    {
+      "id": "voice",
+      "prompt": "切换到人声增强，等待设备确认更改",
+      "settleSeconds": 6
+    },
+    {
+      "id": "restore_normal",
+      "prompt": "切换回通透，等待设备确认更改",
+      "settleSeconds": 6
+    }
+  ],
+  "repeat": 3,
+  "forbiddenUiTerms": [
+    "固件升级",
+    "固件更新",
+    "恢复出厂设置",
+    "解除配对",
+    "删除设备",
+    "查找设备",
+    "关闭音频设备"
+  ],
+  "targetDeviceNames": [
+    "LinkBuds S"
+  ]
+}

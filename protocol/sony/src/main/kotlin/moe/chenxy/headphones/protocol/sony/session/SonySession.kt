@@ -55,6 +55,9 @@ import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolInfo
 import moe.chenxy.headphones.protocol.sony.feature.SonySupportInfo
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryFeature
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryType
+import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeature
+import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerState
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyAmbientSoundMode
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlState
 import moe.chenxy.headphones.protocol.sony.frame.TandemCodec
@@ -131,6 +134,9 @@ class SonySession(
 
     @Volatile
     private var noiseControlState: SonyNoiseControlState? = null
+
+    @Volatile
+    private var equalizerState: SonyEqualizerState? = null
 
     override suspend fun connect(): Unit = lifecycleMutex.withLock {
         if (_connection.value.isActive) return
@@ -257,6 +263,15 @@ class SonySession(
             )
             noiseControlObserved = response?.let(SonyNoiseControlFeature::parse) != null
         }
+        var equalizerObserved = false
+        if (SonyProfile.shouldQueryEqualizer(protocol)) {
+            val response = exchange(
+                SonyEqualizerFeature.query(),
+                SonyCommand.EQEBB_RET_PARAM,
+                responsePredicate = SonyEqualizerFeature::matches,
+            )
+            equalizerObserved = response?.let(SonyEqualizerFeature::parse) != null
+        }
         _profile.value = SonyProfile.verified(
             requireNotNull(_profile.value),
             protocol,
@@ -264,6 +279,7 @@ class SonySession(
             firmware,
             support,
             noiseControlObserved,
+            equalizerObserved,
         )
         transition(SessionEvent.InitialStateSynchronized)
     }
@@ -295,11 +311,22 @@ class SonySession(
                 )
             }
         }
-        if (FeatureId.NOISE_CONTROL in requested) {
+        if (
+            FeatureId.NOISE_CONTROL in requested ||
+            FeatureId.AMBIENT_SOUND_LEVEL in requested ||
+            FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT in requested
+        ) {
             exchange(
                 SonyNoiseControlFeature.query(),
                 SonyCommand.NCASM_RET_PARAM,
                 responsePredicate = SonyNoiseControlFeature::matches,
+            )
+        }
+        if (FeatureId.EQUALIZER in requested) {
+            exchange(
+                SonyEqualizerFeature.query(),
+                SonyCommand.EQEBB_RET_PARAM,
+                responsePredicate = SonyEqualizerFeature::matches,
             )
         }
     }
@@ -336,23 +363,33 @@ class SonySession(
                 "Sony feature is outside the exact write whitelist",
             )
         }
-        if (command !is FeatureCommand.SetNoiseControl) {
-            return terminalFailure(
-                id,
-                command,
-                FailureReason.NOT_SUPPORTED,
-                "Sony command is not implemented",
-            )
+        when (command) {
+            is FeatureCommand.SetNoiseControl -> {
+                if (command.mode !in SONY_NOISE_CONTROL_MODES) {
+                    return terminalFailure(
+                        id,
+                        command,
+                        FailureReason.NOT_SUPPORTED,
+                        "Sony noise-control value is not in the verified set",
+                    )
+                }
+                return executeNoiseControl(id, command)
+            }
+            is FeatureCommand.SetAmbientSoundLevel ->
+                return executeAmbientSoundLevel(id, command)
+            is FeatureCommand.SetTransparencyVocalEnhancement ->
+                return executeTransparencyVocalEnhancement(id, command)
+            is FeatureCommand.SetEqualizerPreset ->
+                return executeEqualizerPreset(id, command)
+            else -> {
+                return terminalFailure(
+                    id,
+                    command,
+                    FailureReason.NOT_SUPPORTED,
+                    "Sony command is not implemented",
+                )
+            }
         }
-        if (command.mode !in SONY_NOISE_CONTROL_MODES) {
-            return terminalFailure(
-                id,
-                command,
-                FailureReason.NOT_SUPPORTED,
-                "Sony noise-control value is not in the verified set",
-            )
-        }
-        return executeNoiseControl(id, command)
     }
 
     override suspend fun disconnect(cause: DisconnectCause): Unit = lifecycleMutex.withLock {
@@ -430,10 +467,19 @@ class SonySession(
             }
         }
         SonyNoiseControlFeature.parse(message)?.let { state ->
-            noiseControlState = state
-            applyReport(
-                DeviceReport.NoiseControl(state.mode),
+            applyNoiseControlState(
+                state,
                 if (message.command == SonyCommand.NCASM_NTFY_PARAM) {
+                    ValueSource.NOTIFICATION
+                } else {
+                    ValueSource.QUERY_RESPONSE
+                },
+            )
+        }
+        SonyEqualizerFeature.parse(message)?.let { state ->
+            applyEqualizerState(
+                state,
+                if (message.command == SonyCommand.EQEBB_NTFY_PARAM) {
                     ValueSource.NOTIFICATION
                 } else {
                     ValueSource.QUERY_RESPONSE
@@ -530,6 +576,23 @@ class SonySession(
         applyReport(DeviceReport.Batteries(merged), source)
     }
 
+    private fun applyNoiseControlState(state: SonyNoiseControlState, source: ValueSource) {
+        noiseControlState = state
+        applyReport(DeviceReport.NoiseControl(state.mode), source)
+        applyReport(DeviceReport.AmbientSoundLevel(state.ambientLevel), source)
+        applyReport(
+            DeviceReport.TransparencyVocalEnhancement(
+                state.ambientSoundMode == SonyAmbientSoundMode.VOICE,
+            ),
+            source,
+        )
+    }
+
+    private fun applyEqualizerState(state: SonyEqualizerState, source: ValueSource) {
+        equalizerState = state
+        applyReport(DeviceReport.Equalizer(state.preset), source)
+    }
+
     private fun applyReport(report: DeviceReport, source: ValueSource) {
         _state.value = HeadphoneStateReducer.reduce(
             _state.value,
@@ -579,7 +642,10 @@ class SonySession(
             )
         }
         val notified = setResult.response?.let(SonyNoiseControlFeature::parse)
-        if (notified?.mode == command.mode) {
+        if (
+            notified?.mode == command.mode &&
+            notified.ambientSoundMode == original.ambientSoundMode
+        ) {
             emit(requestId, command, OperationPhase.STATE_CONFIRMED)
         }
 
@@ -588,9 +654,11 @@ class SonySession(
             SonyCommand.NCASM_RET_PARAM,
             responsePredicate = SonyNoiseControlFeature::matches,
         )?.let(SonyNoiseControlFeature::parse)
-        if (readback?.mode == command.mode) {
-            noiseControlState = readback
-            applyReport(DeviceReport.NoiseControl(readback.mode), ValueSource.READ_BACK)
+        if (
+            readback?.mode == command.mode &&
+            readback.ambientSoundMode == original.ambientSoundMode
+        ) {
+            applyNoiseControlState(readback, ValueSource.READ_BACK)
             emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
             OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
         } else {
@@ -604,6 +672,247 @@ class SonySession(
             )
         }
     }
+
+    private suspend fun executeAmbientSoundLevel(
+        requestId: RequestId,
+        command: FeatureCommand.SetAmbientSoundLevel,
+    ): OperationResult = operationMutex.withLock {
+        val original = noiseControlState
+            ?: return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.NOT_WRITABLE,
+                "Sony NC/ASM state is not confirmed",
+            )
+        if (original.mode != NoiseControlMode.TRANSPARENCY) {
+            return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.NOT_WRITABLE,
+                "Ambient level can only be changed while ambient sound is active",
+            )
+        }
+        val payload = SonyNoiseControlFeature.setAmbientLevel(command.level, original)
+            ?: return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.VALUE_OUT_OF_RANGE,
+                "Sony ambient level must be in " +
+                    "${SonyNoiseControlFeature.AMBIENT_LEVEL_MIN}.." +
+                    SonyNoiseControlFeature.AMBIENT_LEVEL_MAX,
+            )
+
+        apply(StateUpdate.LocalPending(command, clock()))
+        emit(requestId, command, OperationPhase.QUEUED)
+        emit(requestId, command, OperationPhase.SENT)
+        val setResult = exchangeDetailed(
+            payload,
+            SonyCommand.NCASM_NTFY_PARAM,
+            responsePredicate = SonyNoiseControlFeature::matches,
+            responseWaitMillis = NOTIFICATION_GRACE_MS,
+            onTransportAcknowledged = {
+                emit(requestId, command, OperationPhase.TRANSPORT_ACKNOWLEDGED)
+            },
+        )
+        if (setResult == null) {
+            abandon(command.featureId)
+            return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony ambient-level SET transport acknowledgement timed out",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+        val notified = setResult.response?.let(SonyNoiseControlFeature::parse)
+        if (notified.matchesAmbientLevel(command.level, original.ambientSoundMode)) {
+            emit(requestId, command, OperationPhase.STATE_CONFIRMED)
+        }
+
+        val readback = exchange(
+            SonyNoiseControlFeature.query(),
+            SonyCommand.NCASM_RET_PARAM,
+            responsePredicate = SonyNoiseControlFeature::matches,
+        )?.let(SonyNoiseControlFeature::parse)
+        if (readback.matchesAmbientLevel(command.level, original.ambientSoundMode)) {
+            applyNoiseControlState(requireNotNull(readback), ValueSource.READ_BACK)
+            emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
+            OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+        } else {
+            abandon(command.featureId)
+            terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony ambient-level write was not confirmed by explicit GET readback",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+    }
+
+    private suspend fun executeTransparencyVocalEnhancement(
+        requestId: RequestId,
+        command: FeatureCommand.SetTransparencyVocalEnhancement,
+    ): OperationResult = operationMutex.withLock {
+        val original = noiseControlState
+            ?: return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.NOT_WRITABLE,
+                "Sony NC/ASM state is not confirmed",
+            )
+        if (original.mode != NoiseControlMode.TRANSPARENCY) {
+            return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.NOT_WRITABLE,
+                "Voice focus can only be changed while ambient sound is active",
+            )
+        }
+        val expectedMode = if (command.enabled) {
+            SonyAmbientSoundMode.VOICE
+        } else {
+            SonyAmbientSoundMode.NORMAL
+        }
+        val payload = SonyNoiseControlFeature.setAmbientSoundMode(expectedMode, original)
+            ?: return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.VALUE_OUT_OF_RANGE,
+                "Sony ambient sound mode cannot be encoded",
+            )
+
+        apply(StateUpdate.LocalPending(command, clock()))
+        emit(requestId, command, OperationPhase.QUEUED)
+        emit(requestId, command, OperationPhase.SENT)
+        val setResult = exchangeDetailed(
+            payload,
+            SonyCommand.NCASM_NTFY_PARAM,
+            responsePredicate = SonyNoiseControlFeature::matches,
+            responseWaitMillis = NOTIFICATION_GRACE_MS,
+            onTransportAcknowledged = {
+                emit(requestId, command, OperationPhase.TRANSPORT_ACKNOWLEDGED)
+            },
+        )
+        if (setResult == null) {
+            abandon(command.featureId)
+            return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony ambient-mode SET transport acknowledgement timed out",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+        val notified = setResult.response?.let(SonyNoiseControlFeature::parse)
+        if (notified.matchesAmbientSoundMode(expectedMode, original.ambientLevel)) {
+            emit(requestId, command, OperationPhase.STATE_CONFIRMED)
+        }
+
+        val readback = exchange(
+            SonyNoiseControlFeature.query(),
+            SonyCommand.NCASM_RET_PARAM,
+            responsePredicate = SonyNoiseControlFeature::matches,
+        )?.let(SonyNoiseControlFeature::parse)
+        if (readback.matchesAmbientSoundMode(expectedMode, original.ambientLevel)) {
+            applyNoiseControlState(requireNotNull(readback), ValueSource.READ_BACK)
+            emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
+            OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+        } else {
+            abandon(command.featureId)
+            terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony ambient-mode write was not confirmed by explicit GET readback",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+    }
+
+    private suspend fun executeEqualizerPreset(
+        requestId: RequestId,
+        command: FeatureCommand.SetEqualizerPreset,
+    ): OperationResult = operationMutex.withLock {
+        if (equalizerState == null) {
+            return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.NOT_WRITABLE,
+                "Sony equalizer state is not confirmed",
+            )
+        }
+        val payload = SonyEqualizerFeature.set(command.preset)
+            ?: return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.VALUE_OUT_OF_RANGE,
+                "Sony EQ preset is outside the dynamically verified preset set",
+            )
+
+        apply(StateUpdate.LocalPending(command, clock()))
+        emit(requestId, command, OperationPhase.QUEUED)
+        emit(requestId, command, OperationPhase.SENT)
+        val setResult = exchangeDetailed(
+            payload,
+            SonyCommand.EQEBB_NTFY_PARAM,
+            responsePredicate = SonyEqualizerFeature::matches,
+            responseWaitMillis = NOTIFICATION_GRACE_MS,
+            onTransportAcknowledged = {
+                emit(requestId, command, OperationPhase.TRANSPORT_ACKNOWLEDGED)
+            },
+        )
+        if (setResult == null) {
+            abandon(command.featureId)
+            return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony EQ SET transport acknowledgement timed out",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+        val notified = setResult.response?.let(SonyEqualizerFeature::parse)
+        if (notified?.preset == command.preset) {
+            emit(requestId, command, OperationPhase.STATE_CONFIRMED)
+        }
+
+        val readback = exchange(
+            SonyEqualizerFeature.query(),
+            SonyCommand.EQEBB_RET_PARAM,
+            responsePredicate = SonyEqualizerFeature::matches,
+        )?.let(SonyEqualizerFeature::parse)
+        if (readback?.preset == command.preset) {
+            applyEqualizerState(readback, ValueSource.READ_BACK)
+            emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
+            OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+        } else {
+            abandon(command.featureId)
+            terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony EQ write was not confirmed by explicit GET readback",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+    }
+
+    private fun SonyNoiseControlState?.matchesAmbientLevel(
+        level: Int,
+        expectedAmbientSoundMode: SonyAmbientSoundMode,
+    ): Boolean =
+        this?.mode == NoiseControlMode.TRANSPARENCY &&
+            ambientLevel == level &&
+            ambientSoundMode == expectedAmbientSoundMode
+
+    private fun SonyNoiseControlState?.matchesAmbientSoundMode(
+        mode: SonyAmbientSoundMode,
+        expectedAmbientLevel: Int,
+    ): Boolean =
+        this?.mode == NoiseControlMode.TRANSPARENCY &&
+            ambientSoundMode == mode &&
+            ambientLevel == expectedAmbientLevel
 
     private fun apply(update: StateUpdate) {
         _state.value = HeadphoneStateReducer.reduce(_state.value, update)
@@ -702,6 +1011,31 @@ class SonySession(
         }
 
         fun resolveTransport(candidate: DeviceCandidate): SonyTransportRoute? {
+            val advertisedGatt = candidate.advertisedUuids.any {
+                it.equals(
+                    SonyProfile.SONY_GATT_TANDEM_V2_HPC_SERVICE_UUID,
+                    ignoreCase = true,
+                )
+            }
+            val bondedNameRoute = candidate.bonded && isSonyNameHint(candidate.displayName)
+            val gattEligible =
+                TransportKind.BLE_GATT in candidate.availableTransports &&
+                    (advertisedGatt || bondedNameRoute)
+            if (
+                gattEligible &&
+                candidate.displayName.equals(LINKBUDS_S_MODEL, ignoreCase = true)
+            ) {
+                return SonyTransportRoute(
+                    TransportKind.BLE_GATT,
+                    SonyProfile.gattSpec(),
+                    "gatt-tandem-v2-hpc",
+                    if (advertisedGatt) {
+                        DetectionBasis.ADVERTISED_SERVICE
+                    } else {
+                        DetectionBasis.BONDED_SERVICE_VALIDATION
+                    },
+                )
+            }
             val sppUuid = resolveServiceUuid(candidate)
             if (sppUuid != null && TransportKind.CLASSIC_SPP in candidate.availableTransports) {
                 return SonyTransportRoute(
@@ -711,17 +1045,7 @@ class SonySession(
                     DetectionBasis.ADVERTISED_SERVICE,
                 )
             }
-            val advertisedGatt = candidate.advertisedUuids.any {
-                it.equals(
-                    SonyProfile.SONY_GATT_TANDEM_V2_HPC_SERVICE_UUID,
-                    ignoreCase = true,
-                )
-            }
-            val bondedNameRoute = candidate.bonded && isSonyNameHint(candidate.displayName)
-            if (
-                TransportKind.BLE_GATT in candidate.availableTransports &&
-                (advertisedGatt || bondedNameRoute)
-            ) {
+            if (gattEligible) {
                 return SonyTransportRoute(
                     TransportKind.BLE_GATT,
                     SonyProfile.gattSpec(),
@@ -735,6 +1059,8 @@ class SonySession(
             }
             return null
         }
+
+        private const val LINKBUDS_S_MODEL = "LinkBuds S"
 
         fun isSonyNameHint(name: String?): Boolean {
             val value = name.orEmpty()

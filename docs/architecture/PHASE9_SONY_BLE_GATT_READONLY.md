@@ -36,8 +36,9 @@
   成员解析为当前已连接的 group lead；不按同名设备猜测；
 - Sony SPP 与 GATT 共用同一 `SonySession`、Tandem codec、MDR 握手和 battery
   feature；
-- 精确 Sony SPP UUID 优先；否则只有显式 Tandem GATT service，或“已配对 Sony
-  名称 + GATT service 实际验证”才能进入 GATT；
+- 精确 `LinkBuds S` 在 GATT 可用时优先走 Tandem v2 GATT，避免平台缓存的 SPP
+  UUID 抢占已验证控制通道；其他 Sony 设备仍优先精确 SPP UUID；否则只有显式
+  Tandem GATT service，或“已配对 Sony 名称 + GATT service 实际验证”才能进入 GATT；
 - GATT 失败不会回退到猜测的 SPP UUID；
 - v2 support-function parser 同时支持现代 count 格式；LinkBuds S 实机返回 40 个
   二字节 function code；
@@ -140,8 +141,9 @@ support count、重连任务取消，以及脱敏 LinkBuds S 真机帧完整性�
 
 Phase 9 已在两台 Android 16 / HyperOS 手机完成 LinkBuds S BLE GATT 只读验证。第一台
 覆盖双耳、单耳、全部入盒、三次有界重试和恢复；第二台覆盖独立系统蓝牙栈重载、TWS
-自动回连、完整握手与状态同步。所有完成标准均满足，可以进入 Phase 10，但 Sony
-写能力仍保持关闭，必须按功能逐项满足可逆控制准入门槛。
+自动回连、完整握手与状态同步。所有完成标准均满足。此处“写能力保持关闭”是 Phase 9
+冻结时的阶段结论；后续 Phase 10 已按功能完成独立证据、白名单、读回与恢复验证，详见
+[PHASE10_SONY_REVERSIBLE_CONTROLS.md](PHASE10_SONY_REVERSIBLE_CONTROLS.md)。
 
 ## 已知限制
 

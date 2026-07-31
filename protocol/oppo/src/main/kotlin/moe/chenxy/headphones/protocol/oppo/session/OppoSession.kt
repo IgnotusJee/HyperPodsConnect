@@ -570,6 +570,7 @@ class OppoSession(
     private fun packetsFor(command: FeatureCommand): List<ByteArray>? = when (command) {
         is FeatureCommand.SetNoiseControl ->
             OppoNoiseControlFeature.set(command.mode, compatibility.ancEncoding)?.let(::listOf)
+        is FeatureCommand.SetAmbientSoundLevel -> null
         is FeatureCommand.SetTransparencyVocalEnhancement ->
             listOf(OppoNoiseControlFeature.setTransparencyVocalEnhancement(command.enabled))
         is FeatureCommand.SetEqualizerPreset ->
@@ -623,6 +624,7 @@ class OppoSession(
         is FeatureCommand.SetNoiseControl -> _state.value.noiseControl.let {
             it.pending == null && it.confirmed == command.mode
         }
+        is FeatureCommand.SetAmbientSoundLevel -> false
         is FeatureCommand.SetTransparencyVocalEnhancement ->
             _state.value.transparencyVocalEnhancement.let {
                 it.pending == null && it.confirmed == command.enabled
@@ -649,6 +651,7 @@ class OppoSession(
         is DeviceReport.Batteries -> FeatureId.BATTERY
         is DeviceReport.Wearing -> FeatureId.WEAR_DETECTION
         is DeviceReport.NoiseControl -> FeatureId.NOISE_CONTROL
+        is DeviceReport.AmbientSoundLevel -> FeatureId.AMBIENT_SOUND_LEVEL
         is DeviceReport.TransparencyVocalEnhancement -> FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT
         is DeviceReport.Equalizer -> FeatureId.EQUALIZER
         is DeviceReport.LowLatency -> FeatureId.LOW_LATENCY

@@ -4,7 +4,7 @@
 
 # OPPOPods
 
-**System-level OPPO earphone control for HyperOS devices**
+**System-level multi-brand earphone control for HyperOS devices**
 
 [![GitHub Release](https://img.shields.io/github/v/release/1812z/OppoPods?style=flat-square&logo=github&color=black)](https://github.com/1812z/OppoPods/releases)
 ![Downloads](https://img.shields.io/github/downloads/1812z/OppoPods/total?style=flat-square)
@@ -18,7 +18,7 @@
 </div>
 
 
-An Xposed module that provides system-level OPPO earphone control for Xiaomi HyperOS devices.
+An Xposed module that provides system-level OPPO and Sony earphone control for Xiaomi HyperOS devices.
 
 
 ### Earphone Features
@@ -26,6 +26,8 @@ An Xposed module that provides system-level OPPO earphone control for Xiaomi Hyp
 - **Noise Cancellation Control** — Switch between Off / Noise Cancellation / Adaptive / Transparency modes
 - **Game Mode** — Low-latency audio toggle, with support for automatically enabling it when connected
 - **Battery Display** — Real-time battery display for the left earbud, right earbud, and charging case
+- **Sony Support** — Read-only status for WH-1000XM4; LinkBuds S 4.2.1 supports battery,
+  noise cancellation/ambient sound, ambient level, voice focus, and all official EQ presets
 
 ### HyperOS Integration
 - **Hyper Island** — Supports the official Hyper Island or the module's built-in Hyper Island
@@ -48,7 +50,7 @@ An Xposed module that provides system-level OPPO earphone control for Xiaomi Hyp
 1. Install the APK
 2. Enable the module in LSPosed and select the recommended scopes
 3. Use the one-tap scope restart button in the top-right corner of the app
-4. Connect your OPPO earphones via Bluetooth
+4. Connect supported OPPO or Sony earphones via Bluetooth
 
 ### Credits
 

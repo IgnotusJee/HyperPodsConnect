@@ -16,6 +16,7 @@ import moe.chenxy.headphones.core.device.VendorId
 import moe.chenxy.headphones.core.driver.DriverSessionContext
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
+import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.operation.FailureReason
@@ -31,6 +32,7 @@ import moe.chenxy.headphones.protocol.sony.frame.TandemCodec
 import moe.chenxy.headphones.protocol.sony.frame.TandemDecodeResult
 import moe.chenxy.headphones.protocol.sony.frame.TandemFrame
 import moe.chenxy.headphones.protocol.sony.frame.TandemStreamDecoder
+import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeature
 import moe.chenxy.headphones.protocol.sony.message.SonyCommand
 import moe.chenxy.headphones.protocol.sony.message.SonyDataType
 import moe.chenxy.headphones.protocol.sony.profile.SonyProfile
@@ -177,6 +179,23 @@ class SonySessionTest {
     }
 
     @Test
+    fun `LinkBuds S prefers validated GATT when a cached SPP UUID is also present`() {
+        val candidate = candidate(
+            advertisedUuids = setOf(SonyProfile.SONY_SPP_V2_UUID),
+            availableTransports = setOf(TransportKind.CLASSIC_SPP, TransportKind.BLE_GATT),
+        ).copy(displayName = "LinkBuds S")
+
+        val route = SonySession.resolveTransport(candidate)
+
+        assertEquals(TransportKind.BLE_GATT, route?.kind)
+        assertTrue(route?.spec is TransportSpec.Gatt)
+        assertEquals(
+            moe.chenxy.headphones.protocol.sony.session.DetectionBasis.BONDED_SERVICE_VALIDATION,
+            route?.detectionBasis,
+        )
+    }
+
+    @Test
     fun `exact LinkBuds S profile writes notifies reads back and restores noise control`() =
         runBlocking {
             val transport = FakeSonyTransport(
@@ -205,7 +224,25 @@ class SonySessionTest {
 
             assertEquals(CompatibilityLevel.CONTROLLED, session.profile.value?.compatibilityLevel)
             assertTrue(session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.isWritable == true)
+            assertTrue(
+                session.profile.value
+                    ?.capability(FeatureId.AMBIENT_SOUND_LEVEL)
+                    ?.isWritable == true,
+            )
+            assertTrue(
+                session.profile.value
+                    ?.capability(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT)
+                    ?.isWritable == true,
+            )
+            assertEquals(
+                (1..20).map(Int::toString).toSet(),
+                session.profile.value
+                    ?.capability(FeatureId.AMBIENT_SOUND_LEVEL)
+                    ?.allowedValues,
+            )
             assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
+            assertEquals(10, session.state.value.ambientSoundLevel.confirmed)
+            assertEquals(false, session.state.value.transparencyVocalEnhancement.confirmed)
 
             val enable = session.execute(
                 FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
@@ -230,6 +267,182 @@ class SonySessionTest {
             assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
             session.disconnect()
         }
+
+    @Test
+    fun `ambient level requires transparency reads back and restores original value`() =
+        runBlocking {
+            val transport = FakeSonyTransport(
+                kind = TransportKind.BLE_GATT,
+                model = "LinkBuds S",
+                firmware = "4.2.1",
+                supportFunctions = intArrayOf(0x17FF),
+            )
+            val candidate = candidate(
+                advertisedUuids = emptySet(),
+                availableTransports = setOf(TransportKind.BLE_GATT),
+            ).copy(displayName = "LinkBuds S")
+            val session = SonySession(
+                DriverSessionContext(
+                    candidate,
+                    object : TransportFactory {
+                        override suspend fun create(
+                            device: DeviceIdentity,
+                            spec: TransportSpec,
+                        ): ByteTransport = transport
+                    },
+                ),
+                responseTimeoutMillis = 300,
+                transportSettleDelayMillis = 0,
+            )
+            session.connect()
+
+            val writesBeforeRejected = transport.commandWrites.size
+            val rejectedOutsideAmbient = session.execute(
+                FeatureCommand.SetAmbientSoundLevel(11),
+            )
+            assertEquals(FailureReason.NOT_WRITABLE, rejectedOutsideAmbient.failure)
+            val rejectedVoiceOutsideAmbient = session.execute(
+                FeatureCommand.SetTransparencyVocalEnhancement(true),
+            )
+            assertEquals(FailureReason.NOT_WRITABLE, rejectedVoiceOutsideAmbient.failure)
+            assertEquals(writesBeforeRejected, transport.commandWrites.size)
+
+            assertTrue(
+                session.execute(
+                    FeatureCommand.SetNoiseControl(NoiseControlMode.TRANSPARENCY),
+                ).succeeded,
+            )
+            val changed = session.execute(FeatureCommand.SetAmbientSoundLevel(11))
+            assertTrue(changed.succeeded)
+            assertEquals(11, session.state.value.ambientSoundLevel.confirmed)
+            assertEquals(
+                byteArrayOf(0x68, 0x17, 0x01, 0x01, 0x01, 0x00, 0x0B).toList(),
+                transport.commandWrites.last {
+                    it.first().toInt() and 0xFF == SonyCommand.NCASM_SET_PARAM
+                }.toList(),
+            )
+            assertEquals(
+                SonyCommand.NCASM_GET_PARAM,
+                transport.commandWrites.last().first().toInt() and 0xFF,
+            )
+
+            val voice = session.execute(
+                FeatureCommand.SetTransparencyVocalEnhancement(true),
+            )
+            assertTrue(voice.succeeded)
+            assertEquals(true, session.state.value.transparencyVocalEnhancement.confirmed)
+            assertEquals(11, session.state.value.ambientSoundLevel.confirmed)
+            assertEquals(
+                byteArrayOf(0x68, 0x17, 0x01, 0x01, 0x01, 0x01, 0x0B).toList(),
+                transport.commandWrites.last {
+                    it.first().toInt() and 0xFF == SonyCommand.NCASM_SET_PARAM
+                }.toList(),
+            )
+
+            val normal = session.execute(
+                FeatureCommand.SetTransparencyVocalEnhancement(false),
+            )
+            assertTrue(normal.succeeded)
+            assertEquals(false, session.state.value.transparencyVocalEnhancement.confirmed)
+            assertEquals(11, session.state.value.ambientSoundLevel.confirmed)
+
+            val writesBeforeRangeFailure = transport.commandWrites.size
+            val outOfRange = session.execute(FeatureCommand.SetAmbientSoundLevel(21))
+            assertEquals(FailureReason.VALUE_OUT_OF_RANGE, outOfRange.failure)
+            assertEquals(writesBeforeRangeFailure, transport.commandWrites.size)
+
+            val restored = session.execute(FeatureCommand.SetAmbientSoundLevel(10))
+            assertTrue(restored.succeeded)
+            assertEquals(10, session.state.value.ambientSoundLevel.confirmed)
+            session.disconnect()
+        }
+
+    @Test
+    fun `all captured LinkBuds S EQ presets notify read back and restore`() = runBlocking {
+        val transport = FakeSonyTransport(
+            kind = TransportKind.BLE_GATT,
+            model = "LinkBuds S",
+            firmware = "4.2.1",
+            supportFunctions = intArrayOf(0x17FF),
+        )
+        val candidate = candidate(
+            advertisedUuids = emptySet(),
+            availableTransports = setOf(TransportKind.BLE_GATT),
+        ).copy(displayName = "LinkBuds S")
+        val session = SonySession(
+            DriverSessionContext(
+                candidate,
+                object : TransportFactory {
+                    override suspend fun create(
+                        device: DeviceIdentity,
+                        spec: TransportSpec,
+                    ): ByteTransport = transport
+                },
+            ),
+            responseTimeoutMillis = 300,
+            transportSettleDelayMillis = 0,
+        )
+        session.connect()
+
+        assertTrue(session.profile.value?.capability(FeatureId.EQUALIZER)?.isWritable == true)
+        assertEquals(
+            SonyEqualizerFeature.allowedPresetIds,
+            session.profile.value?.capability(FeatureId.EQUALIZER)?.allowedValues,
+        )
+        assertEquals(
+            SonyEqualizerFeature.BASS_BOOST_ID,
+            session.state.value.equalizer.confirmed?.id,
+        )
+
+        val speech = session.execute(
+            FeatureCommand.SetEqualizerPreset(
+                EqualizerPreset(SonyEqualizerFeature.SPEECH_ID),
+            ),
+        )
+        assertTrue(speech.succeeded)
+        assertEquals(SonyEqualizerFeature.SPEECH_ID, session.state.value.equalizer.confirmed?.id)
+        assertEquals(
+            byteArrayOf(0x58, 0x00, 0x17, 0x00).toList(),
+            transport.commandWrites.last {
+                it.first().toInt() and 0xFF == SonyCommand.EQEBB_SET_PARAM
+            }.toList(),
+        )
+        assertEquals(
+            SonyCommand.EQEBB_GET_PARAM,
+            transport.commandWrites.last().first().toInt() and 0xFF,
+        )
+
+        SonyEqualizerFeature.allowedPresetIds.forEach { presetId ->
+            val result = session.execute(
+                FeatureCommand.SetEqualizerPreset(EqualizerPreset(presetId)),
+            )
+            assertTrue(presetId, result.succeeded)
+            assertEquals(presetId, session.state.value.equalizer.confirmed?.id)
+            assertEquals(
+                SonyCommand.EQEBB_GET_PARAM,
+                transport.commandWrites.last().first().toInt() and 0xFF,
+            )
+        }
+
+        val restore = session.execute(
+            FeatureCommand.SetEqualizerPreset(
+                EqualizerPreset(SonyEqualizerFeature.BASS_BOOST_ID),
+            ),
+        )
+        assertTrue(restore.succeeded)
+        assertEquals(
+            SonyEqualizerFeature.BASS_BOOST_ID,
+            session.state.value.equalizer.confirmed?.id,
+        )
+
+        val writesBeforeInvalid = transport.commandWrites.size
+        val invalid = session.execute(
+            FeatureCommand.SetEqualizerPreset(EqualizerPreset("sony:eq:18")),
+        )
+        assertEquals(FailureReason.VALUE_OUT_OF_RANGE, invalid.failure)
+        assertEquals(writesBeforeInvalid, transport.commandWrites.size)
+        session.disconnect()
+    }
 
     @Test
     fun `nearby firmware misses Sony write whitelist without emitting SET`() = runBlocking {
@@ -262,12 +475,23 @@ class SonySessionTest {
         val result = session.execute(
             FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
         )
+        val eqResult = session.execute(
+            FeatureCommand.SetEqualizerPreset(
+                EqualizerPreset(SonyEqualizerFeature.SPEECH_ID),
+            ),
+        )
 
         assertEquals(FailureReason.NOT_SUPPORTED, result.failure)
+        assertEquals(FailureReason.NOT_SUPPORTED, eqResult.failure)
         assertEquals(writesBefore, transport.commandWrites.size)
         assertFalse(
             transport.commandWrites.any {
                 it.first().toInt() and 0xFF == SonyCommand.NCASM_SET_PARAM
+            },
+        )
+        assertFalse(
+            transport.commandWrites.any {
+                it.first().toInt() and 0xFF == SonyCommand.EQEBB_SET_PARAM
             },
         )
         session.disconnect()
@@ -309,6 +533,32 @@ class SonySessionTest {
         assertEquals(NoiseControlMode.NOISE_CANCELLATION, session.state.value.noiseControl.confirmed)
         assertEquals(
             SonyCommand.NCASM_GET_PARAM,
+            transport.commandWrites.last().first().toInt() and 0xFF,
+        )
+
+        assertTrue(
+            session.execute(
+                FeatureCommand.SetNoiseControl(NoiseControlMode.TRANSPARENCY),
+            ).succeeded,
+        )
+        val voiceResult = session.execute(
+            FeatureCommand.SetTransparencyVocalEnhancement(true),
+        )
+        assertTrue(voiceResult.succeeded)
+        assertEquals(true, session.state.value.transparencyVocalEnhancement.confirmed)
+        assertEquals(
+            SonyCommand.NCASM_GET_PARAM,
+            transport.commandWrites.last().first().toInt() and 0xFF,
+        )
+
+        val eqResult = session.execute(
+            FeatureCommand.SetEqualizerPreset(
+                EqualizerPreset(SonyEqualizerFeature.SPEECH_ID),
+            ),
+        )
+        assertTrue(eqResult.succeeded)
+        assertEquals(
+            SonyCommand.EQEBB_GET_PARAM,
             transport.commandWrites.last().first().toInt() and 0xFF,
         )
         session.disconnect()
@@ -388,6 +638,11 @@ private class FakeSonyTransport(
     val commandWrites = CopyOnWriteArrayList<ByteArray>()
     var ackWrites = 0
     private var noiseControl = byteArrayOf(0x17, 0x01, 0x00, 0x00, 0x00, 0x0A)
+    private var equalizer: ByteArray? = if (model == "LinkBuds S") {
+        byteArrayOf(0x00, 0x16, 0x06, 0x11, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)
+    } else {
+        null
+    }
 
     override suspend fun open() {
         _state.value = TransportState.Open
@@ -446,6 +701,34 @@ private class FakeSonyTransport(
             noiseControl = request.copyOfRange(1, request.size)
             if (notifyOnSet) {
                 byteArrayOf(SonyCommand.NCASM_NTFY_PARAM.toByte()) + noiseControl
+            } else {
+                null
+            }
+        }
+        SonyCommand.EQEBB_GET_PARAM ->
+            equalizer?.let { byteArrayOf(SonyCommand.EQEBB_RET_PARAM.toByte()) + it }
+        SonyCommand.EQEBB_SET_PARAM -> {
+            if (
+                request.size != 4 || request[1] != 0x00.toByte() ||
+                request[3] != 0x00.toByte()
+            ) return null
+            equalizer = when (request[2].toInt() and 0xFF) {
+                0x00 -> byteArrayOf(0x00, 0x00, 0x06, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)
+                0x10 -> byteArrayOf(0x00, 0x10, 0x06, 0x09, 0x0A, 0x0F, 0x11, 0x11, 0x13)
+                0x11 -> byteArrayOf(0x00, 0x11, 0x06, 0x12, 0x09, 0x0B, 0x0A, 0x0D, 0x0F)
+                0x12 -> byteArrayOf(0x00, 0x12, 0x06, 0x07, 0x09, 0x08, 0x07, 0x06, 0x04)
+                0x13 -> byteArrayOf(0x00, 0x13, 0x06, 0x01, 0x07, 0x09, 0x07, 0x05, 0x02)
+                0x14 -> byteArrayOf(0x00, 0x14, 0x06, 0x0A, 0x10, 0x0E, 0x0C, 0x0D, 0x09)
+                0x15 -> byteArrayOf(0x00, 0x15, 0x06, 0x0A, 0x0A, 0x0A, 0x0C, 0x10, 0x14)
+                0x16 -> byteArrayOf(0x00, 0x16, 0x06, 0x11, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)
+                0x17 -> byteArrayOf(0x00, 0x17, 0x06, 0x00, 0x0E, 0x0D, 0x0B, 0x0C, 0x00)
+                0xA0 -> byteArrayOf(0x00, 0xA0.toByte(), 0x06, 0x00, 0x0A, 0x0A, 0x0A, 0x06, 0x02)
+                0xA1 -> byteArrayOf(0x00, 0xA1.toByte(), 0x06, 0x08, 0x11, 0x0A, 0x0A, 0x0B, 0x0C)
+                0xA2 -> byteArrayOf(0x00, 0xA2.toByte(), 0x06, 0x01, 0x01, 0x14, 0x0A, 0x0B, 0x0C)
+                else -> return null
+            }
+            if (notifyOnSet) {
+                byteArrayOf(SonyCommand.EQEBB_NTFY_PARAM.toByte()) + requireNotNull(equalizer)
             } else {
                 null
             }

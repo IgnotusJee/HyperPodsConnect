@@ -5,7 +5,7 @@
 
 # OPPOPods
 
-**为 HyperOS 设备提供系统级 OPPO 耳机控制**
+**为 HyperOS 设备提供系统级多品牌耳机控制**
 
 [![GitHub Release](https://img.shields.io/github/v/release/1812z/OppoPods?style=flat-square&logo=github&color=black)](https://github.com/1812z/OppoPods/releases)
 ![Downloads](https://img.shields.io/github/downloads/1812z/OppoPods/total?style=flat-square)
@@ -19,7 +19,7 @@
 </div>
 
 
-为小米 HyperOS 设备提供系统级 OPPO 耳机控制的 Xposed 模块。
+为小米 HyperOS 设备提供系统级 OPPO 与 Sony 耳机控制的 Xposed 模块。
 
 
 ### 耳机功能
@@ -27,6 +27,8 @@
 - **降噪控制** — 在关闭 / 降噪 / 自适应 / 通透模式之间切换
 - **游戏模式** — 低延迟音频开关，支持连接时自动开启
 - **电量显示** — 实时显示左耳、右耳、充电盒电量
+- **Sony 支持** — WH-1000XM4 只读状态；LinkBuds S 4.2.1 支持电量、降噪/环境声、
+  环境声等级、人声增强与全部官方均衡器预设
 
 ### 澎湃集成
 - **超级岛** — 支持官方超级岛或模块内建超级岛
@@ -49,7 +51,7 @@
 1. 安装 APK
 2. 在 LSPosed 中启用模块并勾选推荐作用域
 3. 软件右上角一键重启作用域
-4. 通过蓝牙连接你的 OPPO 耳机
+4. 通过蓝牙连接受支持的 OPPO 或 Sony 耳机
 
 ### 致谢
 
