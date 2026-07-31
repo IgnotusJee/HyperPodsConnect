@@ -38,20 +38,21 @@ class OppoSystemIntegrationAdapterArchitectureTest {
     }
 
     @Test
-    fun `every legacy UI write is translated to a FeatureCommand`() {
+    fun `removed legacy UI writes cannot reenter the adapter`() {
         val source = adapterSource()
         assumeTrue("OppoSystemIntegrationAdapter source is not reachable", source != null)
 
         listOf(
-            "FeatureCommand.SetNoiseControl",
-            "FeatureCommand.SetTransparencyVocalEnhancement",
-            "FeatureCommand.SetEqualizerPreset",
-            "FeatureCommand.SetLowLatency",
-            "FeatureCommand.SetSpatialAudio",
-            "FeatureCommand.SetDualDeviceConnection",
-        ).forEach { command ->
-            assertTrue("missing UI translation for $command", source!!.contains(command))
+            "ACTION_ANC_SELECT",
+            "ACTION_GAME_MODE_SET",
+            "ACTION_TRANSPARENCY_VOCAL_ENHANCEMENT_SET",
+            "ACTION_SPATIAL_AUDIO_SET",
+            "ACTION_EQ_PRESET_SET",
+            "ACTION_DUAL_DEVICE_CONNECTION_SET",
+        ).forEach { action ->
+            assertFalse("removed legacy write returned: $action", source!!.contains(action))
         }
+        assertTrue(source!!.contains("BluetoothProcessRuntimeHost.execute"))
     }
 
     @Test

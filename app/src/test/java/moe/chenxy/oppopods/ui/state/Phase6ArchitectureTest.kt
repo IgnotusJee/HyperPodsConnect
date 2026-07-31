@@ -94,6 +94,9 @@ class Phase6ArchitectureTest {
         assumeTrue(legacy != null)
 
         assertTrue(build!!.contains("applicationId = \"moe.chenxy.oppopods\""))
-        assertTrue(legacy!!.contains("ACTION_ANC_SELECT"))
+        assertTrue(legacy!!.contains("chen.action.oppopods.ui_init"))
+        assertFalse(legacy.contains("ACTION_ANC_SELECT"))
+        assertFalse(legacy.contains("ACTION_GAME_MODE_SET"))
+        assertFalse(legacy.contains("ACTION_EQ_PRESET_SET"))
     }
 }

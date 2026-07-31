@@ -22,7 +22,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.BatteryState
-import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.HeadphoneState
 import moe.chenxy.headphones.core.feature.WearComponent
@@ -52,20 +51,13 @@ import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
 
 /**
- * Compatibility facade for the legacy broadcasts and Android-side effects.
- *
- * All OPPO bytes, parsers, subscriptions and command confirmation now live in
- * OppoSession. This object translates the vendor-neutral session snapshot back
- * to the existing app/MiLink/Settings broadcasts during the migration.
- */
-@SuppressLint("MissingPermission", "StaticFieldLeak")
-/**
  * OPPO/HyperOS compatibility boundary for Android-only side effects.
  *
  * Session authority and protocol work live in [BluetoothProcessRuntimeHost]. This adapter only
  * translates the remaining legacy Android events, notifications and media-route integration while
  * those call sites are migrated to the versioned IPC/state projection.
  */
+@SuppressLint("MissingPermission", "StaticFieldLeak")
 object OppoSystemIntegrationAdapter {
     private const val TAG = "HyperPods-OppoIntegration"
     private const val APP_UI_ACTIVE_TIMEOUT_MS = 75_000L
@@ -154,11 +146,7 @@ object OppoSystemIntegrationAdapter {
                 appUiActiveUntilMs = 0L
                 rawHexSessionGate.lock()
             }
-            OppoPodsAction.ACTION_ANC_SELECT ->
-                setANCMode(intent.getIntExtra("status", 0))
             OppoPodsAction.ACTION_REFRESH_STATUS -> queryStatus(immediateReconnect = true)
-            OppoPodsAction.ACTION_GAME_MODE_SET ->
-                setGameMode(intent.getBooleanExtra("enabled", false))
             OppoPodsAction.ACTION_AUTO_GAME_MODE_CHANGED ->
                 autoGameModeEnabled = intent.getBooleanExtra("enabled", autoGameModeEnabled)
             OppoPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED -> {
@@ -166,16 +154,6 @@ object OppoSystemIntegrationAdapter {
                     intent.getStringExtra(GameModeImplementation.PREF_KEY),
                 )
             }
-            OppoPodsAction.ACTION_TRANSPARENCY_VOCAL_ENHANCEMENT_SET ->
-                setTransparencyVocalEnhancement(intent.getBooleanExtra("enabled", false))
-            OppoPodsAction.ACTION_SPATIAL_AUDIO_SET ->
-                setSpatialAudioMode(intent.getIntExtra("mode", SpatialAudioMode.OFF))
-            OppoPodsAction.ACTION_EQ_PRESET_SET -> {
-                val preset = intent.getIntExtra("preset", -1)
-                if (preset in EqPreset.ALL) setEqPreset(preset)
-            }
-            OppoPodsAction.ACTION_DUAL_DEVICE_CONNECTION_SET ->
-                setDualDeviceConnection(intent.getBooleanExtra("enabled", false))
             OppoPodsAction.ACTION_CYCLE_ANC -> cycleAnc()
             OppoPodsAction.ACTION_CONFIG_CHANGED -> {
                 ConfigManager.refreshFromPrefs(mPrefs)
@@ -254,17 +232,11 @@ object OppoSystemIntegrationAdapter {
 
         if (!receiverRegistered) {
             context.registerReceiver(broadcastReceiver, IntentFilter().apply {
-                addAction(OppoPodsAction.ACTION_ANC_SELECT)
                 addAction(OppoPodsAction.ACTION_PODS_UI_INIT)
                 addAction(OppoPodsAction.ACTION_PODS_UI_CLOSED)
                 addAction(OppoPodsAction.ACTION_REFRESH_STATUS)
-                addAction(OppoPodsAction.ACTION_GAME_MODE_SET)
                 addAction(OppoPodsAction.ACTION_AUTO_GAME_MODE_CHANGED)
                 addAction(OppoPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED)
-                addAction(OppoPodsAction.ACTION_TRANSPARENCY_VOCAL_ENHANCEMENT_SET)
-                addAction(OppoPodsAction.ACTION_SPATIAL_AUDIO_SET)
-                addAction(OppoPodsAction.ACTION_EQ_PRESET_SET)
-                addAction(OppoPodsAction.ACTION_DUAL_DEVICE_CONNECTION_SET)
                 addAction(OppoPodsAction.ACTION_CYCLE_ANC)
                 addAction(OppoPodsAction.ACTION_CONFIG_CHANGED)
                 addAction(OppoPodsAction.ACTION_RFCOMM_LOG_CONNECT)
@@ -470,7 +442,7 @@ object OppoSystemIntegrationAdapter {
         }
     }
 
-    fun setGameMode(enabled: Boolean) =
+    private fun setGameMode(enabled: Boolean) =
         launchCommand(FeatureCommand.SetLowLatency(enabled), "game mode control")
 
     private suspend fun enableGameModeOnConnect() {
@@ -486,34 +458,7 @@ object OppoSystemIntegrationAdapter {
         }
     }
 
-    fun setTransparencyVocalEnhancement(enabled: Boolean) = launchCommand(
-        FeatureCommand.SetTransparencyVocalEnhancement(enabled),
-        "transparency vocal enhancement control",
-    )
-
-    fun setSpatialAudioMode(mode: Int) {
-        val domainMode = when (mode.coerceIn(SpatialAudioMode.OFF, SpatialAudioMode.HEAD_TRACKING)) {
-            SpatialAudioMode.OFF -> CoreSpatialAudioMode.OFF
-            SpatialAudioMode.FIXED -> CoreSpatialAudioMode.FIXED
-            else -> CoreSpatialAudioMode.HEAD_TRACKING
-        }
-        launchCommand(FeatureCommand.SetSpatialAudio(domainMode), "spatial audio control")
-    }
-
-    fun setEqPreset(presetId: Int) {
-        if (presetId !in EqPreset.ALL) return
-        launchCommand(
-            FeatureCommand.SetEqualizerPreset(EqualizerPreset("oppo:$presetId")),
-            "eq preset control",
-        )
-    }
-
-    fun setDualDeviceConnection(enabled: Boolean) = launchCommand(
-        FeatureCommand.SetDualDeviceConnection(enabled),
-        "dual-device connection control",
-    )
-
-    fun cycleAnc() {
+    private fun cycleAnc() {
         val cycle = if (currentCompatibility().adaptiveSupported) {
             listOf(2, 4, 3, 1)
         } else {
@@ -523,7 +468,7 @@ object OppoSystemIntegrationAdapter {
         setANCMode(cycle[(currentIndex + 1).floorMod(cycle.size)])
     }
 
-    fun setANCMode(mode: Int) {
+    private fun setANCMode(mode: Int) {
         val domain = when (mode) {
             1 -> CoreNoiseControlMode.OFF
             2 -> CoreNoiseControlMode.NOISE_CANCELLATION
@@ -542,7 +487,7 @@ object OppoSystemIntegrationAdapter {
         BluetoothProcessRuntimeHost.refreshAsync(setOf(FeatureId.BATTERY))
     }
 
-    fun queryStatus(immediateReconnect: Boolean = true) {
+    private fun queryStatus(immediateReconnect: Boolean = true) {
         BluetoothProcessRuntimeHost.refreshAsync()
     }
 

@@ -12,6 +12,7 @@
 | Sony Classic SPP 只读实现与验收进度 | [architecture/PHASE8_SONY_CLASSIC_SPP_READONLY.md](architecture/PHASE8_SONY_CLASSIC_SPP_READONLY.md) |
 | Sony BLE GATT 只读实现与双机验收 | [architecture/PHASE9_SONY_BLE_GATT_READONLY.md](architecture/PHASE9_SONY_BLE_GATT_READONLY.md) |
 | Sony 可逆控制与 Phase 10 闭环 | [architecture/PHASE10_SONY_REVERSIBLE_CONTROLS.md](architecture/PHASE10_SONY_REVERSIBLE_CONTROLS.md) |
+| 新增厂商或型号需要满足哪些边界 | [architecture/VENDOR_EXTENSION_CHECKLIST.md](architecture/VENDOR_EXTENSION_CHECKLIST.md) |
 | 官方 App 协议是怎么逆出来的 | [reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md](reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md) |
 | 怎么在真机上抓包取证 | [reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md](reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md) |
 | 抓包工具怎么用 | [../tools/bluetooth-capture/README.md](../tools/bluetooth-capture/README.md) |
@@ -37,6 +38,9 @@ NC/ASM 三态、环境声 level `1..20`、NORMAL/VOICE 与全部 12 个官方 EQ
 App 页面由 `HeadphoneUiStateStore` 按 capability 动态渲染，HyperOS hook 通过
 `HyperOsHeadphoneAdapter` 使用通用状态和 `FeatureCommand`，不再维护 OPPO 地址表或
 在 UI 中解释厂商 preset。
+旧的 ANC、低延迟、透明人声增强、空间音频、EQ 和双设备“写广播”入口已删除；这些写操作
+只能走版本化 `FeatureCommand`。保留的 `chen.action.oppopods.*` 字符串仅用于安装升级和
+既有 LSPosed/跨进程兼容，不再作为新增功能的扩展接口。
 `:transport:android` 同时提供 SPP 与通用 GATT byte transport；GATT 的 UUID、MTU
 失败策略、writable length、写入/通知模式和分块策略全部来自 driver profile，所有
 callback-backed operation 串行执行并按 connection generation 隔离。

@@ -26,6 +26,10 @@
 - 已删除 `RfcommController` facade：剩余通知、媒体路由、系统电量和兼容广播集中到命名
   明确的 `OppoSystemIntegrationAdapter`；会话 authority、driver 与协议处理继续只属于
   `BluetoothProcessRuntimeHost` / engine / protocol modules。
+- 已删除无调用者的六个旧写广播入口（ANC、低延迟、透明人声增强、空间音频、EQ、双设备）；
+  UI 与 HyperOS 写操作统一走版本化 `FeatureCommand`。架构测试阻止这些 action 回流；
+- 新增厂商接入清单与依赖边界测试已落地，`:core`、`:engine`、`:transport:android` 不得
+  依赖 OPPO/Sony protocol module 或 `:app`。
 
 ## 产品身份决策
 
@@ -43,6 +47,11 @@
 2. 对新增型号/固件/OEM 采集动态证据后再扩展精确矩阵；没有真机证据的名称条目不得
    提升为 `READ_ONLY`、`CONTROLLED` 或 `STABLE`；
 3. 删除只为旧广播 contract 保留的 DTO，并以 adapter 边界测试替代 facade 测试。
+
+新增厂商或型号必须按
+[`VENDOR_EXTENSION_CHECKLIST.md`](VENDOR_EXTENSION_CHECKLIST.md) 完成证据、模块边界、
+compatibility level、fixture 和回归验证；不得通过在通用 transport/core 中增加厂商分支
+来接入。
 
 ## 当前验证
 

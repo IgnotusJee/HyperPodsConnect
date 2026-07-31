@@ -40,4 +40,23 @@ class Phase11ArchitectureTest {
         )
         assertFalse(runtime.contains("if (!BuildConfig.DEBUG) return false"))
     }
+
+    @Test
+    fun `vendor modules cannot become dependencies of core engine or transport`() {
+        val moduleBuilds = listOf(
+            "core/build.gradle.kts",
+            "engine/build.gradle.kts",
+            "transport/android/build.gradle.kts",
+        ).mapNotNull { relative ->
+            listOf(File(relative), File("../$relative")).firstOrNull(File::isFile)
+        }
+        assumeTrue(moduleBuilds.size == 3)
+
+        moduleBuilds.forEach { build ->
+            val source = build.readText()
+            assertFalse("${build.path} must not depend on an OPPO module", source.contains(":protocol:oppo"))
+            assertFalse("${build.path} must not depend on a Sony module", source.contains(":protocol:sony"))
+            assertFalse("${build.path} must not depend on the app", source.contains("project(\":app\")"))
+        }
+    }
 }
