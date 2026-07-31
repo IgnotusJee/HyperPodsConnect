@@ -73,7 +73,6 @@ sealed interface OppoSessionEvent {
     data class RawChunk(val bytes: ByteArray) : OppoSessionEvent
     data class Message(val message: OppoMessage) : OppoSessionEvent
     data class WearReport(val values: Map<OppoComponent, OppoWearState>) : OppoSessionEvent
-    data class SmartAncLevel(val mode: NoiseControlMode) : OppoSessionEvent
     data class UnknownMessage(val message: OppoMessage) : OppoSessionEvent
 }
 
@@ -494,9 +493,9 @@ class OppoSession(
                 ),
             )
         }
-        parseSmartAncLevel(message)?.let {
+        parseSmartAncLevel(message)?.let { activeMode ->
             recognized = true
-            _events.tryEmit(OppoSessionEvent.SmartAncLevel(it))
+            _state.value = _state.value.copy(noiseControlActiveMode = activeMode)
         }
         if (
             message.command == OppoCommand.responseOf(OppoCommand.QUERY_NOTIFICATION_SUPPORT) ||

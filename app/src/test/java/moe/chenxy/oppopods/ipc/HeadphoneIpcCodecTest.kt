@@ -93,6 +93,7 @@ class HeadphoneIpcCodecTest {
         )
         val state = HeadphoneState(
             batteries = mapOf(BatteryComponent.LEFT to BatteryState(88, false)),
+            noiseControlActiveMode = NoiseControlMode.NOISE_CANCELLATION_MEDIUM,
             lowLatency = moe.chenxy.headphones.core.feature.FeatureValue<Boolean>()
                 .withConfirmed(true, ValueSource.READ_BACK, 10),
             firmware = "1.2.3",
@@ -126,6 +127,7 @@ class HeadphoneIpcCodecTest {
         assertTrue(decoded.protocolReady)
         assertEquals("EARBUDS_WITH_CASE", decoded.topology)
         assertEquals(88, decoded.batteries.single().level)
+        assertEquals("NOISE_CANCELLATION_MEDIUM", decoded.noiseControlActiveMode)
         assertEquals("true", decoded.features[FeatureId.LOW_LATENCY.name]?.confirmed)
         assertEquals("READ_BACK_CONFIRMED", decoded.operation?.phase)
         assertEquals("VERIFIED", decoded.capabilities.single().evidence)

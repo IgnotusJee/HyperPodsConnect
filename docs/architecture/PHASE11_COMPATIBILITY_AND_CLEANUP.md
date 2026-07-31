@@ -32,8 +32,9 @@
   依赖 OPPO/Sony protocol module 或 `:app`。
 - adapter 不再把 snapshot 重发为连接、电量、佩戴、ANC、低延迟、空间音频、EQ 或双设备
   旧状态广播；App、MiLink、Settings 与 Xiaomi 蓝牙 Hook 的状态来源只剩版本化 snapshot。
-  同时删除了无调用者的 RFCOMM connection observable 与旧 Intent 电量解析器。智能 ANC
-  level 暂无通用领域字段，仍保留为单一迁移期事件。
+  同时删除了无调用者的 RFCOMM connection observable 与旧 Intent 电量解析器；
+- 智能 ANC 当前强度已建模为通用 `HeadphoneState.noiseControlActiveMode`，通过版本化
+  snapshot 到达 UI，最后一个逐功能状态广播及 OPPO session 专用事件已删除。
 
 ## 产品身份决策
 
@@ -50,8 +51,8 @@
    覆盖的路径直接删除，只保留确有 HyperOS 兼容需求的最终系统副作用；
 2. 对新增型号/固件/OEM 采集动态证据后再扩展精确矩阵；没有真机证据的名称条目不得
    提升为 `READ_ONLY`、`CONTROLLED` 或 `STABLE`；
-3. 将智能 ANC level 纳入通用领域 snapshot 后，删除最后一个逐功能状态事件；当前
-   `BatteryParams`/`PodParams` 仍是通知、灵动岛和 Compose 展示模型，不再作为状态 IPC。
+3. `BatteryParams`/`PodParams` 仍是通知、灵动岛和 Compose 展示模型，不再作为状态 IPC；
+   是否进一步替换为通用 presentation model 可单独进行，不影响跨进程状态链。
 
 新增厂商或型号必须按
 [`VENDOR_EXTENSION_CHECKLIST.md`](VENDOR_EXTENSION_CHECKLIST.md) 完成证据、模块边界、

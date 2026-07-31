@@ -74,7 +74,7 @@ object HeadsetStateDispatcher : HookContext() {
                     OppoPodsAction.ACTION_CONNECT_POD_REQUEST -> {
                         val device = intent.getParcelableExtra("device", BluetoothDevice::class.java) ?: return
                 Log.d("OppoPods", "connect request from app device=${device.name}")
-                        OppoSystemIntegrationAdapter.connectPod(context, device, prefs, appRequested = true)
+                        OppoSystemIntegrationAdapter.connectPod(context, device, prefs)
                     }
                     OppoPodsAction.ACTION_DISCONNECT_POD_REQUEST -> {
                         val device = intent.getParcelableExtra("device", BluetoothDevice::class.java) ?: return

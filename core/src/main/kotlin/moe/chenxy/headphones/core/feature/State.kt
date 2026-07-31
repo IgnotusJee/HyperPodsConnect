@@ -105,6 +105,8 @@ data class HeadphoneState(
     val batteries: Map<BatteryComponent, BatteryState> = emptyMap(),
     val wearing: Map<WearComponent, WearState> = emptyMap(),
     val noiseControl: FeatureValue<NoiseControlMode> = FeatureValue.empty(),
+    /** Effective NC strength currently selected by an automatic/smart noise-control mode. */
+    val noiseControlActiveMode: NoiseControlMode? = null,
     val ambientSoundLevel: FeatureValue<Int> = FeatureValue.empty(),
     val transparencyVocalEnhancement: FeatureValue<Boolean> = FeatureValue.empty(),
     val equalizer: FeatureValue<EqualizerPreset> = FeatureValue.empty(),

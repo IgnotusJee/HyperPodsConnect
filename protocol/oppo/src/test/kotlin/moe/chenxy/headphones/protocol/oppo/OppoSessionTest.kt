@@ -10,8 +10,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import moe.chenxy.headphones.core.device.DeviceCandidate
 import moe.chenxy.headphones.core.device.DeviceId
@@ -158,6 +160,26 @@ class OppoSessionTest {
         session.disconnect()
     }
 
+    @Test
+    fun `smart ANC active strength is part of the unified state`() = runBlocking {
+        val transport = FakeOppoTransport()
+        val session = session(transport)
+        session.connect()
+
+        transport.emitNotification(byteArrayOf(0x03, 0x04, 0x01, 0x20))
+
+        val state = withTimeout(1_000) {
+            session.state.first {
+                it.noiseControlActiveMode == NoiseControlMode.NOISE_CANCELLATION_MEDIUM
+            }
+        }
+        assertEquals(
+            NoiseControlMode.NOISE_CANCELLATION_MEDIUM,
+            state.noiseControlActiveMode,
+        )
+        session.disconnect()
+    }
+
     private fun session(
         transport: FakeOppoTransport,
         model: String = "OPPO Enco Air5s",
@@ -255,5 +277,15 @@ private class FakeOppoTransport(
 
     override suspend fun close(cause: DisconnectCause) {
         _state.value = TransportState.Closed
+    }
+
+    suspend fun emitNotification(payload: ByteArray) {
+        _incoming.emit(
+            OppoMessageCodec.encode(
+                OppoCommand.NOTIFICATION_EVENT,
+                sequence = 0,
+                payload = payload,
+            ),
+        )
     }
 }

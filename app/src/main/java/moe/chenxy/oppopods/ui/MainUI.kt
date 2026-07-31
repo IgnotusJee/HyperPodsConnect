@@ -228,6 +228,9 @@ fun MainUI(
             runCatching { NoiseControlMode.valueOf(it) }.getOrNull()
                 ?.let { value -> ancMode.value = value }
         }
+        smartAncLevel.value = state.noiseControlActiveMode?.let {
+            runCatching { NoiseControlMode.valueOf(it) }.getOrNull()
+        }
         state.feature(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT.name)
             ?.displayed?.toBooleanStrictOrNull()
             ?.let { transparencyVocalEnhancement.value = it }
@@ -295,11 +298,6 @@ fun MainUI(
         object : BroadcastReceiver() {
             override fun onReceive(p0: Context?, p1: Intent?) {
                 when (p1?.action) {
-                    OppoPodsAction.ACTION_PODS_SMART_ANC_LEVEL_CHANGED -> {
-                        val ord = p1.getIntExtra("ordinal", -1)
-                        smartAncLevel.value = NoiseControlMode.entries.getOrNull(ord)
-                    }
-
                     OppoPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE -> {
                         lastBluetoothServiceAliveMs = SystemClock.elapsedRealtime()
                         bluetoothServiceResponsive = true
@@ -321,7 +319,6 @@ fun MainUI(
         OppoPodsApp.addServiceListener(serviceListener)
 
         context.registerReceiver(broadcastReceiver, IntentFilter().apply {
-            addAction(OppoPodsAction.ACTION_PODS_SMART_ANC_LEVEL_CHANGED)
             addAction(OppoPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE)
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)

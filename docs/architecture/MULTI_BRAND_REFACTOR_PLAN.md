@@ -1163,7 +1163,7 @@ readback、脱敏 fixture、项目 App 真机验证与原值恢复。完整 Grad
 兼容矩阵、`STABLE` 分级、产品显示名称决策和 release/raw 显式门禁已落地；旧广播
 bridge 与 `RfcommController` facade 已删除，剩余系统副作用集中到显式的
 `OppoSystemIntegrationAdapter`；旧功能写 action 与 snapshot 到逐功能状态广播均已删除，
-仅智能 ANC level 保留迁移期事件。执行记录见
+智能 ANC 当前强度也已进入通用 snapshot。执行记录见
 [`PHASE11_COMPATIBILITY_AND_CLEANUP.md`](PHASE11_COMPATIBILITY_AND_CLEANUP.md)。
 
 改动：

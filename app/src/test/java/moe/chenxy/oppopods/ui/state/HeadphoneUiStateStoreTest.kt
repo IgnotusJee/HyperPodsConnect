@@ -58,6 +58,14 @@ class HeadphoneUiStateStoreTest {
     }
 
     @Test
+    fun `smart noise control active mode reaches the vendor neutral UI state`() {
+        val store = HeadphoneUiStateStore()
+        store.accept(fakeSnapshot(noiseControlActiveMode = "NOISE_CANCELLATION_MEDIUM"))
+
+        assertEquals("NOISE_CANCELLATION_MEDIUM", store.state.value.noiseControlActiveMode)
+    }
+
+    @Test
     fun `unsupported feature is hidden and readable feature is read only`() {
         val store = HeadphoneUiStateStore()
         val snapshot = fakeSnapshot().copy(
@@ -155,6 +163,7 @@ class HeadphoneUiStateStoreTest {
         operation: OperationPayload? = null,
         emittedAtMillis: Long = 12,
         topology: String? = null,
+        noiseControlActiveMode: String? = null,
     ) = HeadphoneSnapshotPayload(
         deviceId = deviceId,
         generationId = generation,
@@ -169,6 +178,7 @@ class HeadphoneUiStateStoreTest {
         compatibility = "CONTROLLED",
         batteries = listOf(BatteryPayload("LEFT", 82, false)),
         wearing = mapOf("LEFT" to "WEARING"),
+        noiseControlActiveMode = noiseControlActiveMode,
         features = mapOf(
             "NOISE_CONTROL" to FeatureValuePayload(
                 "NOISE_CANCELLATION",

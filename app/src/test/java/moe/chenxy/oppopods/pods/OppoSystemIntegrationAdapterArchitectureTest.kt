@@ -69,6 +69,7 @@ class OppoSystemIntegrationAdapterArchitectureTest {
             "ACTION_PODS_SPATIAL_AUDIO_CHANGED",
             "ACTION_PODS_EQ_PRESET_CHANGED",
             "ACTION_PODS_DUAL_DEVICE_CONNECTION_CHANGED",
+            "ACTION_PODS_SMART_ANC_LEVEL_CHANGED",
             "sendExternalPodsStatusBroadcast",
         ).forEach { legacyOutput ->
             assertFalse("removed legacy output returned: $legacyOutput", source!!.contains(legacyOutput))

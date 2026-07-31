@@ -214,6 +214,7 @@ data class HeadphoneSnapshotPayload(
     val commandTable: String? = null,
     val batteries: List<BatteryPayload>,
     val wearing: Map<String, String>,
+    val noiseControlActiveMode: String? = null,
     val features: Map<String, FeatureValuePayload>,
     val capabilities: List<CapabilityPayload>,
     val operation: OperationPayload?,
@@ -257,6 +258,8 @@ data class HeadphoneSnapshotPayload(
                 },
                 wearing = state.wearing.takeIf { mayExposeState }.orEmpty()
                     .mapKeys { it.key.name }.mapValues { it.value.name },
+                noiseControlActiveMode = state.noiseControlActiveMode?.name
+                    ?.takeIf { mayExposeState },
                 features = if (mayExposeState) mapOf(
                     FeatureId.NOISE_CONTROL.name to feature(
                         state.noiseControl.confirmed?.name,

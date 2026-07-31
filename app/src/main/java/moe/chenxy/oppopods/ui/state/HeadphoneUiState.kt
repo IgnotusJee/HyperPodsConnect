@@ -55,6 +55,7 @@ data class HeadphoneUiState(
     val compatibility: String? = null,
     val batteries: Map<String, BatteryPayload> = emptyMap(),
     val wearing: Map<String, String> = emptyMap(),
+    val noiseControlActiveMode: String? = null,
     val features: Map<String, UiFeatureState> = emptyMap(),
     val lastOperation: UiOperation? = null,
 ) {
@@ -110,6 +111,7 @@ class HeadphoneUiStateStore {
             compatibility = snapshot.compatibility,
             batteries = snapshot.batteries.associateBy(BatteryPayload::component),
             wearing = snapshot.wearing,
+            noiseControlActiveMode = snapshot.noiseControlActiveMode,
             features = features,
             lastOperation = operation,
         )

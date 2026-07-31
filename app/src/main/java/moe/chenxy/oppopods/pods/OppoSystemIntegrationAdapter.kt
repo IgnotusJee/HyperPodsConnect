@@ -60,7 +60,6 @@ import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
 @SuppressLint("MissingPermission", "StaticFieldLeak")
 object OppoSystemIntegrationAdapter {
     private const val TAG = "HyperPods-OppoIntegration"
-    private const val APP_UI_ACTIVE_TIMEOUT_MS = 75_000L
 
     private var mContext: Context? = null
     lateinit var mDevice: BluetoothDevice
@@ -75,7 +74,6 @@ object OppoSystemIntegrationAdapter {
     private var lastTempBatt = 0
     lateinit var currentBatteryParams: BatteryParams
     private var currentAnc = 1
-    private var currentSmartAncLevel = -1
     private var currentGameMode = false
     private var currentTransparencyVocalEnhancement = false
     private var currentSpatialAudioMode = SpatialAudioMode.OFF
@@ -89,8 +87,6 @@ object OppoSystemIntegrationAdapter {
     private var cachedDeviceName = ""
     private var receiverRegistered = false
     private var routeScanStarted = false
-    private var appUiActive = false
-    private var appUiActiveUntilMs = 0L
     private var currentWearStatus = WearStatus()
     private val rawHexSessionGate = RawHexSessionGate(BuildConfig.ALLOW_RAW_PROTOCOL_CONSOLE)
 
@@ -107,13 +103,7 @@ object OppoSystemIntegrationAdapter {
 
     fun handleUIEvent(intent: Intent) {
         when (intent.action) {
-            OppoPodsAction.ACTION_PODS_UI_INIT -> {
-                markAppUiActive()
-                changeUISmartAncLevel(currentSmartAncLevel)
-            }
             OppoPodsAction.ACTION_PODS_UI_CLOSED -> {
-                appUiActive = false
-                appUiActiveUntilMs = 0L
                 rawHexSessionGate.lock()
             }
             OppoPodsAction.ACTION_REFRESH_STATUS -> queryStatus(immediateReconnect = true)
@@ -161,13 +151,11 @@ object OppoSystemIntegrationAdapter {
         context: Context,
         device: BluetoothDevice,
         prefs: SharedPreferences,
-        appRequested: Boolean = false,
     ) {
         mContext = context
         mDevice = device
         mPrefs = prefs
         cachedDeviceName = device.name ?: ""
-        if (appRequested) markAppUiActive()
         autoGameModeEnabled = mPrefs.getBoolean("auto_game_mode", false)
         gameModeImplementation = GameModeImplementation.fromPreference(
             mPrefs.getString(GameModeImplementation.PREF_KEY, null),
@@ -176,7 +164,6 @@ object OppoSystemIntegrationAdapter {
 
         if (!receiverRegistered) {
             context.registerReceiver(broadcastReceiver, IntentFilter().apply {
-                addAction(OppoPodsAction.ACTION_PODS_UI_INIT)
                 addAction(OppoPodsAction.ACTION_PODS_UI_CLOSED)
                 addAction(OppoPodsAction.ACTION_REFRESH_STATUS)
                 addAction(OppoPodsAction.ACTION_AUTO_GAME_MODE_CHANGED)
@@ -248,13 +235,6 @@ object OppoSystemIntegrationAdapter {
                     event.bytes.toHexString(HexFormat.UpperCase),
                 )
             is OppoSessionEvent.WearReport -> Unit
-            is OppoSessionEvent.SmartAncLevel -> {
-                val ordinal = legacyNoiseMode(event.mode).ordinal
-                if (ordinal != currentSmartAncLevel) {
-                    currentSmartAncLevel = ordinal
-                    changeUISmartAncLevel(ordinal)
-                }
-            }
             is OppoSessionEvent.UnknownMessage ->
                 Log.d(TAG, "Unknown OPPO message: ${event.message}")
             is OppoSessionEvent.Message -> Unit
@@ -346,7 +326,6 @@ object OppoSystemIntegrationAdapter {
         mShowedConnectedToast = false
         currentWearStatus = WearStatus()
         currentAnc = 1
-        currentSmartAncLevel = -1
         currentGameMode = false
         currentTransparencyVocalEnhancement = false
         currentSpatialAudioMode = SpatialAudioMode.OFF
@@ -520,35 +499,6 @@ object OppoSystemIntegrationAdapter {
             else -> SystemApisUtils.BATTERY_LEVEL_UNKNOWN
         }
         setRegularBatteryLevel(lastTempBatt)
-    }
-
-    private fun changeUISmartAncLevel(ordinal: Int) =
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_SMART_ANC_LEVEL_CHANGED) {
-            putExtra("ordinal", ordinal)
-        }
-
-    private fun sendAppStatusBroadcast(action: String, fill: Intent.() -> Unit = {}) {
-        val context = mContext ?: return
-        if (!isAppUiActive()) return
-        Intent(action).apply {
-            fill()
-            setPackage(BuildConfig.APPLICATION_ID)
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
-        }
-    }
-
-    private fun isAppUiActive(): Boolean {
-        if (!appUiActive) return false
-        if (SystemClock.elapsedRealtime() <= appUiActiveUntilMs) return true
-        appUiActive = false
-        appUiActiveUntilMs = 0L
-        return false
-    }
-
-    private fun markAppUiActive() {
-        appUiActive = true
-        appUiActiveUntilMs = SystemClock.elapsedRealtime() + APP_UI_ACTIVE_TIMEOUT_MS
     }
 
     private fun mergeWearStatus(current: WearStatus, update: WearStatus) = WearStatus(
