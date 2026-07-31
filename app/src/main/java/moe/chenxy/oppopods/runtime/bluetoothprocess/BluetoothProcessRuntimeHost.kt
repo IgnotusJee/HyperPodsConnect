@@ -43,7 +43,7 @@ import moe.chenxy.headphones.protocol.sony.session.SonySessionEvent
 import moe.chenxy.headphones.transport.android.AndroidBluetoothTransportFactory
 import moe.chenxy.oppopods.ipc.HeadphoneIpcContract
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotPayload
-import moe.chenxy.oppopods.pods.RfcommController
+import moe.chenxy.oppopods.pods.OppoSystemIntegrationAdapter
 import moe.chenxy.oppopods.BuildConfig
 
 /**
@@ -95,7 +95,7 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
                 )
                 attachVendorEvents(value.generationId)
                 if (value.profile?.vendorId == VendorId.OPPO) {
-                    RfcommController.onEngineSnapshot(value)
+                    OppoSystemIntegrationAdapter.onEngineSnapshot(value)
                 }
                 publishSnapshot(value)
             }
@@ -103,7 +103,7 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
         scope.launch {
             manager.operations.collect { event ->
                 if (snapshot.value?.profile?.vendorId == VendorId.OPPO) {
-                    RfcommController.onEngineOperation(event)
+                    OppoSystemIntegrationAdapter.onEngineOperation(event)
                 }
             }
         }
@@ -198,7 +198,7 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
                 vendorEventJob = scope.launch {
                     session.events.collect { event ->
                         if (snapshot.value?.generationId != generationId) return@collect
-                        RfcommController.onOppoSessionEvent(event)
+                        OppoSystemIntegrationAdapter.onOppoSessionEvent(event)
                     }
                 }
             }

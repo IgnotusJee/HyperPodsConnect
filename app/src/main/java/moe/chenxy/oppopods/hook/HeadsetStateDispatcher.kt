@@ -11,7 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
 import moe.chenxy.oppopods.BuildConfig
-import moe.chenxy.oppopods.pods.RfcommController
+import moe.chenxy.oppopods.pods.OppoSystemIntegrationAdapter
 import moe.chenxy.oppopods.runtime.bluetoothprocess.BluetoothProcessRuntimeHost
 import moe.chenxy.oppopods.utils.SystemApisUtils.setIconVisibility
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
@@ -48,10 +48,10 @@ object HeadsetStateDispatcher : HookContext() {
                 val statusBarManager = context.getSystemService("statusbar") as StatusBarManager
                 if (currState == BluetoothHeadset.STATE_CONNECTED) {
                     statusBarManager.setIconVisibility("wireless_headset", true)
-                    RfcommController.connectPod(context, device, prefs)
+                    OppoSystemIntegrationAdapter.connectPod(context, device, prefs)
                 } else if (currState == BluetoothHeadset.STATE_DISCONNECTING || currState == BluetoothHeadset.STATE_DISCONNECTED) {
                     statusBarManager.setIconVisibility("wireless_headset", false)
-                    RfcommController.disconnectedPod(context, device)
+                    OppoSystemIntegrationAdapter.disconnectedPod(context, device)
                 }
             }
         }
@@ -74,12 +74,12 @@ object HeadsetStateDispatcher : HookContext() {
                     OppoPodsAction.ACTION_CONNECT_POD_REQUEST -> {
                         val device = intent.getParcelableExtra("device", BluetoothDevice::class.java) ?: return
                 Log.d("OppoPods", "connect request from app device=${device.name}")
-                        RfcommController.connectPod(context, device, prefs, appRequested = true)
+                        OppoSystemIntegrationAdapter.connectPod(context, device, prefs, appRequested = true)
                     }
                     OppoPodsAction.ACTION_DISCONNECT_POD_REQUEST -> {
                         val device = intent.getParcelableExtra("device", BluetoothDevice::class.java) ?: return
                 Log.d("OppoPods", "disconnect request from app device=${device.name}")
-                        RfcommController.disconnectedPod(context, device)
+                        OppoSystemIntegrationAdapter.disconnectedPod(context, device)
                     }
                 }
             }

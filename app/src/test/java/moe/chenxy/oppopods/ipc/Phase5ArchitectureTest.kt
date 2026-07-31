@@ -57,17 +57,17 @@ class Phase5ArchitectureTest {
     }
 
     @Test
-    fun `legacy controller delegates session authority to runtime host`() {
-        val controller = source(
-            "src/main/java/moe/chenxy/oppopods/pods/RfcommController.kt",
+    fun `system integration adapter delegates session authority to runtime host`() {
+        val adapter = source(
+            "src/main/java/moe/chenxy/oppopods/pods/OppoSystemIntegrationAdapter.kt",
         )
-        assumeTrue(controller != null)
+        assumeTrue(adapter != null)
 
-        assertTrue(controller!!.contains("BluetoothProcessRuntimeHost.connect"))
-        assertTrue(controller.contains("BluetoothProcessRuntimeHost.execute"))
-        assertFalse(controller.contains("private var session:"))
-        assertFalse(controller.contains("OppoDriverProvider("))
-        assertFalse(controller.contains("AndroidSppTransportFactory("))
+        assertTrue(adapter!!.contains("BluetoothProcessRuntimeHost.connect"))
+        assertTrue(adapter.contains("BluetoothProcessRuntimeHost.execute"))
+        assertFalse(adapter.contains("private var session:"))
+        assertFalse(adapter.contains("OppoDriverProvider("))
+        assertFalse(adapter.contains("AndroidSppTransportFactory("))
     }
 
     @Test

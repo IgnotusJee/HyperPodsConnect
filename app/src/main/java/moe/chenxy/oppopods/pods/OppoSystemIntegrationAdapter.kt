@@ -59,8 +59,15 @@ import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
  * to the existing app/MiLink/Settings broadcasts during the migration.
  */
 @SuppressLint("MissingPermission", "StaticFieldLeak")
-object RfcommController {
-    private const val TAG = "OppoPods-RfcommController"
+/**
+ * OPPO/HyperOS compatibility boundary for Android-only side effects.
+ *
+ * Session authority and protocol work live in [BluetoothProcessRuntimeHost]. This adapter only
+ * translates the remaining legacy Android events, notifications and media-route integration while
+ * those call sites are migrated to the versioned IPC/state projection.
+ */
+object OppoSystemIntegrationAdapter {
+    private const val TAG = "HyperPods-OppoIntegration"
     private const val APP_UI_ACTIVE_TIMEOUT_MS = 75_000L
 
     private var mContext: Context? = null
@@ -830,7 +837,7 @@ object RfcommController {
 
     private val routeCallback = object : MediaRouter2.RouteCallback() {
         override fun onRoutesUpdated(routes: List<MediaRoute2Info>) {
-            this@RfcommController.routes = routes
+            this@OppoSystemIntegrationAdapter.routes = routes
         }
     }
 

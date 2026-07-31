@@ -32,7 +32,7 @@ NC/ASM 三态、环境声 level `1..20`、NORMAL/VOICE 与全部 12 个官方 EQ
 模块，编译期即无法触及 Android、Xposed 与 Compose。蓝牙进程中的
 `BluetoothProcessRuntimeHost` 是唯一真实会话 authority，由 `:engine` 的
 `HeadphoneSessionManager` 管理 driver、generation、重连和统一 snapshot。
-`RfcommController` 仅保留为旧广播与 HyperOS 集成的兼容 facade；App、MiLink 和
+`OppoSystemIntegrationAdapter` 只负责剩余旧广播与 HyperOS 系统副作用；App、MiLink 和
 小米蓝牙进程通过版本化 IPC 恢复相同快照，不会各自建立蓝牙会话。
 App 页面由 `HeadphoneUiStateStore` 按 capability 动态渲染，HyperOS hook 通过
 `HyperOsHeadphoneAdapter` 使用通用状态和 `FeatureCommand`，不再维护 OPPO 地址表或
@@ -123,8 +123,8 @@ callback-backed operation 串行执行并按 connection generation 隔离。
 - connect/write 均有超时，write 由 mutex 串行化；
 - transport 自己持有结构化 coroutine scope，并显式区分主动关闭与链路失败；
 - close 会先关闭 socket，再取消并等待 reader/write job，避免遗留阻塞任务；
-- `RfcommController` 不再直接持有 `BluetoothSocket`、`InputStream` 或
-  `OutputStream`，通过 `RfcommTransportBridge` 保留原广播、重连和 UI 行为。
+- Android 集成层不再直接持有 `BluetoothSocket`、`InputStream` 或 `OutputStream`；
+  transport 与重连由 runtime/engine 管理，系统副作用隔离在明确的 adapter 中。
 
 2026-07-26 已在 Xiaomi 13 Pro（Android 16 / API 36、LSPosed API 102）与
 OPPO Enco Air5s 上完成 20 次连续连接/断开。每轮 OPPO RFCOMM channel 5 都完整经历
@@ -142,8 +142,8 @@ noise control、EQ、low latency、spatial 和 dual-device 拆为独立 feature�
 
 写操作不再在发送时修改 confirmed 值。`FeatureCommand` 依次产生 queued、sent、
 transport acknowledged、device accepted 和 read-back confirmed；设备拒绝或超时会
-回滚 pending。`RfcommController` 只把旧 UI 广播翻译为 `FeatureCommand`，并把领域状态
-翻译回原广播与 HyperOS 输出，其中不再保留 OPPO 命令常量、帧编解码或 parser。
+回滚 pending。`OppoSystemIntegrationAdapter` 只处理迁移期旧 UI 广播和最终 HyperOS
+系统输出，其中不保留 OPPO 命令常量、帧编解码、parser、driver 或 transport。
 
 2026-07-27 在 Xiaomi 13 Pro（Android 16 / API 36、LSPosed 2.1.1 API 102）与
 OPPO Enco Air5s 上完成真机回归：Session 通过 OPPO RFCOMM channel 5 收到电量、ANC、

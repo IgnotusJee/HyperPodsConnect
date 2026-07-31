@@ -21,10 +21,8 @@ import moe.chenxy.headphones.core.feature.WearState as CoreWearState
 /**
  * Maps the existing OPPO-specific model onto the vendor-neutral core model.
  *
- * Phase 1 only introduces the mapping; the running path still goes through
- * `RfcommController`, so nothing here changes app behaviour yet. Having it
- * compiled and tested first means the later switch-over is a wiring change
- * rather than a translation exercise.
+ * The running path now uses the vendor-neutral engine. This mapper remains the compatibility
+ * boundary for the older OPPO-facing app model while callers migrate to core types.
  */
 object OppoCoreAdapter {
 

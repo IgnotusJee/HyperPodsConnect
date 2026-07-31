@@ -23,6 +23,9 @@
   前再次拒绝 raw frame。FOTA、关机、恢复出厂、配对管理和查找设备继续编译为禁用；
 - 产品显示名称与 Gradle root project 统一为 **HyperPods Connect**，设备选择页不再按
   OPPO 名称优先排序。
+- 已删除 `RfcommController` facade：剩余通知、媒体路由、系统电量和兼容广播集中到命名
+  明确的 `OppoSystemIntegrationAdapter`；会话 authority、driver 与协议处理继续只属于
+  `BluetoothProcessRuntimeHost` / engine / protocol modules。
 
 ## 产品身份决策
 
@@ -35,11 +38,11 @@
 
 ## 后续工作
 
-1. 把 `RfcommController` 中仍存在的 Android UI/通知/媒体路由副作用迁到明确的 adapter，
-   删除 facade 和对应旧 action 入口；
+1. 继续缩减 `OppoSystemIntegrationAdapter` 的旧 action 入口；能由版本化 command/snapshot
+   覆盖的路径直接删除，只保留确有 HyperOS 兼容需求的最终系统副作用；
 2. 对新增型号/固件/OEM 采集动态证据后再扩展精确矩阵；没有真机证据的名称条目不得
    提升为 `READ_ONLY`、`CONTROLLED` 或 `STABLE`；
-3. 完成 facade 迁移后，删除只为旧广播 contract 保留的 DTO 与架构测试。
+3. 删除只为旧广播 contract 保留的 DTO，并以 adapter 边界测试替代 facade 测试。
 
 ## 当前验证
 
