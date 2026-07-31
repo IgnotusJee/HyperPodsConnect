@@ -41,6 +41,8 @@ App 页面由 `HeadphoneUiStateStore` 按 capability 动态渲染，HyperOS hook
 旧的 ANC、低延迟、透明人声增强、空间音频、EQ 和双设备“写广播”入口已删除；这些写操作
 只能走版本化 `FeatureCommand`。保留的 `chen.action.oppopods.*` 字符串仅用于安装升级和
 既有 LSPosed/跨进程兼容，不再作为新增功能的扩展接口。
+连接、电量、佩戴和逐功能状态也不再由 adapter 二次广播，跨进程状态统一来自版本化
+snapshot；仅智能 ANC level 因尚无通用领域字段保留一个迁移期事件。
 `:transport:android` 同时提供 SPP 与通用 GATT byte transport；GATT 的 UUID、MTU
 失败策略、writable length、写入/通知模式和分块策略全部来自 driver profile，所有
 callback-backed operation 串行执行并按 connection generation 隔离。

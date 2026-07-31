@@ -92,19 +92,7 @@ object OppoSystemIntegrationAdapter {
     private var appUiActive = false
     private var appUiActiveUntilMs = 0L
     private var currentWearStatus = WearStatus()
-    private val connectionStateObservable = RfcommConnectionStateObservable()
     private val rawHexSessionGate = RawHexSessionGate(BuildConfig.ALLOW_RAW_PROTOCOL_CONSOLE)
-
-    data class StatusSnapshot(
-        val battery: BatteryParams?,
-        val anc: Int,
-        val transparencyVocalEnhancement: Boolean,
-        val address: String?,
-        val deviceName: String?,
-        val connected: Boolean,
-        val connecting: Boolean,
-        val reconnectPending: Boolean,
-    )
 
     private val lifecycleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var reconnectPending = false
@@ -121,25 +109,7 @@ object OppoSystemIntegrationAdapter {
         when (intent.action) {
             OppoPodsAction.ACTION_PODS_UI_INIT -> {
                 markAppUiActive()
-                changeUIConnectionState(currentConnectionState())
-                if (::currentBatteryParams.isInitialized) changeUIBatteryStatus(currentBatteryParams)
-                changeUIWearStatus(currentWearStatus)
-                changeUIAncStatus(currentAnc)
                 changeUISmartAncLevel(currentSmartAncLevel)
-                changeUIGameModeStatus(currentGameMode)
-                changeUITransparencyVocalEnhancementStatus(currentTransparencyVocalEnhancement)
-                changeUISpatialAudioStatus(currentSpatialAudioMode)
-                changeUIEqPreset(currentEqPreset)
-                changeUIDualDeviceConnectionStatus(currentDualDeviceConnection)
-                if (::mDevice.isInitialized && isConnected) {
-                    sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_CONNECTED) {
-                        putExtra("address", mDevice.address)
-                        putExtra("device_name", mDevice.name ?: cachedDeviceName)
-                    }
-                    sendExternalPodsStatusBroadcast(OppoPodsAction.ACTION_PODS_CONNECTED) {
-                        putExtra("device_name", mDevice.name ?: cachedDeviceName)
-                    }
-                }
             }
             OppoPodsAction.ACTION_PODS_UI_CLOSED -> {
                 appUiActive = false
@@ -187,32 +157,6 @@ object OppoSystemIntegrationAdapter {
         }
     }
 
-    fun currentStatusSnapshot(): StatusSnapshot = StatusSnapshot(
-        battery = if (::currentBatteryParams.isInitialized) currentBatteryParams else null,
-        anc = currentAnc,
-        transparencyVocalEnhancement = currentTransparencyVocalEnhancement,
-        address = if (::mDevice.isInitialized) mDevice.address else null,
-        deviceName = if (::mDevice.isInitialized) {
-            mDevice.name ?: cachedDeviceName
-        } else {
-            cachedDeviceName.takeIf(String::isNotEmpty)
-        },
-        connected = isConnected &&
-            BluetoothProcessRuntimeHost.snapshot.value?.connection is SessionState.Ready,
-        connecting = BluetoothProcessRuntimeHost.snapshot.value?.connection?.isActive == true,
-        reconnectPending = reconnectPending,
-    )
-
-    private fun currentConnectionState(): String = when {
-        isConnected &&
-            BluetoothProcessRuntimeHost.snapshot.value?.connection is SessionState.Ready &&
-            ::currentBatteryParams.isInitialized -> "connected"
-        reconnectPending -> "connecting"
-        isConnected && BluetoothProcessRuntimeHost.snapshot.value?.connection?.isActive == true ->
-            "connecting"
-        else -> "disconnected"
-    }
-
     fun connectPod(
         context: Context,
         device: BluetoothDevice,
@@ -253,7 +197,6 @@ object OppoSystemIntegrationAdapter {
         isConnected = true
         reconnectPending = false
         lastEngineState = HeadphoneState()
-        changeUIConnectionState("connecting")
         lifecycleScope.launch {
             delay(500)
             if (isConnected) {
@@ -276,9 +219,6 @@ object OppoSystemIntegrationAdapter {
         when (val connection = snapshot.connection) {
             is SessionState.Ready -> {
                 reconnectPending = false
-                changeUIConnectionState(
-                    if (::currentBatteryParams.isInitialized) "connected" else "connecting",
-                )
                 if (readyGeneration != snapshot.generationId) {
                     readyGeneration = snapshot.generationId
                     Log.d(TAG, "engine session ready generation=${snapshot.generationId}")
@@ -288,16 +228,13 @@ object OppoSystemIntegrationAdapter {
             }
             is SessionState.Reconnecting -> {
                 reconnectPending = true
-                changeUIConnectionState("connecting")
             }
             is SessionState.Failed -> {
                 reconnectPending = connection.canRetry
                 Log.e(TAG, "engine session failed: ${connection.detail.orEmpty()}")
                 RfcommLog.e(mContext, TAG, "session failed: ${connection.detail.orEmpty()}")
-                changeUIConnectionState("error")
             }
-            is SessionState.Idle -> if (!isConnected) changeUIConnectionState("disconnected")
-            else -> if (isConnected) changeUIConnectionState("connecting")
+            else -> Unit
         }
     }
 
@@ -344,26 +281,22 @@ object OppoSystemIntegrationAdapter {
                 right = current.wearing[WearComponent.RIGHT]?.toLegacyWearState(),
                 case = oldWear.case,
             )
-            changeUIWearStatus(currentWearStatus)
             showIslandForWearStatusChange(oldWear, currentWearStatus)
         }
         current.noiseControl.confirmed?.let { value ->
             if (value != previous.noiseControl.confirmed) {
                 currentAnc = coreNoiseModeToStatus(value)
-                changeUIAncStatus(currentAnc)
             }
         }
         current.transparencyVocalEnhancement.confirmed?.let { value ->
             if (value != previous.transparencyVocalEnhancement.confirmed) {
                 currentTransparencyVocalEnhancement = value
-                changeUITransparencyVocalEnhancementStatus(value)
             }
         }
         current.equalizer.confirmed?.let { value ->
             if (value != previous.equalizer.confirmed) {
                 value.id.substringAfter("oppo:").toIntOrNull()?.let { preset ->
                     currentEqPreset = preset
-                    changeUIEqPreset(preset)
                 }
             }
         }
@@ -371,7 +304,6 @@ object OppoSystemIntegrationAdapter {
             if (value != previous.lowLatency.confirmed) {
                 currentGameMode = value
                 lastGameModeStatusUpdateMs = SystemClock.elapsedRealtime()
-                changeUIGameModeStatus(value)
             }
         }
         current.spatialAudio.confirmed?.let { value ->
@@ -381,13 +313,11 @@ object OppoSystemIntegrationAdapter {
                     CoreSpatialAudioMode.FIXED -> SpatialAudioMode.FIXED
                     CoreSpatialAudioMode.HEAD_TRACKING -> SpatialAudioMode.HEAD_TRACKING
                 }
-                changeUISpatialAudioStatus(currentSpatialAudioMode)
             }
         }
         current.dualDeviceConnection.confirmed?.let { value ->
             if (value != previous.dualDeviceConnection.confirmed) {
                 currentDualDeviceConnection = value
-                changeUIDualDeviceConnectionStatus(value)
             }
         }
     }
@@ -408,9 +338,6 @@ object OppoSystemIntegrationAdapter {
         mContext?.let {
             stopRoutesScan()
             cancelPodsNotificationByMiuiBt(context, device)
-            sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_DISCONNECTED) {
-                putExtra("address", device.address)
-            }
             if (receiverRegistered) {
                 it.unregisterReceiver(broadcastReceiver)
                 receiverRegistered = false
@@ -427,7 +354,6 @@ object OppoSystemIntegrationAdapter {
         currentDualDeviceConnection = false
         lastKnownCaseBattery = 0
         lastKnownCaseCharging = false
-        changeUIConnectionState("disconnected")
         cachedDeviceName = ""
         mContext = null
         MediaControl.mContext = null
@@ -481,10 +407,6 @@ object OppoSystemIntegrationAdapter {
             else -> return
         }
         launchCommand(FeatureCommand.SetNoiseControl(domain), "anc control")
-    }
-
-    fun queryBattery() {
-        BluetoothProcessRuntimeHost.refreshAsync(setOf(FeatureId.BATTERY))
     }
 
     private fun queryStatus(immediateReconnect: Boolean = true) {
@@ -585,21 +507,12 @@ object OppoSystemIntegrationAdapter {
         val battery = BatteryParams(left, right, case)
         currentBatteryParams = battery
         if (shouldShowToast) {
-            changeUIConnectionState("connected")
-            sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_CONNECTED) {
-                putExtra("address", mDevice.address)
-                putExtra("device_name", mDevice.name ?: cachedDeviceName)
-            }
-            sendExternalPodsStatusBroadcast(OppoPodsAction.ACTION_PODS_CONNECTED) {
-                putExtra("device_name", mDevice.name ?: cachedDeviceName)
-            }
             if (shouldShowIsland(ConfigManager.ISLAND_SHOW_TIMING_CONNECTED)) {
                 MiuiStrongToastUtil.showPodsBatteryToastByMiuiBt(mContext!!, battery, mDevice)
             }
             mShowedConnectedToast = true
         }
         MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext!!, battery, mDevice)
-        changeUIBatteryStatus(battery)
         lastTempBatt = when {
             left.isConnected && right.isConnected -> minOf(left.battery, right.battery)
             left.isConnected -> left.battery
@@ -609,83 +522,10 @@ object OppoSystemIntegrationAdapter {
         setRegularBatteryLevel(lastTempBatt)
     }
 
-    private fun changeUIAncStatus(status: Int) {
-        if (status !in 1..8) return
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_ANC_CHANGED) {
-            if (::mDevice.isInitialized) putExtra("address", mDevice.address)
-            putExtra("status", status)
-        }
-        sendExternalPodsStatusBroadcast(OppoPodsAction.ACTION_PODS_ANC_CHANGED) {
-            putExtra("status", status)
-        }
-    }
-
-    private fun changeUIBatteryStatus(status: BatteryParams) {
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_BATTERY_CHANGED) {
-            if (::mDevice.isInitialized) putExtra("address", mDevice.address)
-            putExtra("status", status)
-            putBatteryExtras(status)
-        }
-        sendExternalPodsStatusBroadcast(OppoPodsAction.ACTION_PODS_BATTERY_CHANGED) {
-            putExtra("status", status)
-            putBatteryExtras(status)
-        }
-    }
-
-    private fun changeUIWearStatus(status: WearStatus) {
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_WEAR_STATUS_CHANGED) {
-            if (::mDevice.isInitialized) putExtra("address", mDevice.address)
-            putWearStatusExtras(status)
-        }
-        sendExternalPodsStatusBroadcast(OppoPodsAction.ACTION_PODS_WEAR_STATUS_CHANGED) {
-            putWearStatusExtras(status)
-        }
-    }
-
-    private fun changeUIGameModeStatus(enabled: Boolean) =
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_GAME_MODE_CHANGED) {
-            putExtra("enabled", enabled)
-        }
-
-    private fun changeUITransparencyVocalEnhancementStatus(enabled: Boolean) {
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED) {
-            putExtra("enabled", enabled)
-        }
-        sendExternalPodsStatusBroadcast(OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED) {
-            putExtra("enabled", enabled)
-        }
-    }
-
-    private fun changeUISpatialAudioStatus(mode: Int) =
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_SPATIAL_AUDIO_CHANGED) {
-            putExtra("mode", mode)
-        }
-
-    private fun changeUIEqPreset(presetId: Int) =
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_EQ_PRESET_CHANGED) {
-            putExtra("preset", presetId)
-        }
-
     private fun changeUISmartAncLevel(ordinal: Int) =
         sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_SMART_ANC_LEVEL_CHANGED) {
             putExtra("ordinal", ordinal)
         }
-
-    private fun changeUIDualDeviceConnectionStatus(enabled: Boolean) =
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_DUAL_DEVICE_CONNECTION_CHANGED) {
-            putExtra("enabled", enabled)
-        }
-
-    private fun changeUIConnectionState(state: String) {
-        connectionStateObservable.publish(RfcommConnectionState.fromWireValue(state))
-        sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_CONNECTION_STATE_CHANGED) {
-            if (::mDevice.isInitialized) {
-                putExtra("address", mDevice.address)
-                putExtra("device_name", mDevice.name ?: cachedDeviceName)
-            }
-            putExtra("state", state)
-        }
-    }
 
     private fun sendAppStatusBroadcast(action: String, fill: Intent.() -> Unit = {}) {
         val context = mContext ?: return
@@ -695,22 +535,6 @@ object OppoSystemIntegrationAdapter {
             setPackage(BuildConfig.APPLICATION_ID)
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
             context.sendBroadcast(this)
-        }
-    }
-
-    private fun sendExternalPodsStatusBroadcast(action: String, fill: Intent.() -> Unit = {}) {
-        val context = mContext ?: return
-        listOf("com.milink.service", "com.xiaomi.bluetooth", "com.android.settings").forEach { target ->
-            Intent(action).apply {
-                if (::mDevice.isInitialized) {
-                    putExtra("address", mDevice.address)
-                    putExtra("device_name", mDevice.name ?: cachedDeviceName)
-                }
-                fill()
-                setPackage(target)
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-                context.sendBroadcast(this)
-            }
         }
     }
 
@@ -725,24 +549,6 @@ object OppoSystemIntegrationAdapter {
     private fun markAppUiActive() {
         appUiActive = true
         appUiActiveUntilMs = SystemClock.elapsedRealtime() + APP_UI_ACTIVE_TIMEOUT_MS
-    }
-
-    private fun Intent.putBatteryExtras(status: BatteryParams) {
-        putExtra("left_battery", status.left?.battery ?: 0)
-        putExtra("left_charging", status.left?.isCharging == true)
-        putExtra("left_connected", status.left?.isConnected == true)
-        putExtra("right_battery", status.right?.battery ?: 0)
-        putExtra("right_charging", status.right?.isCharging == true)
-        putExtra("right_connected", status.right?.isConnected == true)
-        putExtra("case_battery", status.case?.battery ?: 0)
-        putExtra("case_charging", status.case?.isCharging == true)
-        putExtra("case_connected", status.case?.isConnected == true)
-    }
-
-    private fun Intent.putWearStatusExtras(status: WearStatus) {
-        putExtra("left_wear_status", status.left?.value ?: -1)
-        putExtra("right_wear_status", status.right?.value ?: -1)
-        putExtra("case_wear_status", status.case?.value ?: -1)
     }
 
     private fun mergeWearStatus(current: WearStatus, update: WearStatus) = WearStatus(
@@ -839,14 +645,6 @@ object OppoSystemIntegrationAdapter {
         val value = params.battery.coerceIn(0, 100)
         return (if (params.isCharging) value or 128 else value).toString()
     }
-
-    fun addConnectionStateObserver(
-        observer: RfcommConnectionStateObserver,
-        emitCurrent: Boolean = true,
-    ) = connectionStateObservable.addObserver(observer, emitCurrent)
-
-    fun removeConnectionStateObserver(observer: RfcommConnectionStateObserver) =
-        connectionStateObservable.removeObserver(observer)
 
     fun disconnectAudio(context: Context, device: BluetoothDevice?) {
         val adapter = context.getSystemService(BluetoothManager::class.java).adapter

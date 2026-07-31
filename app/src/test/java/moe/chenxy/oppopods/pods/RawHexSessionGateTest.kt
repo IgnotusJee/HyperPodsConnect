@@ -6,30 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class RfcommObservabilityTest {
-    @Test
-    fun `observer receives current state and subsequent distinct transitions`() {
-        val observable = RfcommConnectionStateObservable()
-        val observed = mutableListOf<RfcommConnectionState>()
-        val fakeObserver = RfcommConnectionStateObserver { observed += it }
-
-        observable.addObserver(fakeObserver)
-        observable.publish(RfcommConnectionState.CONNECTING)
-        observable.publish(RfcommConnectionState.CONNECTING)
-        observable.publish(RfcommConnectionState.CONNECTED)
-        observable.removeObserver(fakeObserver)
-        observable.publish(RfcommConnectionState.DISCONNECTED)
-
-        assertEquals(
-            listOf(
-                RfcommConnectionState.DISCONNECTED,
-                RfcommConnectionState.CONNECTING,
-                RfcommConnectionState.CONNECTED,
-            ),
-            observed,
-        )
-    }
-
+class RawHexSessionGateTest {
     @Test
     fun `raw HEX gate is session scoped and impossible in release`() {
         val debugGate = RawHexSessionGate(debugBuild = true)

@@ -56,6 +56,26 @@ class OppoSystemIntegrationAdapterArchitectureTest {
     }
 
     @Test
+    fun `snapshot state is not republished as legacy feature broadcasts`() {
+        val source = adapterSource()
+        assumeTrue("OppoSystemIntegrationAdapter source is not reachable", source != null)
+
+        listOf(
+            "ACTION_PODS_CONNECTION_STATE_CHANGED",
+            "ACTION_PODS_BATTERY_CHANGED",
+            "ACTION_PODS_WEAR_STATUS_CHANGED",
+            "ACTION_PODS_ANC_CHANGED",
+            "ACTION_PODS_GAME_MODE_CHANGED",
+            "ACTION_PODS_SPATIAL_AUDIO_CHANGED",
+            "ACTION_PODS_EQ_PRESET_CHANGED",
+            "ACTION_PODS_DUAL_DEVICE_CONNECTION_CHANGED",
+            "sendExternalPodsStatusBroadcast",
+        ).forEach { legacyOutput ->
+            assertFalse("removed legacy output returned: $legacyOutput", source!!.contains(legacyOutput))
+        }
+    }
+
+    @Test
     fun `android system effects remain isolated in adapter`() {
         val source = adapterSource()
         assumeTrue("OppoSystemIntegrationAdapter source is not reachable", source != null)

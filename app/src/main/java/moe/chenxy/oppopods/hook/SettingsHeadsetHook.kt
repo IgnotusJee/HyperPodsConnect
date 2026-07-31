@@ -655,36 +655,6 @@ object SettingsHeadsetHook : HookContext() {
             ?: runCatching { getParcelableExtra<BluetoothDevice>(key) }.getOrNull()
     }
 
-    @Suppress("DEPRECATION")
-    private fun Intent.parcelableStatus(): BatteryParams? {
-        return runCatching { getParcelableExtra("status", BatteryParams::class.java) }.getOrNull()
-            ?: runCatching { getParcelableExtra<BatteryParams>("status") }.getOrNull()
-    }
-
-    private fun Intent.batteryStatusFromExtras(): BatteryParams? {
-        if (!hasExtra("left_connected") && !hasExtra("right_connected") && !hasExtra("case_connected")) return null
-        return BatteryParams(
-            left = PodParams(
-                getIntExtra("left_battery", 0),
-                getBooleanExtra("left_charging", false),
-                getBooleanExtra("left_connected", false),
-                0
-            ),
-            right = PodParams(
-                getIntExtra("right_battery", 0),
-                getBooleanExtra("right_charging", false),
-                getBooleanExtra("right_connected", false),
-                0
-            ),
-            case = PodParams(
-                getIntExtra("case_battery", 0),
-                getBooleanExtra("case_charging", false),
-                getBooleanExtra("case_connected", false),
-                0
-            )
-        )
-    }
-
     private fun saveState(ctx: Context?) {
         val prefs = (ctx ?: context)?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) ?: return
         prefs.edit()
