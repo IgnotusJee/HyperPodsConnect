@@ -94,7 +94,7 @@ object RfcommController {
     private var appUiActiveUntilMs = 0L
     private var currentWearStatus = WearStatus()
     private val connectionStateObservable = RfcommConnectionStateObservable()
-    private val rawHexSessionGate = RawHexSessionGate(BuildConfig.DEBUG)
+    private val rawHexSessionGate = RawHexSessionGate(BuildConfig.ALLOW_RAW_PROTOCOL_CONSOLE)
 
     data class StatusSnapshot(
         val battery: BatteryParams?,

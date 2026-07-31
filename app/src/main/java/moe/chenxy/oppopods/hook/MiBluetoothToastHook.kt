@@ -14,6 +14,11 @@ import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
 import android.os.Bundle
 import com.xzakota.hyper.notification.focus.FocusNotification
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import moe.chenxy.oppopods.utils.FocusIslandUtil
 import moe.chenxy.oppopods.utils.PodImageLoader
 import moe.chenxy.oppopods.utils.SystemApisUtils
@@ -24,16 +29,24 @@ import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
 import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
+import moe.chenxy.oppopods.integration.toIntegrationState
+import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.headphones.core.feature.FeatureId
 
 @SuppressLint("MissingPermission")
 object MiBluetoothToastHook : HookContext() {
 
     // ANC 模式本地缓存，用于循环切换和状态同步（1=关 2=降噪 3=通透 4=自适应）
-    // 通过接收 ACTION_PODS_ANC_CHANGED 广播与 RfcommController 保持同步
+    // 从统一 snapshot 状态同步，避免依赖旧 ANC 广播。
     private var localAncMode = 1
+    private val stateScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onHook() {
+        stateScope.launch {
+            HeadphoneUiStore.state.collect { state ->
+                state.toIntegrationState().anc?.let { localAncMode = it }
+            }
+        }
 
         fun deleteIntent(context: Context, bluetoothDevice: BluetoothDevice): PendingIntent? {
             val intent = Intent("com.android.bluetooth.headset.notification.cancle")
@@ -267,9 +280,6 @@ object MiBluetoothToastHook : HookContext() {
                             } else if (p1?.action == "chen.action.oppopods.cancelpodsnotification") {
                                 val device = p1.getParcelableExtra("device", BluetoothDevice::class.java) as BluetoothDevice
                                 cancelNotification(device, context)
-                            } else if (p1?.action == OppoPodsAction.ACTION_PODS_ANC_CHANGED) {
-                                // 同步耳机实际 ANC 状态到本地缓存，确保下次循环切换时状态准确
-                                localAncMode = p1.getIntExtra("status", 1)
                             } else if (p1?.action == OppoPodsAction.ACTION_CYCLE_ANC) {
                                 val adaptiveSupported = HyperOsHeadphoneAdapter.state
                                     .feature(FeatureId.NOISE_CONTROL.name)
@@ -292,8 +302,6 @@ object MiBluetoothToastHook : HookContext() {
                     intentFilter.addAction("chen.action.oppopods.updatepodsnotification")
                     intentFilter.addAction("chen.action.oppopods.cancelpodsnotification")
                     intentFilter.addAction(OppoPodsAction.ACTION_CYCLE_ANC)
-                    // 监听耳机实际 ANC 状态变更广播，保持 localAncMode 与 RfcommController 同步
-                    intentFilter.addAction(OppoPodsAction.ACTION_PODS_ANC_CHANGED)
                     context.registerReceiver(broadcastReceiver, intentFilter,
                         Context.RECEIVER_EXPORTED)
         }

@@ -44,6 +44,7 @@ import moe.chenxy.headphones.transport.android.AndroidBluetoothTransportFactory
 import moe.chenxy.oppopods.ipc.HeadphoneIpcContract
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotPayload
 import moe.chenxy.oppopods.pods.RfcommController
+import moe.chenxy.oppopods.BuildConfig
 
 /**
  * The sole control-session authority in com.android.bluetooth.
@@ -164,6 +165,7 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
     }
 
     suspend fun sendDebugFrame(bytes: ByteArray): Boolean {
+        if (!BuildConfig.ALLOW_RAW_PROTOCOL_CONSOLE) return false
         val session = manager.activeSession() as? OppoSession ?: return false
         session.sendDebugFrame(bytes)
         return true

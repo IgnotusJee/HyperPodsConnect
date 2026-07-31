@@ -37,7 +37,7 @@ import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.ipc.HeadphoneCommandClient
-import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
+import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
 import moe.chenxy.oppopods.ui.AppLocale
 import moe.chenxy.oppopods.ui.AppTheme
 import moe.chenxy.oppopods.ui.components.AncSwitch
@@ -199,7 +199,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
-        HeadphoneIpcEventBridge.requestSnapshot(context)
+        HeadphoneSnapshotReceiver.requestSnapshot(context)
         context.sendBroadcast(Intent(OppoPodsAction.ACTION_PODS_UI_INIT).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)

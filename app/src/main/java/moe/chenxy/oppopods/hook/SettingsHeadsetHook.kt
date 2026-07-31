@@ -9,9 +9,16 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import moe.chenxy.oppopods.BuildConfig
-import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
+import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
+import moe.chenxy.oppopods.integration.toIntegrationState
+import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
@@ -27,6 +34,7 @@ object SettingsHeadsetHook : HookContext() {
     private val headsetFragments = WeakHashMap<Any, Boolean>()
     private var context: Context? = null
     private var receiverRegistered = false
+    private val stateScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var currentAddress: String? = null
     private var currentName: String? = null
     private var currentBattery: BatteryParams = BatteryParams()
@@ -231,7 +239,6 @@ object SettingsHeadsetHook : HookContext() {
                 val oppoMode = mode(args) ?: return@hookBefore
                 currentAnc = oppoMode
                 sendOppoAnc(oppoMode)
-                sendAncChanged(oppoMode)
                 this.result = null
                 Log.d(TAG, "$methodName proxy command handled address=${device?.address} oppoMode=$oppoMode")
             }
@@ -359,7 +366,6 @@ object SettingsHeadsetHook : HookContext() {
                 val oppoMode = mode(args) ?: return@hookBefore
                 currentAnc = oppoMode
                 sendOppoAnc(oppoMode)
-                sendAncChanged(oppoMode)
                 runCatching { callMethod(instance, "updateAncUi", settingsAncLevel(), false) }
                 injectFragmentStatus(instance)
                 result = null
@@ -371,52 +377,42 @@ object SettingsHeadsetHook : HookContext() {
     private fun registerStatusReceiver(ctx: Context?) {
         if (ctx == null || receiverRegistered) return
         context = ctx.applicationContext ?: ctx
-        HeadphoneIpcEventBridge.register(context ?: ctx)
+        HeadphoneSnapshotReceiver.register(context ?: ctx)
         loadState()
         val filter = IntentFilter().apply {
-            addAction(OppoPodsAction.ACTION_PODS_CONNECTED)
-            addAction(OppoPodsAction.ACTION_PODS_DISCONNECTED)
-            addAction(OppoPodsAction.ACTION_PODS_BATTERY_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_ANC_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED)
             addAction(OppoPodsAction.ACTION_CONFIG_CHANGED)
         }
         context?.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    OppoPodsAction.ACTION_CONFIG_CHANGED -> {
-                        refreshConfig()
-                        updateFragments()
-                    }
-                    OppoPodsAction.ACTION_PODS_CONNECTED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentName = intent.getStringExtra("device_name") ?: currentName
-                    }
-                    OppoPodsAction.ACTION_PODS_BATTERY_CHANGED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentBattery = intent.batteryStatusFromExtras() ?: intent.parcelableStatus() ?: currentBattery
-                        saveState(context)
-                        updateBatteryViews()
-                        updateFragments()
-                    }
-                    OppoPodsAction.ACTION_PODS_ANC_CHANGED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentAnc = intent.getIntExtra("status", currentAnc)
-                        saveState(context)
-                        updateFragments()
-                    }
-                    OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentTransparencyVocalEnhancement = intent.getBooleanExtra("enabled", currentTransparencyVocalEnhancement)
-                        saveState(context)
-                        updateFragments()
-                    }
-                }
-                Log.d(TAG, "state action=${intent?.action} address=$currentAddress anc=$currentAnc battery=${settingsBatteryString()}")
+                if (intent?.action != OppoPodsAction.ACTION_CONFIG_CHANGED) return
+                refreshConfig()
+                updateFragments()
             }
         }, filter, Context.RECEIVER_EXPORTED)
+        stateScope.launch {
+            HeadphoneUiStore.state.collect { state ->
+                val projected = state.toIntegrationState()
+                currentAddress = projected.address ?: currentAddress
+                currentName = projected.name ?: currentName
+                projected.battery?.let { currentBattery = it }
+                projected.anc?.let { currentAnc = it }
+                projected.transparencyVocalEnhancement?.let {
+                    currentTransparencyVocalEnhancement = it
+                }
+                saveState(context)
+                refreshHandler.post {
+                    updateBatteryViews()
+                    updateFragments()
+                }
+                Log.d(
+                    TAG,
+                    "snapshot generation=${state.generationId} address=$currentAddress " +
+                        "anc=$currentAnc battery=${settingsBatteryString()}",
+                )
+            }
+        }
         receiverRegistered = true
-        context?.let(HeadphoneIpcEventBridge::requestSnapshot)
+        context?.let(HeadphoneSnapshotReceiver::requestSnapshot)
         requestBluetoothStatus("receiver-register")
         Log.d(TAG, "registered status receiver context=$context")
     }
@@ -651,17 +647,6 @@ object SettingsHeadsetHook : HookContext() {
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         })
         Log.d(TAG, "sendOppoTransparencyVocalEnhancement broadcast sent enabled=$enabled")
-    }
-
-    private fun sendAncChanged(mode: Int) {
-        val ctx = context ?: return
-        listOf(BuildConfig.APPLICATION_ID, "com.android.settings", "com.milink.service").forEach { targetPackage ->
-            ctx.sendBroadcast(Intent(OppoPodsAction.ACTION_PODS_ANC_CHANGED).apply {
-                putExtra("status", mode)
-                setPackage(targetPackage)
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            })
-        }
     }
 
     @Suppress("DEPRECATION")

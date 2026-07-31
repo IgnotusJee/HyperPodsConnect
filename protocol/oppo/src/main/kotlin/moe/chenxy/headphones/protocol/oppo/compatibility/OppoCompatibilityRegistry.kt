@@ -10,6 +10,8 @@ import moe.chenxy.headphones.core.feature.EvidenceLevel
 import moe.chenxy.headphones.core.feature.FeatureCapability
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.ProtocolDescriptor
+import moe.chenxy.headphones.core.profile.CompatibilityMatrix
+import moe.chenxy.headphones.core.profile.CompatibilityMatrixEntry
 import moe.chenxy.headphones.protocol.oppo.feature.OppoAncEncoding
 
 enum class OppoLowLatencyStrategy {
@@ -44,6 +46,19 @@ data class OppoCompatibilityProfile(
  * device response.
  */
 object OppoCompatibilityRegistry {
+
+    val compatibilityMatrix = CompatibilityMatrix(
+        listOf(
+            CompatibilityMatrixEntry(
+                vendorId = VendorId.OPPO,
+                model = "OPPO Enco Air5s",
+                firmware = "163.163.102",
+                transport = TransportKind.CLASSIC_SPP,
+                level = CompatibilityLevel.STABLE,
+                evidence = "Phase 0-7 device captures and 20-cycle session validation",
+            ),
+        ),
+    )
 
     private val adaptiveModels = setOf(
         "OPPO Enco Free4",
@@ -224,7 +239,12 @@ object OppoCompatibilityRegistry {
                 else -> capability
             }
         }
-        val level = when {
+        val level = compatibilityMatrix.resolve(
+            VendorId.OPPO,
+            profile.model,
+            firmware,
+            profile.transport,
+        )?.level ?: when {
             features.values.any { it.isWritable } -> CompatibilityLevel.CONTROLLED
             features.values.any { it.isReadable && it.evidence == EvidenceLevel.VERIFIED } ->
                 CompatibilityLevel.READ_ONLY

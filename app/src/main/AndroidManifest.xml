@@ -65,7 +65,7 @@
         <!-- Set your Xposed Module description -->
         <meta-data
             android:name="xposeddescription"
-            android:value="OPPO Earphones Support for Xiaomi HyperOS." />
+            android:value="Multi-brand earphone integration for Xiaomi HyperOS." />
 
         <!-- The minimum Xposed version number -->
         <meta-data

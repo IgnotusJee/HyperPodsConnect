@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OPPOPods</string>
-    <string name="app_subtitle">OPPO 耳机适配 HyperOS</string>
+    <string name="app_name">HyperPods Connect</string>
+    <string name="app_subtitle">多品牌耳机适配 HyperOS</string>
     <string name="pod_info">耳机信息</string>
-    <string name="about">关于 OppoPods</string>
+    <string name="about">关于 HyperPods Connect</string>
     <string name="settings">设置</string>
     <string name="module">模块</string>
     <string name="earphones">耳机</string>
@@ -53,7 +53,7 @@
     <string name="pod_case">耳机盒</string>
     <string name="batt_left_pod">左</string>
     <string name="batt_right_pod">右</string>
-    <string name="waiting_for_pod">等待 OPPO 耳机连接...</string>
+    <string name="waiting_for_pod">等待耳机连接...</string>
     <string name="select_device">选择蓝牙设备</string>
     <string name="no_paired_devices">未找到已配对的设备</string>
     <string name="bluetooth_disabled">请开启蓝牙</string>
@@ -139,6 +139,14 @@
     <string name="anc_implementation_standard">标准</string>
     <string name="anc_implementation_compatible">兼容</string>
     <string name="feature_read_only">只读</string>
+    <string name="compatibility_profiles">兼容档案</string>
+    <string name="export_compatibility_profiles">导出档案</string>
+    <string name="export_compatibility_profiles_summary">保存带版本号的兼容档案</string>
+    <string name="import_compatibility_profiles">导入档案</string>
+    <string name="import_compatibility_profiles_summary">校验 schema 后合并兼容档案</string>
+    <string name="profile_exported">兼容档案已导出</string>
+    <string name="profile_imported">已导入 %1$d 份兼容档案</string>
+    <string name="profile_archive_failed">无法处理该兼容档案</string>
     <string name="operation_pending">正在应用更改…</string>
     <string name="operation_confirmed">设备已确认更改</string>
     <string name="operation_timed_out">更改超时，已恢复设备确认状态</string>

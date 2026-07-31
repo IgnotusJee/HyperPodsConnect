@@ -10,6 +10,8 @@ import moe.chenxy.headphones.core.feature.EvidenceLevel
 import moe.chenxy.headphones.core.feature.FeatureCapability
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.ProtocolDescriptor
+import moe.chenxy.headphones.core.profile.CompatibilityMatrix
+import moe.chenxy.headphones.core.profile.CompatibilityMatrixEntry
 import moe.chenxy.headphones.core.transport.GattMtuFailurePolicy
 import moe.chenxy.headphones.core.transport.GattPreparationStep
 import moe.chenxy.headphones.core.transport.GattWriteMode
@@ -22,6 +24,27 @@ import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeatur
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
 
 object SonyProfile {
+    val compatibilityMatrix = CompatibilityMatrix(
+        listOf(
+            CompatibilityMatrixEntry(
+                vendorId = VendorId.SONY,
+                model = "WH-1000XM4",
+                firmware = "2.5.1",
+                transport = TransportKind.CLASSIC_SPP,
+                level = CompatibilityLevel.READ_ONLY,
+                evidence = "Phase 8 repeated SPP read-only device validation",
+            ),
+            CompatibilityMatrixEntry(
+                vendorId = VendorId.SONY,
+                model = "LinkBuds S",
+                firmware = "4.2.1",
+                transport = TransportKind.BLE_GATT,
+                level = CompatibilityLevel.STABLE,
+                evidence = "Phase 9-10 two-phone read and reversible-control validation",
+            ),
+        ),
+    )
+
     fun initial(
         candidate: DeviceCandidate,
         transportKind: TransportKind,
@@ -147,7 +170,12 @@ object SonyProfile {
                 },
             ),
             features = capabilities,
-            compatibilityLevel = if (noiseControlWritable || equalizerWritable) {
+            compatibilityLevel = compatibilityMatrix.resolve(
+                VendorId.SONY,
+                model,
+                firmware,
+                initial.transport,
+            )?.level ?: if (noiseControlWritable || equalizerWritable) {
                 CompatibilityLevel.CONTROLLED
             } else {
                 CompatibilityLevel.READ_ONLY

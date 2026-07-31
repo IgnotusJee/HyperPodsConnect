@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">OPPOPods</string>
-    <string name="app_subtitle">OPPO Earphones for HyperOS</string>
+    <string name="app_name">HyperPods Connect</string>
+    <string name="app_subtitle">Multi-brand earphones for HyperOS</string>
     <string name="pod_info">Pod Info</string>
-    <string name="about">About OppoPods</string>
+    <string name="about">About HyperPods Connect</string>
     <string name="settings">Settings</string>
     <string name="module">Module</string>
     <string name="earphones">Earphones</string>
@@ -52,7 +52,7 @@
     <string name="pod_case">Case</string>
     <string name="batt_left_pod">Left</string>
     <string name="batt_right_pod">Right</string>
-    <string name="waiting_for_pod">Waiting for OPPO Earphones Connection...</string>
+    <string name="waiting_for_pod">Waiting for earphones connection...</string>
     <string name="select_device">Select Bluetooth Device</string>
     <string name="no_paired_devices">No paired devices found</string>
     <string name="bluetooth_disabled">Please enable Bluetooth</string>
@@ -138,6 +138,14 @@
     <string name="anc_implementation_standard">Standard</string>
     <string name="anc_implementation_compatible">Compatible</string>
     <string name="feature_read_only">Read only</string>
+    <string name="compatibility_profiles">Compatibility profiles</string>
+    <string name="export_compatibility_profiles">Export profiles</string>
+    <string name="export_compatibility_profiles_summary">Save a versioned compatibility archive</string>
+    <string name="import_compatibility_profiles">Import profiles</string>
+    <string name="import_compatibility_profiles_summary">Merge a compatible archive after schema validation</string>
+    <string name="profile_exported">Compatibility profiles exported</string>
+    <string name="profile_imported">Imported %1$d compatibility profiles</string>
+    <string name="profile_archive_failed">The compatibility archive could not be processed</string>
     <string name="operation_pending">Applying change…</string>
     <string name="operation_confirmed">Change confirmed by device</string>
     <string name="operation_timed_out">Change timed out; confirmed state restored</string>

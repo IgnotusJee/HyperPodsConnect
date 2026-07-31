@@ -222,7 +222,7 @@ class SonySessionTest {
 
             session.connect()
 
-            assertEquals(CompatibilityLevel.CONTROLLED, session.profile.value?.compatibilityLevel)
+            assertEquals(CompatibilityLevel.STABLE, session.profile.value?.compatibilityLevel)
             assertTrue(session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.isWritable == true)
             assertTrue(
                 session.profile.value

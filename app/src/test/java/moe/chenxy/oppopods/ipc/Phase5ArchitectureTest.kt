@@ -27,7 +27,7 @@ class Phase5ArchitectureTest {
     }
 
     @Test
-    fun `snapshot bridge is installed in app milink xiaomi and settings consumers`() {
+    fun `snapshot receiver is installed in app milink xiaomi and settings consumers`() {
         val app = source("src/main/java/moe/chenxy/oppopods/OppoPodsApp.kt")
         val upstream = source(
             "src/main/java/moe/chenxy/oppopods/hook/BluetoothUpstreamHeadsetHook.kt",
@@ -40,20 +40,20 @@ class Phase5ArchitectureTest {
         )
         listOf(app, upstream, milink, settings).forEach {
             assumeTrue(it != null)
-            assertTrue(it!!.contains("HeadphoneIpcEventBridge.register"))
+            assertTrue(it!!.contains("HeadphoneSnapshotReceiver.register"))
         }
     }
 
     @Test
-    fun `snapshot bridge preserves parcelable legacy battery contract`() {
-        val bridge = source(
-            "src/main/java/moe/chenxy/oppopods/ipc/HeadphoneIpcEventBridge.kt",
+    fun `snapshot receiver does not republish legacy per-feature broadcasts`() {
+        val receiver = source(
+            "src/main/java/moe/chenxy/oppopods/ipc/HeadphoneSnapshotReceiver.kt",
         )
-        assumeTrue(bridge != null)
+        assumeTrue(receiver != null)
 
-        assertTrue(bridge!!.contains("BatteryParams("))
-        assertTrue(bridge.contains("PodParams("))
-        assertTrue(bridge.contains("\"status\","))
+        assertFalse(receiver!!.contains("publishLegacy"))
+        assertFalse(receiver.contains("legacyIntents"))
+        assertFalse(receiver.contains("OppoPodsAction"))
     }
 
     @Test

@@ -54,7 +54,6 @@ internal class MiLinkSpatialAudioHook(private val hook: MiLinkServiceHook) {
                 val mode = hook.oppoSpatialFromMiLink(miLinkMode)
                 hook.updateSpatialAudioMode(mode)
                 hook.sendOppoSpatialAudio(mode)
-                hook.sendSpatialChanged(mode)
                 hook.notifySpatialUiChanged(instance, device, mode)
                 this.result = 1
             }
@@ -71,7 +70,6 @@ internal class MiLinkSpatialAudioHook(private val hook: MiLinkServiceHook) {
                 val mode = hook.oppoSpatialFromMiLink(args[1] as? Int ?: return@hookBefore)
                 hook.updateSpatialAudioMode(mode)
                 hook.sendOppoSpatialAudio(mode)
-                hook.sendSpatialChanged(mode)
                 hook.notifySpatialUiChanged(instance, device, mode)
                 this.result = null
             }
@@ -85,7 +83,6 @@ internal class MiLinkSpatialAudioHook(private val hook: MiLinkServiceHook) {
                 hook.captureRuntimeContext(instance)
                 hook.updateSpatialAudioMode(ConfigManager.SPATIAL_AUDIO_HEAD_TRACKING)
                 hook.sendOppoSpatialAudio(hook.currentSpatialAudioMode)
-                hook.sendSpatialChanged(hook.currentSpatialAudioMode)
                 hook.notifySpatialUiChanged(instance, device, hook.currentSpatialAudioMode)
                 this.result = 100
             }
@@ -152,7 +149,6 @@ internal class MiLinkSpatialAudioHook(private val hook: MiLinkServiceHook) {
                 val mode = state.coerceIn(ConfigManager.SPATIAL_AUDIO_OFF, ConfigManager.SPATIAL_AUDIO_HEAD_TRACKING)
                 hook.updateSpatialAudioMode(mode)
                 hook.sendOppoSpatialAudio(mode)
-                hook.sendSpatialChanged(mode)
                 hook.notifySpatialUiChanged(instance, device, mode)
                 this.result = null
             }

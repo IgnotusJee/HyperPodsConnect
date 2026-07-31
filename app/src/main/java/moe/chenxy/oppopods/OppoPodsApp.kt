@@ -5,12 +5,17 @@ import android.util.Log
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import java.util.concurrent.CopyOnWriteArraySet
-import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
+import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
+import moe.chenxy.oppopods.config.ConfigManager
+import moe.chenxy.oppopods.profile.DeviceProfileRepository
 
 class OppoPodsApp : Application(), XposedServiceHelper.OnServiceListener {
     override fun onCreate() {
         super.onCreate()
-        HeadphoneIpcEventBridge.register(this)
+        DeviceProfileRepository(
+            getSharedPreferences(ConfigManager.PREFS_NAME, MODE_PRIVATE),
+        ).migrateLegacyPodImages()
+        HeadphoneSnapshotReceiver.register(this)
         XposedServiceHelper.registerListener(this)
     }
 

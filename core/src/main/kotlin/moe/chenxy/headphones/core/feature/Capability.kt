@@ -88,7 +88,14 @@ enum class CompatibilityLevel {
 
     /** At least one write verified end to end. Controls may be shown. */
     CONTROLLED,
+
+    /** Exact model/firmware/transport is covered by a repeatable device matrix. */
+    STABLE,
 }
+
+/** State is safe to expose only after a protocol read has succeeded. */
+val CompatibilityLevel.canExposeState: Boolean
+    get() = this != CompatibilityLevel.DETECTED
 
 data class ProtocolDescriptor(
     val name: String,

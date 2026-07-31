@@ -7,6 +7,7 @@ import moe.chenxy.headphones.core.device.DetectionConfidence
 import moe.chenxy.headphones.core.device.TransportKind
 import moe.chenxy.headphones.core.device.VendorId
 import moe.chenxy.headphones.core.feature.EvidenceLevel
+import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.protocol.oppo.compatibility.OppoCompatibilityRegistry
 import moe.chenxy.headphones.protocol.oppo.session.OppoDriverProvider
@@ -60,6 +61,29 @@ class OppoCompatibilityRegistryTest {
             EvidenceLevel.REFUTED,
             resolved.capability(FeatureId.DUAL_DEVICE_CONNECTION)?.evidence,
         )
+    }
+
+    @Test
+    fun `only exact validated firmware is promoted to stable`() {
+        val candidate = candidate("OPPO Enco Air5s")
+        val initial = OppoCompatibilityRegistry.initialProfile(
+            candidate,
+            OppoCompatibilityRegistry.resolve(candidate.displayName),
+        )
+
+        val stable = OppoCompatibilityRegistry.withEvidence(
+            initial,
+            verified = setOf(FeatureId.NOISE_CONTROL),
+            firmware = "163.163.102",
+        )
+        val otherFirmware = OppoCompatibilityRegistry.withEvidence(
+            initial,
+            verified = setOf(FeatureId.NOISE_CONTROL),
+            firmware = "163.163.103",
+        )
+
+        assertEquals(CompatibilityLevel.STABLE, stable.compatibilityLevel)
+        assertEquals(CompatibilityLevel.CONTROLLED, otherFirmware.compatibilityLevel)
     }
 
     @Test

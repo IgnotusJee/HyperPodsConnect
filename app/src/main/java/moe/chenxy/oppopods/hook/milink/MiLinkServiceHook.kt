@@ -6,10 +6,17 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
-import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
+import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
+import moe.chenxy.oppopods.integration.toIntegrationState
+import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.oppopods.hook.HookContext
 import moe.chenxy.oppopods.hook.Log
 import moe.chenxy.oppopods.hook.callMethod
@@ -26,6 +33,7 @@ object MiLinkServiceHook : HookContext() {
     private const val PREFS_NAME = "oppopods_milink_state"
     internal var context: Context? = null
     private var receiverRegistered = false
+    private val stateScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     internal var currentAddress: String? = null
     private var currentName: String? = null
     private var currentBattery: BatteryParams = BatteryParams()
@@ -134,7 +142,6 @@ object MiLinkServiceHook : HookContext() {
                 captureRuntimeContext(instance)
                 currentAnc = oppoAnc
                 sendOppoAnc(oppoAnc)
-                sendAncChanged(oppoAnc)
                 this.result = result
             }
         }.onFailure { Log.w(TAG, "hook $className.$methodName command skipped", it) }
@@ -155,7 +162,6 @@ object MiLinkServiceHook : HookContext() {
                 }
                 currentAnc = oppoAnc
                 sendOppoAnc(oppoAnc, instanceContext)
-                sendAncChanged(oppoAnc, instanceContext)
                 notifyHeadsetPropertyChanged(instance, device, 8)
                 notifyHeadsetPropertyChanged(instance, device, 4)
                 this.result = miLinkAncState()
@@ -175,49 +181,28 @@ object MiLinkServiceHook : HookContext() {
     private fun registerStatusReceiver(ctx: Context?) {
         if (ctx == null || receiverRegistered) return
         context = ctx.applicationContext ?: ctx
-        HeadphoneIpcEventBridge.register(context ?: ctx)
+        HeadphoneSnapshotReceiver.register(context ?: ctx)
         val filter = IntentFilter().apply {
-            addAction(OppoPodsAction.ACTION_PODS_CONNECTED)
-            addAction(OppoPodsAction.ACTION_PODS_DISCONNECTED)
-            addAction(OppoPodsAction.ACTION_PODS_BATTERY_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_ANC_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_SPATIAL_AUDIO_CHANGED)
             addAction(OppoPodsAction.ACTION_CONFIG_CHANGED)
         }
         context?.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    OppoPodsAction.ACTION_CONFIG_CHANGED -> {
-                        refreshConfig()
-                    }
-                    OppoPodsAction.ACTION_PODS_CONNECTED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentName = intent.getStringExtra("device_name") ?: currentName
-                    }
-                    OppoPodsAction.ACTION_PODS_DISCONNECTED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                    }
-                    OppoPodsAction.ACTION_PODS_BATTERY_CHANGED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentBattery = intent.batteryStatusFromExtras() ?: intent.parcelableStatus() ?: currentBattery
-                        saveState(context)
-                    }
-                    OppoPodsAction.ACTION_PODS_ANC_CHANGED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentAnc = intent.getIntExtra("status", currentAnc)
-                        saveState(context)
-                    }
-                    OppoPodsAction.ACTION_PODS_SPATIAL_AUDIO_CHANGED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentSpatialAudioMode = intent.getIntExtra("mode", currentSpatialAudioMode)
-                            .coerceIn(ConfigManager.SPATIAL_AUDIO_OFF, ConfigManager.SPATIAL_AUDIO_HEAD_TRACKING)
-                        saveState(context)
-                    }
-                }
+                if (intent?.action == OppoPodsAction.ACTION_CONFIG_CHANGED) refreshConfig()
             }
         }, filter, Context.RECEIVER_EXPORTED)
+        stateScope.launch {
+            HeadphoneUiStore.state.collect { state ->
+                val projected = state.toIntegrationState()
+                currentAddress = projected.address ?: currentAddress
+                currentName = projected.name ?: currentName
+                projected.battery?.let { currentBattery = it }
+                projected.anc?.let { currentAnc = it }
+                projected.spatialAudioMode?.let { currentSpatialAudioMode = it }
+                saveState(context)
+            }
+        }
         receiverRegistered = true
-        context?.let(HeadphoneIpcEventBridge::requestSnapshot)
+        context?.let(HeadphoneSnapshotReceiver::requestSnapshot)
         context?.sendBroadcast(Intent(OppoPodsAction.ACTION_PODS_UI_INIT).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
@@ -305,36 +290,12 @@ object MiLinkServiceHook : HookContext() {
         HyperOsHeadphoneAdapter.setNoiseControl(ctx, mode)
     }
 
-    private fun sendAncChanged(mode: Int, fallbackContext: Context? = null) {
-        val ctx = fallbackContext ?: context ?: return
-        listOf(BuildConfig.APPLICATION_ID, "com.milink.service", "com.android.settings").forEach { targetPackage ->
-            ctx.sendBroadcast(Intent(OppoPodsAction.ACTION_PODS_ANC_CHANGED).apply {
-                putExtra("status", mode)
-                setPackage(targetPackage)
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            })
-        }
-    }
-
     internal fun sendOppoSpatialAudio(mode: Int, fallbackContext: Context? = null) {
         val ctx = fallbackContext ?: context ?: run {
             Log.w(TAG, "sendOppoSpatialAudio skipped: context is null mode=$mode")
             return
         }
         HyperOsHeadphoneAdapter.setSpatialAudio(ctx, mode)
-    }
-
-    internal fun sendSpatialChanged(mode: Int, fallbackContext: Context? = null) {
-        val ctx = fallbackContext ?: context ?: return
-        val normalizedMode = mode.coerceIn(ConfigManager.SPATIAL_AUDIO_OFF, ConfigManager.SPATIAL_AUDIO_HEAD_TRACKING)
-        listOf(BuildConfig.APPLICATION_ID, "com.milink.service", "com.android.settings").forEach { targetPackage ->
-            ctx.sendBroadcast(Intent(OppoPodsAction.ACTION_PODS_SPATIAL_AUDIO_CHANGED).apply {
-                currentAddress?.let { putExtra("address", it) }
-                putExtra("mode", normalizedMode)
-                setPackage(targetPackage)
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            })
-        }
     }
 
     internal fun miLinkSpatialMode(): Int {

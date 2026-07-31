@@ -1,0 +1,55 @@
+# Phase 11：兼容性扩展和清理
+
+状态：执行中。启动日期：2026-08-01。
+
+## 已完成的第一批基础工作
+
+- `DeviceProfileArchive` schema v1 已落地，包含设备/厂商、型号、固件、当前与历史地址、
+  transport、协议版本、command table、逐功能 evidence、兼容等级、最后连接时间、UI 资源
+  和用户 override；
+- archive 使用 capability fingerprint 防止损坏或被篡改的 profile 静默进入运行环境；
+- 无 `schemaVersion` 的 v0 archive 会迁移为 v1，未来版本会 fail closed；
+- App 会从 v2 snapshot 自动保存 profile，并一次性复制旧 `PodImagePrefs` 数据；旧 key
+  不删除，以保留回滚能力；
+- 设置页已提供 JSON 兼容档案导入/导出；导入按 `DeviceId` 合并历史地址、资源和 override；
+- 已删除 `HeadphoneIpcEventBridge` 及其 snapshot 到逐功能旧广播的转换；App、MiLink、
+  系统设置和上游蓝牙 Hook 直接观察同一份 `HeadphoneUiStore`，HyperOS 必需的旧 DTO
+  只在最终适配边界由 `HeadphoneStateProjection` 生成；
+- 新增 `STABLE` 等级。未命中精确矩阵的已验证写能力仍为 `CONTROLLED`，只读握手为
+  `READ_ONLY`，名称/UUID 提示仍为 `DETECTED`；
+- 第一版精确矩阵登记 OPPO Enco Air5s 163.163.102 / SPP，以及 Sony LinkBuds S
+  4.2.1 / BLE GATT 为 `STABLE`；Sony WH-1000XM4 2.5.1 / SPP 为 `READ_ONLY`；
+- release 构建显式设置 `ALLOW_RAW_PROTOCOL_CONSOLE=false`，runtime host 在进入 session
+  前再次拒绝 raw frame。FOTA、关机、恢复出厂、配对管理和查找设备继续编译为禁用；
+- 产品显示名称与 Gradle root project 统一为 **HyperPods Connect**，设备选择页不再按
+  OPPO 名称优先排序。
+
+## 产品身份决策
+
+本阶段保留 `applicationId = moe.chenxy.oppopods`、Java/Kotlin package、provider authority
+和旧 action 字符串。这些值已经是安装升级、LSPosed 模块授权、作用域配置和跨进程 IPC
+身份；直接修改会被 Android 视为新应用，并使现有用户配置与授权失联。
+
+因此本阶段只迁移产品显示名称。内部兼容标识可在未来通过“新旧双注册 -> 数据/授权迁移
+-> 旧标识退役”的独立版本处理，不与协议重构合并。
+
+## 后续工作
+
+1. 把 `RfcommController` 中仍存在的 Android UI/通知/媒体路由副作用迁到明确的 adapter，
+   删除 facade 和对应旧 action 入口；
+2. 对新增型号/固件/OEM 采集动态证据后再扩展精确矩阵；没有真机证据的名称条目不得
+   提升为 `READ_ONLY`、`CONTROLLED` 或 `STABLE`；
+3. 完成 facade 迁移后，删除只为旧广播 contract 保留的 DTO 与架构测试。
+
+## 当前验证
+
+启动批次已通过：
+
+- `:core:test`；
+- `:protocol:oppo:test`；
+- `:protocol:sony:test`；
+- `:app:testDebugUnitTest`；
+- `:app:assembleRelease`。
+
+Release 构建仅出现项目既有的 compileSdk 37 / AGP 9.1 支持范围提示、
+`extractNativeLibs` manifest 提示及若干 deprecated API warning；无失败。

@@ -1,5 +1,9 @@
 package moe.chenxy.oppopods.ui.pages
 
+import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,11 +14,13 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.pods.GameModeImplementation
+import moe.chenxy.oppopods.profile.DeviceProfileRepository
 import moe.chenxy.oppopods.ui.AppLocale
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
@@ -55,6 +61,50 @@ fun SettingsPage(
     onOpenTheme: () -> Unit = {},
     onOpenAbout: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val profileRepository = remember(context) {
+        DeviceProfileRepository(
+            context.getSharedPreferences(ConfigManager.PREFS_NAME, Context.MODE_PRIVATE),
+        )
+    }
+    val exportProfiles = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val result = runCatching {
+            context.contentResolver.openOutputStream(uri, "wt").use { output ->
+                requireNotNull(output) { "Unable to open export destination" }
+                output.writer(Charsets.UTF_8).use {
+                    it.write(profileRepository.exportArchive())
+                }
+            }
+        }
+        Toast.makeText(
+            context,
+            if (result.isSuccess) R.string.profile_exported else R.string.profile_archive_failed,
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+    val importProfiles = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val result = runCatching {
+            val value = context.contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "Unable to open compatibility archive" }
+                input.reader(Charsets.UTF_8).use { it.readText() }
+            }
+            profileRepository.importArchive(value).archive.profiles.size
+        }
+        Toast.makeText(
+            context,
+            result.fold(
+                onSuccess = { context.getString(R.string.profile_imported, it) },
+                onFailure = { context.getString(R.string.profile_archive_failed) },
+            ),
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
     val languageOptions = listOf(
         stringResource(R.string.language_system),
         stringResource(R.string.language_chinese),
@@ -146,6 +196,23 @@ fun SettingsPage(
                     title = stringResource(R.string.theme_title),
                     summary = stringResource(R.string.theme_color_summary),
                     onClick = onOpenTheme,
+                )
+            }
+        }
+
+        item {
+            Card(modifier = Modifier.padding(top = 12.dp)) {
+                BasicComponent(
+                    title = stringResource(R.string.export_compatibility_profiles),
+                    summary = stringResource(R.string.export_compatibility_profiles_summary),
+                    onClick = {
+                        exportProfiles.launch("hyperpods-compatibility-profiles.json")
+                    },
+                )
+                BasicComponent(
+                    title = stringResource(R.string.import_compatibility_profiles),
+                    summary = stringResource(R.string.import_compatibility_profiles_summary),
+                    onClick = { importProfiles.launch(arrayOf("application/json", "text/plain")) },
                 )
             }
         }
@@ -244,7 +311,7 @@ fun SettingsPage(
             Card(modifier = Modifier.padding(top = 12.dp)) {
                 BasicComponent(
                     title = stringResource(R.string.about),
-                    summary = "OppoPods-Enhanced",
+                    summary = stringResource(R.string.app_name),
                     onClick = onOpenAbout
                 )
             }

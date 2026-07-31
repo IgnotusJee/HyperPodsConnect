@@ -140,7 +140,7 @@ fun RfcommDebugPage(
         }
 
         when {
-            !BuildConfig.DEBUG -> RawHexUnavailableCard()
+            !BuildConfig.ALLOW_RAW_PROTOCOL_CONSOLE -> RawHexUnavailableCard()
             !rawHexUnlocked -> RawHexUnlockCard {
                 context.sendRfcommDebugBroadcast(OppoPodsAction.ACTION_RFCOMM_DEBUG_UNLOCK) {
                     putExtra(OppoPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN, rawHexSessionToken)

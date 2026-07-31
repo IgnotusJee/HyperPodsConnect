@@ -25,12 +25,16 @@ android {
         versionCode = 15
         versionName = "2.0.7"
         buildConfigField("long", "BUILD_TIMESTAMP", System.currentTimeMillis().toString())
+        // FOTA, power-off, factory reset, pairing management and find-device
+        // are never compiled as enabled operations in a shipping variant.
+        buildConfigField("boolean", "ALLOW_DANGEROUS_PROTOCOL_OPERATIONS", "false")
     }
 
     buildTypes {
         debug {
             isDebuggable = true
             isMinifyEnabled = false
+            buildConfigField("boolean", "ALLOW_RAW_PROTOCOL_CONSOLE", "true")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -40,6 +44,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             isDebuggable = false
+            buildConfigField("boolean", "ALLOW_RAW_PROTOCOL_CONSOLE", "false")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

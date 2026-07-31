@@ -49,7 +49,7 @@ import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.config.PodImagePrefs
 import moe.chenxy.oppopods.config.PodImageResource
-import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
+import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
 import moe.chenxy.oppopods.ipc.HeadphoneCommandClient
 import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.FeatureId
@@ -327,7 +327,7 @@ fun MainUI(
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         }, Context.RECEIVER_EXPORTED)
 
-        HeadphoneIpcEventBridge.requestSnapshot(context)
+        HeadphoneSnapshotReceiver.requestSnapshot(context)
         sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_PODS_UI_INIT)
 
         onDispose {

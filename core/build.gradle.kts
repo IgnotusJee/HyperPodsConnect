@@ -2,6 +2,7 @@
 // without a version here or Gradle refuses to resolve it.
 plugins {
     id("org.jetbrains.kotlin.jvm")
+    alias(libs.plugins.kotlinSerialization)
 }
 
 // Deliberately a plain Kotlin/JVM module: the compiler cannot resolve Android,
@@ -9,6 +10,7 @@ plugins {
 // domain logic testable is enforced by the build rather than by review.
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

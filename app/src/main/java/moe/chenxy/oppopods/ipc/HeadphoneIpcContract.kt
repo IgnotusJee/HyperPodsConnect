@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
+import moe.chenxy.headphones.core.feature.canExposeState
 import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
@@ -199,6 +200,8 @@ data class HeadphoneSnapshotPayload(
     val generationId: Long,
     val vendorId: String?,
     val primaryAddress: String?,
+    val memberAddresses: Set<String> = emptySet(),
+    val groupId: String? = null,
     val deviceName: String?,
     val connection: String,
     val protocolReady: Boolean,
@@ -206,6 +209,9 @@ data class HeadphoneSnapshotPayload(
     val topology: String? = null,
     val firmware: String?,
     val compatibility: String?,
+    val protocolName: String? = null,
+    val protocolVersion: String? = null,
+    val commandTable: String? = null,
     val batteries: List<BatteryPayload>,
     val wearing: Map<String, String>,
     val features: Map<String, FeatureValuePayload>,
@@ -217,8 +223,7 @@ data class HeadphoneSnapshotPayload(
         fun from(snapshot: HeadphoneSnapshot): HeadphoneSnapshotPayload {
             val profile = snapshot.profile
             val state = snapshot.state
-            val mayExposeState = profile?.compatibilityLevel == CompatibilityLevel.READ_ONLY ||
-                profile?.compatibilityLevel == CompatibilityLevel.CONTROLLED
+            val mayExposeState = profile?.compatibilityLevel?.canExposeState == true
             fun feature(
                 confirmed: Any?,
                 pending: Any?,
@@ -235,6 +240,8 @@ data class HeadphoneSnapshotPayload(
                 generationId = snapshot.generationId,
                 vendorId = profile?.vendorId?.value,
                 primaryAddress = profile?.identity?.primaryAddress,
+                memberAddresses = profile?.identity?.memberAddresses.orEmpty(),
+                groupId = profile?.identity?.groupId,
                 deviceName = profile?.model?.takeIf { mayExposeState },
                 connection = snapshot.connection::class.simpleName.orEmpty(),
                 protocolReady = snapshot.connection is SessionState.Ready,
@@ -242,6 +249,9 @@ data class HeadphoneSnapshotPayload(
                 topology = profile?.topology?.name?.takeIf { mayExposeState },
                 firmware = (state.firmware ?: profile?.firmware).takeIf { mayExposeState },
                 compatibility = profile?.compatibilityLevel?.name,
+                protocolName = profile?.protocol?.name,
+                protocolVersion = profile?.protocol?.version,
+                commandTable = profile?.protocol?.commandTable,
                 batteries = state.batteries.takeIf { mayExposeState }.orEmpty().map { (component, value) ->
                     BatteryPayload(component.name, value.level, value.charging)
                 },
@@ -306,6 +316,8 @@ data class HeadphoneSnapshotPayload(
                         it.requiresReadback,
                         it.allowedValues.toList(),
                         it.valueLabels,
+                        it.availableOnTransports.map { transport -> transport.name }.toSet(),
+                        it.source,
                     )
                 }.orEmpty(),
                 operation = snapshot.lastOperation?.let {
@@ -348,6 +360,8 @@ data class CapabilityPayload(
     val requiresReadback: Boolean,
     val allowedValues: List<String>,
     val valueLabels: Map<String, String> = emptyMap(),
+    val availableOnTransports: Set<String> = emptySet(),
+    val source: String? = null,
 )
 
 @Serializable

@@ -12,10 +12,17 @@ import android.os.Looper
 import android.os.Bundle
 import android.os.Parcel
 import java.lang.reflect.Method
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
-import moe.chenxy.oppopods.ipc.HeadphoneIpcEventBridge
+import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
+import moe.chenxy.oppopods.integration.toIntegrationState
+import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.OppoPodsAction
@@ -28,6 +35,7 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
     private val DESCRIPTOR = "com.android.bluetooth.ble.app.IMiuiHeadsetService"
     private val callbacks = linkedMapOf<IBinder, Any>()
     private val handler = Handler(Looper.getMainLooper())
+    private val stateScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val hookedBinderClasses = linkedSetOf<String>()
     private var lastOppoDevice: BluetoothDevice? = null
     private var context: Context? = null
@@ -161,49 +169,38 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
     private fun registerStatusReceiver(ctx: Context?) {
         if (ctx == null || receiverRegistered) return
         context = ctx.applicationContext ?: ctx
-        HeadphoneIpcEventBridge.register(context ?: ctx)
+        HeadphoneSnapshotReceiver.register(context ?: ctx)
         val filter = IntentFilter().apply {
-            addAction(OppoPodsAction.ACTION_PODS_CONNECTED)
-            addAction(OppoPodsAction.ACTION_PODS_DISCONNECTED)
-            addAction(OppoPodsAction.ACTION_PODS_BATTERY_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_ANC_CHANGED)
-            addAction(OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED)
             addAction(OppoPodsAction.ACTION_CONFIG_CHANGED)
         }
         context?.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    OppoPodsAction.ACTION_CONFIG_CHANGED -> {
-                        refreshConfig()
-                        notifyRealStatus("config-changed")
-                    }
-                    OppoPodsAction.ACTION_PODS_CONNECTED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentName = intent.getStringExtra("device_name") ?: currentName
-                    }
-                    OppoPodsAction.ACTION_PODS_DISCONNECTED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                    }
-                    OppoPodsAction.ACTION_PODS_BATTERY_CHANGED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentBattery = intent.batteryStatusFromExtras() ?: intent.parcelableStatus() ?: currentBattery
-                    }
-                    OppoPodsAction.ACTION_PODS_ANC_CHANGED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentAnc = intent.getIntExtra("status", currentAnc)
-                    }
-                    OppoPodsAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED -> {
-                        currentAddress = intent.getStringExtra("address") ?: currentAddress
-                        currentTransparencyVocalEnhancement = intent.getBooleanExtra("enabled", currentTransparencyVocalEnhancement)
-                        hasTransparencyVocalEnhancementState = true
-                    }
-                }
-                Log.d(TAG, "state action=${intent?.action} address=$currentAddress name=$currentName anc=$currentAnc battery=${currentBattery.debugString()}")
-                notifyRealStatus("broadcast:${intent?.action}")
+                if (intent?.action != OppoPodsAction.ACTION_CONFIG_CHANGED) return
+                refreshConfig()
+                notifyRealStatus("config-changed")
             }
         }, filter, Context.RECEIVER_EXPORTED)
+        stateScope.launch {
+            HeadphoneUiStore.state.collect { state ->
+                val projected = state.toIntegrationState()
+                currentAddress = projected.address ?: currentAddress
+                currentName = projected.name ?: currentName
+                projected.battery?.let { currentBattery = it }
+                projected.anc?.let { currentAnc = it }
+                projected.transparencyVocalEnhancement?.let {
+                    currentTransparencyVocalEnhancement = it
+                    hasTransparencyVocalEnhancementState = true
+                }
+                Log.d(
+                    TAG,
+                    "snapshot generation=${state.generationId} address=$currentAddress " +
+                        "name=$currentName anc=$currentAnc battery=${currentBattery.debugString()}",
+                )
+                handler.post { notifyRealStatus("snapshot") }
+            }
+        }
         receiverRegistered = true
-        context?.let(HeadphoneIpcEventBridge::requestSnapshot)
+        context?.let(HeadphoneSnapshotReceiver::requestSnapshot)
         context?.sendBroadcast(Intent(OppoPodsAction.ACTION_REFRESH_STATUS).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)

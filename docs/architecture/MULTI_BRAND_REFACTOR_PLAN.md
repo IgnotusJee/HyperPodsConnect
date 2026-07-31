@@ -1159,6 +1159,11 @@ readback、脱敏 fixture、项目 App 真机验证与原值恢复。完整 Grad
 
 ### Phase 11：兼容性扩展和清理
 
+当前状态（2026-08-01）：**执行中**。schema v1、兼容档案迁移与导入导出、首版精确
+兼容矩阵、`STABLE` 分级、产品显示名称决策和 release/raw 显式门禁已落地；旧广播
+bridge 已删除，`RfcommController` 剩余 Android 副作用仍在迁移。执行记录见
+[`PHASE11_COMPATIBILITY_AND_CLEANUP.md`](PHASE11_COMPATIBILITY_AND_CLEANUP.md)。
+
 改动：
 
 - 扩展设备/固件/OEM 矩阵；

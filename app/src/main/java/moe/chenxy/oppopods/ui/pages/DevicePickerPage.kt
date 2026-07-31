@@ -137,9 +137,10 @@ fun DevicePickerPage(
     val adapter = btManager?.adapter
     val bluetoothEnabled = adapter?.isEnabled == true
     val pairedDevices = remember(hasPermission, bluetoothEnabled, bluetoothRefreshToken) {
-        if (!bluetoothEnabled) emptyList() else adapter?.bondedDevices?.toList()?.sortedByDescending {
-            it.name?.contains("oppo", ignoreCase = true) == true
-        } ?: emptyList()
+        if (!bluetoothEnabled) emptyList() else adapter?.bondedDevices?.toList()?.sortedWith(
+            compareBy<BluetoothDevice> { it.name.isNullOrBlank() }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name.orEmpty() },
+        ) ?: emptyList()
     }
 
     Box(Modifier.fillMaxSize()) {
