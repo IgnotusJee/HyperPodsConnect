@@ -20,6 +20,8 @@ import kotlinx.coroutines.launch
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
+import moe.chenxy.oppopods.ipc.IpcSenderPolicy
+import moe.chenxy.oppopods.ipc.isSentFrom
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
 import moe.chenxy.oppopods.integration.toIntegrationState
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
@@ -175,6 +177,7 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
         }
         context?.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                if (!isSentFrom(IpcSenderPolicy.moduleOnly)) return
                 if (intent?.action != LegacyPodsAction.ACTION_CONFIG_CHANGED) return
                 refreshConfig()
                 notifyRealStatus("config-changed")

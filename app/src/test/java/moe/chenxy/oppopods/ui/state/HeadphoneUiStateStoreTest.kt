@@ -4,6 +4,7 @@ import moe.chenxy.oppopods.ipc.BatteryPayload
 import moe.chenxy.oppopods.ipc.CapabilityPayload
 import moe.chenxy.oppopods.ipc.FeatureValuePayload
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotPayload
+import moe.chenxy.oppopods.ipc.IpcConnectionState
 import moe.chenxy.oppopods.ipc.OperationPayload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -88,6 +89,7 @@ class HeadphoneUiStateStoreTest {
             fakeSnapshot(
                 lowLatency = FeatureValuePayload("false", "true", false, "LOCAL_PENDING"),
                 operation = operation("SENT"),
+                emittedAtMillis = 12,
             ),
         )
         assertEquals("true", store.state.value.feature("LOW_LATENCY")?.displayed)
@@ -97,6 +99,7 @@ class HeadphoneUiStateStoreTest {
             fakeSnapshot(
                 lowLatency = FeatureValuePayload("false", null, false, "READ_BACK"),
                 operation = operation("TIMED_OUT", "TIMEOUT"),
+                emittedAtMillis = 13,
             ),
         )
         assertEquals("false", store.state.value.feature("LOW_LATENCY")?.displayed)
@@ -106,6 +109,7 @@ class HeadphoneUiStateStoreTest {
             fakeSnapshot(
                 lowLatency = FeatureValuePayload("true", null, false, "READ_BACK"),
                 operation = operation("READ_BACK_CONFIRMED"),
+                emittedAtMillis = 14,
             ),
         )
         assertEquals("true", store.state.value.feature("LOW_LATENCY")?.confirmed)
@@ -154,7 +158,43 @@ class HeadphoneUiStateStoreTest {
         assertEquals(20, store.state.value.emittedAtMillis)
     }
 
+    @Test
+    fun `late snapshot from previous device cannot replace current device`() {
+        val store = HeadphoneUiStateStore()
+        store.accept(fakeSnapshot(deviceId = "device-a", generation = 1, title = "A", emittedAtMillis = 10))
+        store.accept(fakeSnapshot(deviceId = "device-b", generation = 2, title = "B", emittedAtMillis = 20))
+
+        assertFalse(
+            store.accept(
+                fakeSnapshot(deviceId = "device-a", generation = 1, title = "Late A", emittedAtMillis = 30),
+            ),
+        )
+        assertEquals("B", store.state.value.title)
+    }
+
+    @Test
+    fun `new bluetooth host accepts generation reset`() {
+        val store = HeadphoneUiStateStore()
+        store.accept(fakeSnapshot(hostInstanceId = "host-old", generation = 7, title = "Old host"))
+
+        assertTrue(
+            store.accept(fakeSnapshot(hostInstanceId = "host-new", generation = 1, title = "New host")),
+        )
+        assertEquals("New host", store.state.value.title)
+        assertEquals(1, store.state.value.generationId)
+    }
+
+    @Test
+    fun `duplicate snapshot is rejected`() {
+        val store = HeadphoneUiStateStore()
+        val snapshot = fakeSnapshot()
+
+        assertTrue(store.accept(snapshot))
+        assertFalse(store.accept(snapshot))
+    }
+
     private fun fakeSnapshot(
+        hostInstanceId: String = "host-1",
         vendor: String = "FAKE",
         deviceId: String = "fake-device",
         generation: Long = 4,
@@ -165,12 +205,13 @@ class HeadphoneUiStateStoreTest {
         topology: String? = null,
         noiseControlActiveMode: String? = null,
     ) = HeadphoneSnapshotPayload(
+        hostInstanceId = hostInstanceId,
         deviceId = deviceId,
         generationId = generation,
         vendorId = vendor,
         primaryAddress = "11:22:33:44:55:66",
         deviceName = title,
-        connection = "Ready",
+        connection = IpcConnectionState.READY,
         protocolReady = true,
         transport = "FAKE",
         topology = topology,

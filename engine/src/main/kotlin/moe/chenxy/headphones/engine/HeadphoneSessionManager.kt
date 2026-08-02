@@ -60,7 +60,24 @@ class HeadphoneSessionManager(
     override suspend fun connect(
         candidate: DeviceCandidate,
         transportFactory: TransportFactory,
-    ): Long {
+    ): Long = connectInternal(candidate, transportFactory, automatic = false)!!
+
+    suspend fun autoConnect(
+        candidate: DeviceCandidate,
+        transportFactory: TransportFactory,
+    ): Long? = connectInternal(candidate, transportFactory, automatic = true)
+
+    private suspend fun connectInternal(
+        candidate: DeviceCandidate,
+        transportFactory: TransportFactory,
+        automatic: Boolean,
+    ): Long? {
+        val automaticMatch = if (automatic) {
+            driverRegistry.resolve(candidate)?.takeIf(DriverRegistry::canAutoConnect)
+                ?: return null
+        } else {
+            null
+        }
         val duplicate = mutex.withLock {
             val current = active
             if (
@@ -77,7 +94,12 @@ class HeadphoneSessionManager(
         }
         if (duplicate != null) return duplicate
         cancelReconnect()
-        return startSession(candidate, transportFactory, reconnectAttempt = 0)
+        return startSession(
+            candidate,
+            transportFactory,
+            reconnectAttempt = 0,
+            resolvedMatch = automaticMatch,
+        )
     }
 
     override suspend fun refresh(featureIds: Set<FeatureId>) {
@@ -135,11 +157,12 @@ class HeadphoneSessionManager(
         transportFactory: TransportFactory,
         reconnectAttempt: Int,
         expectedCurrent: ActiveSession? = null,
+        resolvedMatch: DriverMatch? = null,
     ): Long = transitionMutex.withLock {
         if (expectedCurrent != null && !isCurrent(expectedCurrent)) {
             return@withLock expectedCurrent.generation
         }
-        val match = driverRegistry.resolve(candidate)
+        val match = resolvedMatch ?: driverRegistry.resolve(candidate)
         val generation = mutex.withLock { ++generationCounter }
         if (match == null) {
             _snapshot.value = HeadphoneSnapshot(

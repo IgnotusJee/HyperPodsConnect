@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -29,8 +31,32 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Build release APK
-        run: ./gradlew :app:assembleRelease
+      - name: Check whitespace
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
+          else
+            git diff-tree --check --no-commit-id --root -r HEAD
+          fi
+
+      - name: Verify fixture privacy
+        run: python3 tools/verify_fixture_privacy.py
+
+      - name: Run release quality gate
+        run: |
+          ./gradlew \
+            :core:test \
+            :engine:test \
+            :protocol:oppo:test \
+            :protocol:sony:test \
+            :transport:android:testDebugUnitTest \
+            :app:testDebugUnitTest \
+            :app:lintDebug \
+            :transport:android:compileDebugAndroidTestKotlin \
+            :app:compileDebugAndroidTestKotlin \
+            :app:assembleDebug \
+            :app:assembleRelease
 
       - name: Sign release APK
         id: sign

@@ -13,7 +13,7 @@ object HeadphoneCommandClient {
         requestId: String = UUID.randomUUID().toString(),
     ): String {
         val current = HeadphoneUiStore.state.value
-        context.sendBroadcast(
+        context.sendIdentitySharedBroadcast(
             HeadphoneIpcContract.commandIntent(
                 command = IpcCommandPayload.from(command),
                 requestId = requestId,

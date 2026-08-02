@@ -32,6 +32,8 @@ import moe.chenxy.headphones.protocol.oppo.session.OppoSessionEvent
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.hook.Log
+import moe.chenxy.oppopods.ipc.IpcSenderPolicy
+import moe.chenxy.oppopods.ipc.isSentFrom
 import moe.chenxy.oppopods.runtime.bluetoothprocess.BluetoothProcessRuntimeHost
 import moe.chenxy.oppopods.utils.SystemApisUtils
 import moe.chenxy.oppopods.utils.miuiStrongToast.MiuiStrongToastUtil
@@ -77,11 +79,12 @@ object OppoSystemIntegrationAdapter {
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (!isSentFrom(IpcSenderPolicy.allowedBluetoothLegacySenders(intent?.action))) return
             intent?.let(::handleUIEvent)
         }
     }
 
-    fun handleUIEvent(intent: Intent) {
+    private fun handleUIEvent(intent: Intent) {
         when (intent.action) {
             LegacyPodsAction.ACTION_PODS_UI_CLOSED -> {
                 rawHexSessionGate.lock()
@@ -130,16 +133,34 @@ object OppoSystemIntegrationAdapter {
         context: Context,
         device: BluetoothDevice,
         prefs: SharedPreferences,
+    ) = connectPod(context, device, prefs, automatic = false)
+
+    fun connectPodAutomatically(
+        context: Context,
+        device: BluetoothDevice,
+        prefs: SharedPreferences,
+    ) = connectPod(context, device, prefs, automatic = true)
+
+    private fun connectPod(
+        context: Context,
+        device: BluetoothDevice,
+        prefs: SharedPreferences,
+        automatic: Boolean,
     ) {
-        mContext = context
-        mDevice = device
         mPrefs = prefs
-        cachedDeviceName = device.name ?: ""
         autoGameModeEnabled = mPrefs.getBoolean("auto_game_mode", false)
         gameModeImplementation = GameModeImplementation.fromPreference(
             mPrefs.getString(GameModeImplementation.PREF_KEY, null),
         )
         ConfigManager.refreshFromPrefs(mPrefs)
+        if (
+            automatic &&
+            !BluetoothProcessRuntimeHost.canAutoConnect(device, sessionOverrides())
+        ) return
+
+        mContext = context
+        mDevice = device
+        cachedDeviceName = device.name ?: ""
 
         if (!receiverRegistered) {
             context.registerReceiver(broadcastReceiver, IntentFilter().apply {
@@ -161,11 +182,19 @@ object OppoSystemIntegrationAdapter {
         lifecycleScope.launch {
             delay(500)
             if (isConnected) {
-                BluetoothProcessRuntimeHost.connect(
-                    context,
-                    device,
-                    sessionOverrides(),
-                )
+                if (automatic) {
+                    BluetoothProcessRuntimeHost.connectAutomatically(
+                        context,
+                        device,
+                        sessionOverrides(),
+                    )
+                } else {
+                    BluetoothProcessRuntimeHost.connect(
+                        context,
+                        device,
+                        sessionOverrides(),
+                    )
+                }
             }
         }
     }
@@ -274,6 +303,9 @@ object OppoSystemIntegrationAdapter {
         cachedDeviceName = ""
         mContext = null
     }
+
+    fun isCurrentDevice(device: BluetoothDevice): Boolean =
+        ::mDevice.isInitialized && mDevice.address == device.address && isConnected
 
     private fun launchCommand(command: FeatureCommand, reason: String) {
         lifecycleScope.launch {

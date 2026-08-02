@@ -13,6 +13,9 @@ import android.os.Handler
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.pods.OppoSystemIntegrationAdapter
 import moe.chenxy.oppopods.runtime.bluetoothprocess.BluetoothProcessRuntimeHost
+import moe.chenxy.oppopods.ipc.IpcSenderPolicy
+import moe.chenxy.oppopods.ipc.isSentFrom
+import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import moe.chenxy.oppopods.utils.SystemApisUtils.setIconVisibility
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 
@@ -43,15 +46,19 @@ object HeadsetStateDispatcher : HookContext() {
                 Log.d("OppoPods", "A2DP Connection State: $currState, isOppoPod ${isOppoPod(device)}")
                 val context = instance as ContextWrapper
                 registerAppRequestReceiver(context)
-                if (!isOppoPod(device)) return@post
-
                 val statusBarManager = context.getSystemService("statusbar") as StatusBarManager
                 if (currState == BluetoothHeadset.STATE_CONNECTED) {
-                    statusBarManager.setIconVisibility("wireless_headset", true)
-                    OppoSystemIntegrationAdapter.connectPod(context, device, prefs)
+                    if (isOppoPod(device)) {
+                        statusBarManager.setIconVisibility("wireless_headset", true)
+                    }
+                    OppoSystemIntegrationAdapter.connectPodAutomatically(context, device, prefs)
                 } else if (currState == BluetoothHeadset.STATE_DISCONNECTING || currState == BluetoothHeadset.STATE_DISCONNECTED) {
-                    statusBarManager.setIconVisibility("wireless_headset", false)
-                    OppoSystemIntegrationAdapter.disconnectedPod(context, device)
+                    if (isOppoPod(device)) {
+                        statusBarManager.setIconVisibility("wireless_headset", false)
+                    }
+                    if (OppoSystemIntegrationAdapter.isCurrentDevice(device)) {
+                        OppoSystemIntegrationAdapter.disconnectedPod(context, device)
+                    }
                 }
             }
         }
@@ -63,9 +70,10 @@ object HeadsetStateDispatcher : HookContext() {
         context.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (context == null) return
+                if (!isSentFrom(IpcSenderPolicy.allowedBluetoothLegacySenders(intent?.action))) return
                 when (intent?.action) {
                     LegacyPodsAction.ACTION_PODS_UI_INIT -> {
-                        context.sendBroadcast(Intent(LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE).apply {
+                        context.sendIdentitySharedBroadcast(Intent(LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE).apply {
                             setPackage(BuildConfig.APPLICATION_ID)
                             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
                         })

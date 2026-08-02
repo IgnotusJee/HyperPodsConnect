@@ -7,6 +7,7 @@ import moe.chenxy.oppopods.ipc.BatteryPayload
 import moe.chenxy.oppopods.ipc.CapabilityPayload
 import moe.chenxy.oppopods.ipc.FeatureValuePayload
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotPayload
+import moe.chenxy.oppopods.ipc.IpcConnectionState
 import moe.chenxy.oppopods.ipc.OperationPayload
 
 enum class UiConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
@@ -43,6 +44,7 @@ data class UiFeatureState(
 }
 
 data class HeadphoneUiState(
+    val hostInstanceId: String? = null,
     val deviceId: String? = null,
     val generationId: Long = -1,
     val emittedAtMillis: Long = -1,
@@ -71,18 +73,18 @@ class HeadphoneUiStateStore {
     private val mutableState = MutableStateFlow(HeadphoneUiState())
     val state: StateFlow<HeadphoneUiState> = mutableState.asStateFlow()
 
-    fun accept(snapshot: HeadphoneSnapshotPayload) {
+    fun accept(snapshot: HeadphoneSnapshotPayload): Boolean {
         val current = mutableState.value
         if (
-            current.deviceId == snapshot.deviceId &&
+            current.hostInstanceId == snapshot.hostInstanceId &&
             (
                 snapshot.generationId < current.generationId ||
                     (
                         snapshot.generationId == current.generationId &&
-                            snapshot.emittedAtMillis < current.emittedAtMillis
+                            snapshot.emittedAtMillis <= current.emittedAtMillis
                         )
                 )
-        ) return
+        ) return false
 
         val operation = snapshot.operation?.toUiOperation()
         val capabilities = snapshot.capabilities.associateBy(CapabilityPayload::featureId)
@@ -99,6 +101,7 @@ class HeadphoneUiStateStore {
             )
         }
         mutableState.value = HeadphoneUiState(
+            hostInstanceId = snapshot.hostInstanceId,
             deviceId = snapshot.deviceId,
             generationId = snapshot.generationId,
             emittedAtMillis = snapshot.emittedAtMillis,
@@ -115,6 +118,7 @@ class HeadphoneUiStateStore {
             features = features,
             lastOperation = operation,
         )
+        return true
     }
 
     fun clear() {
@@ -126,7 +130,7 @@ object HeadphoneUiStore {
     private val store = HeadphoneUiStateStore()
     val state: StateFlow<HeadphoneUiState> get() = store.state
 
-    fun accept(snapshot: HeadphoneSnapshotPayload) = store.accept(snapshot)
+    fun accept(snapshot: HeadphoneSnapshotPayload): Boolean = store.accept(snapshot)
 
     fun clear() = store.clear()
 
@@ -134,9 +138,9 @@ object HeadphoneUiStore {
 }
 
 private fun HeadphoneSnapshotPayload.toConnectionState(): UiConnectionState = when {
-    protocolReady -> UiConnectionState.CONNECTED
-    connection == "Idle" -> UiConnectionState.DISCONNECTED
-    connection == "Failed" -> UiConnectionState.ERROR
+    connection == IpcConnectionState.IDLE -> UiConnectionState.DISCONNECTED
+    connection == IpcConnectionState.FAILED -> UiConnectionState.ERROR
+    connection == IpcConnectionState.READY && protocolReady -> UiConnectionState.CONNECTED
     else -> UiConnectionState.CONNECTING
 }
 

@@ -23,6 +23,8 @@ import moe.chenxy.headphones.core.operation.OperationEvent
 import moe.chenxy.headphones.core.operation.OperationPhase
 import moe.chenxy.headphones.core.operation.RequestId
 import moe.chenxy.headphones.core.session.SessionState
+import moe.chenxy.headphones.core.session.DisconnectCause
+import moe.chenxy.headphones.core.session.FailureCategory
 import moe.chenxy.headphones.engine.HeadphoneSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -30,6 +32,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HeadphoneIpcCodecTest {
+    @Test
+    fun `all session states use stable IPC values`() {
+        val deviceId = DeviceId("device:test")
+        val states = listOf(
+            SessionState.Idle(deviceId, 1) to IpcConnectionState.IDLE,
+            SessionState.Detecting(deviceId, 1) to IpcConnectionState.DETECTING,
+            SessionState.TransportConnecting(deviceId, 1, TransportKind.CLASSIC_SPP) to
+                IpcConnectionState.TRANSPORT_CONNECTING,
+            SessionState.ProtocolHandshaking(deviceId, 1, TransportKind.CLASSIC_SPP) to
+                IpcConnectionState.PROTOCOL_HANDSHAKING,
+            SessionState.LoadingCapabilities(deviceId, 1, TransportKind.CLASSIC_SPP) to
+                IpcConnectionState.LOADING_CAPABILITIES,
+            SessionState.SynchronizingState(deviceId, 1, TransportKind.CLASSIC_SPP) to
+                IpcConnectionState.SYNCHRONIZING_STATE,
+            SessionState.Ready(deviceId, 1, TransportKind.CLASSIC_SPP) to IpcConnectionState.READY,
+            SessionState.Reconnecting(deviceId, 1, 1, DisconnectCause.LINK_LOST) to
+                IpcConnectionState.RECONNECTING,
+            SessionState.Disconnecting(deviceId, 1, DisconnectCause.REQUESTED) to
+                IpcConnectionState.DISCONNECTING,
+            SessionState.Failed(
+                deviceId,
+                1,
+                FailureCategory.TRANSPORT,
+                DisconnectCause.TRANSPORT_ERROR,
+            ) to IpcConnectionState.FAILED,
+        )
+
+        states.forEach { (state, expected) ->
+            val snapshot = HeadphoneSnapshot(
+                deviceId = deviceId,
+                generationId = 1,
+                connection = state,
+                emittedAtMillis = 1,
+            )
+            assertEquals(expected, HeadphoneSnapshotPayload.from(snapshot, "host-1").connection)
+        }
+    }
+
     @Test
     fun `all feature commands survive versioned payload round trip`() {
         val commands = listOf(
@@ -115,15 +155,18 @@ class HeadphoneIpcCodecTest {
             12,
         )
 
-        val payload = HeadphoneSnapshotPayload.from(snapshot)
+        val payload = HeadphoneSnapshotPayload.from(snapshot, "host-1")
         val decoded = HeadphoneIpcCodec.decodeSnapshot(
             HeadphoneIpcCodec.encodeSnapshot(payload),
         )!!
+        val encoded = HeadphoneIpcCodec.encodeSnapshot(payload)
 
         assertEquals(HeadphoneIpcContract.VERSION, decoded.contractVersion)
         assertEquals(7, decoded.generationId)
         assertEquals("11:22:33:44:55:66", decoded.primaryAddress)
-        assertEquals("Ready", decoded.connection)
+        assertEquals("host-1", decoded.hostInstanceId)
+        assertEquals(IpcConnectionState.READY, decoded.connection)
+        assertTrue(encoded.contains("\"connection\":\"READY\""))
         assertTrue(decoded.protocolReady)
         assertEquals("EARBUDS_WITH_CASE", decoded.topology)
         assertEquals(88, decoded.batteries.single().level)
@@ -176,7 +219,7 @@ class HeadphoneIpcCodecTest {
             emittedAtMillis = 2,
         )
 
-        val payload = HeadphoneSnapshotPayload.from(snapshot)
+        val payload = HeadphoneSnapshotPayload.from(snapshot, "host-1")
 
         assertNull(payload.deviceName)
         assertNull(payload.topology)

@@ -3,6 +3,7 @@ package moe.chenxy.oppopods.pods
 import android.content.Context
 import android.content.Intent
 import moe.chenxy.oppopods.BuildConfig
+import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,7 +69,7 @@ object RfcommLog {
             putExtra("message", entry.message)
             putExtra("time", entry.time)
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            sendBroadcast(this)
+            sendIdentitySharedBroadcast(this)
         }
     }
 }

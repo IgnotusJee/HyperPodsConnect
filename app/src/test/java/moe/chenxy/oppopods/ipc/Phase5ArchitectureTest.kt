@@ -27,6 +27,28 @@ class Phase5ArchitectureTest {
     }
 
     @Test
+    fun `V3 IPC uses stable connection values and authenticated receivers`() {
+        val contract = source("src/main/java/moe/chenxy/oppopods/ipc/HeadphoneIpcContract.kt")
+        val security = source("src/main/java/moe/chenxy/oppopods/ipc/IpcSenderPolicy.kt")
+        val runtime = source(
+            "src/main/java/moe/chenxy/oppopods/runtime/bluetoothprocess/" +
+                "BluetoothProcessRuntimeHost.kt",
+        )
+        val receiver = source("src/main/java/moe/chenxy/oppopods/ipc/HeadphoneSnapshotReceiver.kt")
+        assumeTrue(contract != null)
+        assumeTrue(security != null)
+        assumeTrue(runtime != null)
+        assumeTrue(receiver != null)
+
+        assertTrue(contract!!.contains("HEADPHONE_COMMAND_V3"))
+        assertTrue(contract.contains("enum class IpcConnectionState"))
+        assertFalse(contract.contains("::class.simpleName"))
+        assertTrue(security!!.contains("setShareIdentityEnabled(true)"))
+        assertTrue(runtime!!.contains("isSentFrom(IpcSenderPolicy.commandSenders)"))
+        assertTrue(receiver!!.contains("isSentFrom(IpcSenderPolicy.bluetoothOnly)"))
+    }
+
+    @Test
     fun `snapshot receiver is installed in app milink xiaomi and settings consumers`() {
         val app = source("src/main/java/moe/chenxy/oppopods/OppoPodsApp.kt")
         val upstream = source(
@@ -83,6 +105,22 @@ class Phase5ArchitectureTest {
         assertFalse(adapter.contains("private var session:"))
         assertFalse(adapter.contains("OppoDriverProvider("))
         assertFalse(adapter.contains("AndroidSppTransportFactory("))
+    }
+
+    @Test
+    fun `A2DP automatic path sends every vendor through the evidence gate`() {
+        val dispatcher = source(
+            "src/main/java/moe/chenxy/oppopods/hook/HeadsetStateDispatcher.kt",
+        )
+        val adapter = source(
+            "src/main/java/moe/chenxy/oppopods/pods/OppoSystemIntegrationAdapter.kt",
+        )
+        assumeTrue(dispatcher != null)
+        assumeTrue(adapter != null)
+
+        assertTrue(dispatcher!!.contains("connectPodAutomatically(context, device, prefs)"))
+        assertFalse(dispatcher.contains("if (!isOppoPod(device)) return@post"))
+        assertTrue(adapter!!.contains("BluetoothProcessRuntimeHost.canAutoConnect"))
     }
 
     @Test

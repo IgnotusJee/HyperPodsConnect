@@ -39,12 +39,41 @@ import moe.chenxy.headphones.core.transport.TransportFactory
 import moe.chenxy.headphones.core.transport.TransportSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HeadphoneSessionManagerTest {
+
+    @Test
+    fun `automatic connect rejects name hint without mutating session state`() = runTest {
+        val provider = FakeProvider(confidence = DetectionConfidence.HINT)
+        val manager = manager(provider)
+
+        assertNull(manager.autoConnect(candidate("11:22:33:44:55:66"), unusedFactory))
+        assertTrue(provider.sessions.isEmpty())
+        assertNull(manager.snapshot.value)
+    }
+
+    @Test
+    fun `automatic connect accepts transport evidence`() = runTest {
+        val provider = FakeProvider(confidence = DetectionConfidence.TRANSPORT_EVIDENCE)
+        val manager = manager(provider)
+
+        assertEquals(1L, manager.autoConnect(candidate("11:22:33:44:55:66"), unusedFactory))
+        assertEquals(1, provider.sessions.size)
+    }
+
+    @Test
+    fun `explicit connect still accepts name hint`() = runTest {
+        val provider = FakeProvider(confidence = DetectionConfidence.HINT)
+        val manager = manager(provider)
+
+        assertEquals(1L, manager.connect(candidate("11:22:33:44:55:66"), unusedFactory))
+        assertEquals(1, provider.sessions.size)
+    }
 
     @Test
     fun `duplicate connect reuses the active session and generation`() = runTest {
@@ -249,13 +278,14 @@ class HeadphoneSessionManagerTest {
 private class FakeProvider(
     private val connectFailure: DisconnectCause? = null,
     private val connectFailures: List<DisconnectCause?>? = null,
+    private val confidence: DetectionConfidence = DetectionConfidence.TRANSPORT_EVIDENCE,
 ) : HeadphoneDriverProvider {
     override val vendorId: VendorId = VendorId.OPPO
     val sessions = mutableListOf<FakeSession>()
 
     override fun inspect(candidate: DeviceCandidate) = DetectionEvidence(
         vendorId,
-        DetectionConfidence.TRANSPORT_EVIDENCE,
+        confidence,
         listOf("test"),
         listOf(TransportKind.CLASSIC_SPP),
     )

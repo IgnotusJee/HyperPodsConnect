@@ -3,6 +3,7 @@ package moe.chenxy.oppopods.ipc
 import android.content.Intent
 import java.util.UUID
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.Json
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
@@ -16,9 +17,14 @@ import moe.chenxy.headphones.core.session.SessionState
 import moe.chenxy.headphones.engine.HeadphoneSnapshot
 
 object HeadphoneIpcContract {
-    const val VERSION = 2
-    const val ACTION_HEADPHONE_COMMAND = "moe.chenxy.oppopods.action.HEADPHONE_COMMAND_V2"
-    const val ACTION_HEADPHONE_EVENT = "moe.chenxy.oppopods.action.HEADPHONE_EVENT_V2"
+    const val VERSION = 3
+    const val BLUETOOTH_HOST_PACKAGE = "com.android.bluetooth"
+    const val MODULE_PACKAGE = "moe.chenxy.oppopods"
+    const val MILINK_PACKAGE = "com.milink.service"
+    const val XIAOMI_BLUETOOTH_PACKAGE = "com.xiaomi.bluetooth"
+    const val SETTINGS_PACKAGE = "com.android.settings"
+    const val ACTION_HEADPHONE_COMMAND = "moe.chenxy.oppopods.action.HEADPHONE_COMMAND_V3"
+    const val ACTION_HEADPHONE_EVENT = "moe.chenxy.oppopods.action.HEADPHONE_EVENT_V3"
 
     const val EXTRA_CONTRACT_VERSION = "contract_version"
     const val EXTRA_REQUEST_ID = "request_id"
@@ -43,18 +49,20 @@ object HeadphoneIpcContract {
     const val TYPE_SNAPSHOT = "snapshot"
 
     val eventTargets = listOf(
-        "moe.chenxy.oppopods",
-        "com.milink.service",
-        "com.xiaomi.bluetooth",
-        "com.android.settings",
+        MODULE_PACKAGE,
+        MILINK_PACKAGE,
+        XIAOMI_BLUETOOTH_PACKAGE,
+        SETTINGS_PACKAGE,
     )
+
+    val trustedClientPackages: Set<String> = eventTargets.toSet()
 
     fun commandIntent(
         command: IpcCommandPayload,
         requestId: String = UUID.randomUUID().toString(),
         deviceId: String? = null,
         vendorId: String? = null,
-        targetPackage: String = "com.android.bluetooth",
+        targetPackage: String = BLUETOOTH_HOST_PACKAGE,
         timestamp: Long = System.currentTimeMillis(),
     ): Intent = Intent(ACTION_HEADPHONE_COMMAND).apply {
         setPackage(targetPackage)
@@ -113,7 +121,35 @@ object HeadphoneIpcContract {
         ) return null
         return intent.getStringExtra(EXTRA_PAYLOAD_JSON)
             ?.let(HeadphoneIpcCodec::decodeSnapshot)
+            ?.takeIf {
+                it.contractVersion == VERSION &&
+                    it.hostInstanceId.isNotBlank()
+            }
     }
+}
+
+@Serializable
+enum class IpcConnectionState {
+    @SerialName("IDLE")
+    IDLE,
+    @SerialName("DETECTING")
+    DETECTING,
+    @SerialName("TRANSPORT_CONNECTING")
+    TRANSPORT_CONNECTING,
+    @SerialName("PROTOCOL_HANDSHAKING")
+    PROTOCOL_HANDSHAKING,
+    @SerialName("LOADING_CAPABILITIES")
+    LOADING_CAPABILITIES,
+    @SerialName("SYNCHRONIZING_STATE")
+    SYNCHRONIZING_STATE,
+    @SerialName("READY")
+    READY,
+    @SerialName("RECONNECTING")
+    RECONNECTING,
+    @SerialName("DISCONNECTING")
+    DISCONNECTING,
+    @SerialName("FAILED")
+    FAILED,
 }
 
 @Serializable
@@ -196,6 +232,7 @@ data class IpcCommandEnvelope(
 @Serializable
 data class HeadphoneSnapshotPayload(
     val contractVersion: Int = HeadphoneIpcContract.VERSION,
+    val hostInstanceId: String,
     val deviceId: String,
     val generationId: Long,
     val vendorId: String?,
@@ -203,7 +240,7 @@ data class HeadphoneSnapshotPayload(
     val memberAddresses: Set<String> = emptySet(),
     val groupId: String? = null,
     val deviceName: String?,
-    val connection: String,
+    val connection: IpcConnectionState,
     val protocolReady: Boolean,
     val transport: String?,
     val topology: String? = null,
@@ -221,7 +258,8 @@ data class HeadphoneSnapshotPayload(
     val emittedAtMillis: Long,
 ) {
     companion object {
-        fun from(snapshot: HeadphoneSnapshot): HeadphoneSnapshotPayload {
+        fun from(snapshot: HeadphoneSnapshot, hostInstanceId: String): HeadphoneSnapshotPayload {
+            require(hostInstanceId.isNotBlank()) { "hostInstanceId must not be blank" }
             val profile = snapshot.profile
             val state = snapshot.state
             val mayExposeState = profile?.compatibilityLevel?.canExposeState == true
@@ -237,6 +275,7 @@ data class HeadphoneSnapshotPayload(
                 source = source?.toString(),
             )
             return HeadphoneSnapshotPayload(
+                hostInstanceId = hostInstanceId,
                 deviceId = snapshot.deviceId.value,
                 generationId = snapshot.generationId,
                 vendorId = profile?.vendorId?.value,
@@ -244,7 +283,7 @@ data class HeadphoneSnapshotPayload(
                 memberAddresses = profile?.identity?.memberAddresses.orEmpty(),
                 groupId = profile?.identity?.groupId,
                 deviceName = profile?.model?.takeIf { mayExposeState },
-                connection = snapshot.connection::class.simpleName.orEmpty(),
+                connection = snapshot.connection.toIpcConnectionState(),
                 protocolReady = snapshot.connection is SessionState.Ready,
                 transport = profile?.transport?.name,
                 topology = profile?.topology?.name?.takeIf { mayExposeState },
@@ -337,6 +376,19 @@ data class HeadphoneSnapshotPayload(
             )
         }
     }
+}
+
+private fun SessionState.toIpcConnectionState(): IpcConnectionState = when (this) {
+    is SessionState.Idle -> IpcConnectionState.IDLE
+    is SessionState.Detecting -> IpcConnectionState.DETECTING
+    is SessionState.TransportConnecting -> IpcConnectionState.TRANSPORT_CONNECTING
+    is SessionState.ProtocolHandshaking -> IpcConnectionState.PROTOCOL_HANDSHAKING
+    is SessionState.LoadingCapabilities -> IpcConnectionState.LOADING_CAPABILITIES
+    is SessionState.SynchronizingState -> IpcConnectionState.SYNCHRONIZING_STATE
+    is SessionState.Ready -> IpcConnectionState.READY
+    is SessionState.Reconnecting -> IpcConnectionState.RECONNECTING
+    is SessionState.Disconnecting -> IpcConnectionState.DISCONNECTING
+    is SessionState.Failed -> IpcConnectionState.FAILED
 }
 
 @Serializable

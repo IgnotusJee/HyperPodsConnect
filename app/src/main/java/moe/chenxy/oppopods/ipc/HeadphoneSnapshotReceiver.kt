@@ -20,10 +20,11 @@ object HeadphoneSnapshotReceiver {
         val appContext = context.applicationContext ?: context
         appContext.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                if (!isSentFrom(IpcSenderPolicy.bluetoothOnly)) return
                 val target = context ?: return
                 val snapshot = intent?.let(HeadphoneIpcContract::decodeSnapshot) ?: return
-                HeadphoneUiStore.accept(snapshot)
-                if (target.packageName == BuildConfig.APPLICATION_ID) {
+                val accepted = HeadphoneUiStore.accept(snapshot)
+                if (accepted && target.packageName == BuildConfig.APPLICATION_ID) {
                     val prefs = target.getSharedPreferences(
                         ConfigManager.PREFS_NAME,
                         Context.MODE_PRIVATE,
@@ -36,7 +37,7 @@ object HeadphoneSnapshotReceiver {
     }
 
     fun requestSnapshot(context: Context) {
-        context.sendBroadcast(
+        context.sendIdentitySharedBroadcast(
             HeadphoneIpcContract.commandIntent(
                 IpcCommandPayload(HeadphoneIpcContract.TYPE_REQUEST_SNAPSHOT),
                 requestId = "snapshot-${UUID.randomUUID()}",

@@ -42,6 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
+import moe.chenxy.oppopods.ipc.IpcSenderPolicy
+import moe.chenxy.oppopods.ipc.isSentFrom
+import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import java.util.UUID
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -74,6 +77,7 @@ fun RfcommDebugPage(
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                if (!isSentFrom(IpcSenderPolicy.bluetoothOnly)) return
                 if (intent?.action != LegacyPodsAction.ACTION_RFCOMM_LOG) return
                 logs.add(
                     RfcommDebugLogEntry(
@@ -339,6 +343,6 @@ private fun Context.sendRfcommDebugBroadcast(action: String, fill: Intent.() -> 
         setPackage("com.android.bluetooth")
         addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         fill()
-        sendBroadcast(this)
+        sendIdentitySharedBroadcast(this)
     }
 }

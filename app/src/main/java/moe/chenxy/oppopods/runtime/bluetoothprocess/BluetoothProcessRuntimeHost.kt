@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.util.Log
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,11 @@ import moe.chenxy.headphones.protocol.sony.session.SonySessionEvent
 import moe.chenxy.headphones.transport.android.AndroidBluetoothTransportFactory
 import moe.chenxy.oppopods.ipc.HeadphoneIpcContract
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotPayload
+import moe.chenxy.oppopods.ipc.IpcReplayGuard
+import moe.chenxy.oppopods.ipc.IpcSenderPolicy
+import moe.chenxy.oppopods.ipc.IpcCommandValidator
+import moe.chenxy.oppopods.ipc.isSentFrom
+import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import moe.chenxy.oppopods.pods.OppoSystemIntegrationAdapter
 import moe.chenxy.oppopods.BuildConfig
 
@@ -59,6 +65,8 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val registry = DriverRegistry()
     private val manager = HeadphoneSessionManager(registry, scope)
+    private val hostInstanceId = UUID.randomUUID().toString()
+    private val commandReplayGuard = IpcReplayGuard()
     private lateinit var context: Context
     private var activeDevice: BluetoothDevice? = null
     private var vendorEventJob: Job? = null
@@ -116,8 +124,7 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
     ) {
         initialize(context)
         activeDevice = device
-        registry.register(OppoDriverProvider(overrides))
-        registry.register(SonyDriverProvider())
+        registerDrivers(overrides)
         scope.launch {
             connect(
                 candidate(device),
@@ -127,6 +134,35 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
                 ),
             )
         }
+    }
+
+    fun connectAutomatically(
+        context: Context,
+        device: BluetoothDevice,
+        overrides: OppoCompatibilityOverrides,
+    ) {
+        initialize(context)
+        registerDrivers(overrides)
+        val candidate = candidate(device)
+        val transportFactory = AndroidBluetoothTransportFactory(this.context, device)
+        scope.launch {
+            if (manager.autoConnect(candidate, transportFactory) != null) {
+                activeDevice = device
+            }
+        }
+    }
+
+    fun canAutoConnect(
+        device: BluetoothDevice,
+        overrides: OppoCompatibilityOverrides,
+    ): Boolean {
+        registerDrivers(overrides)
+        return registry.resolve(candidate(device))?.let(DriverRegistry::canAutoConnect) == true
+    }
+
+    private fun registerDrivers(overrides: OppoCompatibilityOverrides) {
+        registry.register(OppoDriverProvider(overrides))
+        registry.register(SonyDriverProvider())
     }
 
     override suspend fun connect(
@@ -177,9 +213,9 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
 
     private fun publishSnapshot(value: HeadphoneSnapshot, requestId: String? = null) {
         if (!::context.isInitialized) return
-        val payload = HeadphoneSnapshotPayload.from(value)
+        val payload = HeadphoneSnapshotPayload.from(value, hostInstanceId)
         HeadphoneIpcContract.eventTargets.forEach { target ->
-            context.sendBroadcast(
+            context.sendIdentitySharedBroadcast(
                 HeadphoneIpcContract.eventIntent(
                     snapshot = payload,
                     requestId = requestId,
@@ -236,22 +272,20 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
 
     private val commandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (!isSentFrom(IpcSenderPolicy.commandSenders)) return
             val envelope = intent?.let(HeadphoneIpcContract::decodeCommand) ?: return
-            val current = snapshot.value
-            if (
-                envelope.deviceId != null &&
-                current != null &&
-                envelope.deviceId != current.deviceId.value
-            ) return
-            if (
-                envelope.vendorId != null &&
-                current?.profile != null &&
-                envelope.vendorId != current.profile?.vendorId?.value
-            ) return
+            if (!commandReplayGuard.accept(envelope.requestId, envelope.timestamp)) return
             if (envelope.payload.type == HeadphoneIpcContract.TYPE_REQUEST_SNAPSHOT) {
                 publishCurrentSnapshot(envelope.requestId)
                 return
             }
+            val current = snapshot.value
+            if (!IpcCommandValidator.targetsCurrentSession(
+                    envelope,
+                    current?.deviceId?.value,
+                    current?.profile?.vendorId?.value,
+                )
+            ) return
             val command = envelope.payload.toFeatureCommand() ?: return
             if (command is FeatureCommand.RefreshAll) {
                 refreshAsync(requestId = envelope.requestId)

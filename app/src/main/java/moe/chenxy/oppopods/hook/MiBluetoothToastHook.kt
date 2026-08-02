@@ -30,6 +30,8 @@ import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
 import moe.chenxy.oppopods.integration.toIntegrationState
+import moe.chenxy.oppopods.ipc.IpcSenderPolicy
+import moe.chenxy.oppopods.ipc.isSentFrom
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.headphones.core.feature.FeatureId
 
@@ -264,6 +266,12 @@ object MiBluetoothToastHook : HookContext() {
 
                     val broadcastReceiver = object : BroadcastReceiver() {
                         override fun onReceive(p0: Context?, p1: Intent?) {
+                            val allowedSenders = if (p1?.action == LegacyPodsAction.ACTION_CYCLE_ANC) {
+                                IpcSenderPolicy.xiaomiBluetoothOnly
+                            } else {
+                                IpcSenderPolicy.bluetoothOnly
+                            }
+                            if (!isSentFrom(allowedSenders)) return
                             if (p1?.action == "chen.action.oppopods.sendstrongtoast") {
                                 if (ConfigManager.islandMode() != ConfigManager.ISLAND_MODE_MODULE) {
                                     Log.d("OppoPods", "skip module island mode=${ConfigManager.islandMode()}")

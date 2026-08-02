@@ -51,6 +51,9 @@ import moe.chenxy.oppopods.config.PodImagePrefs
 import moe.chenxy.oppopods.config.PodImageResource
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
 import moe.chenxy.oppopods.ipc.HeadphoneCommandClient
+import moe.chenxy.oppopods.ipc.IpcSenderPolicy
+import moe.chenxy.oppopods.ipc.isSentFrom
+import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.SpatialAudioMode
@@ -294,20 +297,23 @@ fun MainUI(
         }
     }
 
-    val broadcastReceiver = remember {
+    val serviceAliveReceiver = remember {
         object : BroadcastReceiver() {
             override fun onReceive(p0: Context?, p1: Intent?) {
-                when (p1?.action) {
-                    LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE -> {
-                        lastBluetoothServiceAliveMs = SystemClock.elapsedRealtime()
-                        bluetoothServiceResponsive = true
-                    }
-
-                    BluetoothAdapter.ACTION_STATE_CHANGED,
-                    BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
-                        bluetoothState = readBluetoothState(context)
-                    }
-                }
+                if (!isSentFrom(IpcSenderPolicy.bluetoothOnly)) return
+                if (p1?.action != LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE) return
+                lastBluetoothServiceAliveMs = SystemClock.elapsedRealtime()
+                bluetoothServiceResponsive = true
+            }
+        }
+    }
+    val bluetoothStateReceiver = remember {
+        object : BroadcastReceiver() {
+            override fun onReceive(p0: Context?, p1: Intent?) {
+                if (
+                    p1?.action == BluetoothAdapter.ACTION_STATE_CHANGED ||
+                    p1?.action == BluetoothDevice.ACTION_BOND_STATE_CHANGED
+                ) bluetoothState = readBluetoothState(context)
             }
         }
     }
@@ -318,8 +324,12 @@ fun MainUI(
         }
         OppoPodsApp.addServiceListener(serviceListener)
 
-        context.registerReceiver(broadcastReceiver, IntentFilter().apply {
-            addAction(LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE)
+        context.registerReceiver(
+            serviceAliveReceiver,
+            IntentFilter(LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE),
+            Context.RECEIVER_EXPORTED,
+        )
+        context.registerReceiver(bluetoothStateReceiver, IntentFilter().apply {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         }, Context.RECEIVER_EXPORTED)
@@ -330,7 +340,8 @@ fun MainUI(
         onDispose {
             sendBluetoothModuleBroadcast(context, LegacyPodsAction.ACTION_PODS_UI_CLOSED)
             try {
-                context.unregisterReceiver(broadcastReceiver)
+                context.unregisterReceiver(serviceAliveReceiver)
+                context.unregisterReceiver(bluetoothStateReceiver)
             } catch (_: Exception) {}
             OppoPodsApp.removeServiceListener(serviceListener)
         }
@@ -398,7 +409,7 @@ fun MainUI(
             putExtra("device", device)
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
+            context.sendIdentitySharedBroadcast(this)
         }
     }
 
@@ -450,7 +461,7 @@ fun MainUI(
             putExtra("device", device)
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
+            context.sendIdentitySharedBroadcast(this)
         }
     }
 
@@ -639,7 +650,7 @@ fun MainUI(
                         setPackage("com.android.bluetooth")
                         putExtra("enabled", it)
                         addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-                        context.sendBroadcast(this)
+                        context.sendIdentitySharedBroadcast(this)
                     }
                 },
                 gameModeImplementation = gameModeImplementation,
@@ -652,7 +663,7 @@ fun MainUI(
                         setPackage("com.android.bluetooth")
                         putExtra(GameModeImplementation.PREF_KEY, it.preferenceValue)
                         addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-                        context.sendBroadcast(this)
+                        context.sendIdentitySharedBroadcast(this)
                     }
                 },
                 notificationClickAction = notificationClickAction,
@@ -908,7 +919,7 @@ private fun sendBluetoothModuleBroadcast(context: Context, action: String) {
         Intent(action).apply {
             setPackage(packageName)
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            context.sendBroadcast(this)
+            context.sendIdentitySharedBroadcast(this)
         }
     }
 }
@@ -933,6 +944,6 @@ private fun broadcastConfigChanged(context: Context, packageName: String) {
     Intent(LegacyPodsAction.ACTION_CONFIG_CHANGED).apply {
         setPackage(packageName)
         addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-        context.sendBroadcast(this)
+        context.sendIdentitySharedBroadcast(this)
     }
 }

@@ -1190,7 +1190,7 @@ bridge 与 `RfcommController` facade 已删除，剩余系统副作用集中到�
 Phase 12 不扩展协议命令或无真机证据的型号矩阵，先把 Phase 11 已验证的架构收敛为可发布、
 可持续维护的基线。首批工作删除 `OppoSystemIntegrationAdapter` 中无调用者的媒体路由控制、
 重复 MiUI payload 构造和无消费者状态缓存，并把旧 `ACTION_REFRESH_STATUS` 完整迁移到
-version 2 `FeatureCommand.RefreshAll`。
+version 3 `FeatureCommand.RefreshAll`。
 
 剩余旧 action 必须有明确的跨进程生命周期、系统 UI 副作用、配置同步或 debug/release 门禁
 职责；不能仅因名称含 `legacy` 就删除。执行记录和保留矩阵见
@@ -1199,14 +1199,19 @@ version 2 `FeatureCommand.RefreshAll`。
 完成标准：
 
 - 无调用者的 Android 集成分支被删除并有架构测试防回流；
-- 可由 version 2 command/snapshot 覆盖的旧 action 不再注册或发送；
+- 可由 version 3 command/snapshot 覆盖的旧 action 不再注册或发送；
 - 保留 action 的调用者、目标进程和不可替代职责均有文档记录；
 - JVM、Android lint/compile、debug/release 构建、依赖边界与 fixture 脱敏检查通过；
 - 需要真机验证的系统副作用在发布候选安装后完成最小回归。
 
-完成结论：上述标准均已满足。`BatteryParams` / `PodParams` 经评估后继续作为 Android 系统 UI
-边界上的 `Parcelable` 展示 DTO 保留，设备 confirmed 状态仍只来自 version 2 snapshot。本阶段
-只建立发布候选基线，不创建发布标签或 Release。
+审计修复结论：V3 发送方认证（可信端显式共享系统认证身份）、稳定连接状态、宿主实例快照排序、
+自动连接证据门禁和 CI 质量门均已完成。离线门禁、完整多进程 scope 重启、shell 广播伪造、
+四客户端 snapshot 闭环、宿主重启 generation 归一、Air5s 可逆 ANC、WH-1000XM4 Sony v1 SPP
+自动连接与只读 UI，以及 LinkBuds S Sony v2 GATT 的 Debug/Release Ready 和 minified Release
+Failed 均已通过。A2DP hook 的旧 OPPO 厂商短路已修复，Release 混淆后的内部状态类名不会改变
+V3 Idle/Failed/Ready 展示。本阶段恢复为已完成，但本轮未创建发布标签或 Release。
+`BatteryParams` / `PodParams` 继续作为 Android 系统 UI 边界上的 `Parcelable` 展示 DTO 保留，
+设备 confirmed 状态只来自 version 3 snapshot。
 
 ## 8. 测试策略
 

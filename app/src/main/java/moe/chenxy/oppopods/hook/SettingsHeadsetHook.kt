@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
+import moe.chenxy.oppopods.ipc.IpcSenderPolicy
+import moe.chenxy.oppopods.ipc.isSentFrom
+import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
 import moe.chenxy.oppopods.integration.toIntegrationState
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
@@ -384,6 +387,7 @@ object SettingsHeadsetHook : HookContext() {
         }
         context?.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                if (!isSentFrom(IpcSenderPolicy.moduleOnly)) return
                 if (intent?.action != LegacyPodsAction.ACTION_CONFIG_CHANGED) return
                 refreshConfig()
                 updateFragments()
@@ -419,7 +423,7 @@ object SettingsHeadsetHook : HookContext() {
 
     private fun requestBluetoothStatus(reason: String) {
         val ctx = context ?: return
-        ctx.sendBroadcast(Intent(LegacyPodsAction.ACTION_PODS_UI_INIT).apply {
+        ctx.sendIdentitySharedBroadcast(Intent(LegacyPodsAction.ACTION_PODS_UI_INIT).apply {
             setPackage("com.android.bluetooth")
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         })
