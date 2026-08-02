@@ -64,8 +64,7 @@ object HeadsetStateDispatcher : HookContext() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (context == null) return
                 when (intent?.action) {
-                    LegacyPodsAction.ACTION_PODS_UI_INIT,
-                    LegacyPodsAction.ACTION_REFRESH_STATUS -> {
+                    LegacyPodsAction.ACTION_PODS_UI_INIT -> {
                         context.sendBroadcast(Intent(LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE).apply {
                             setPackage(BuildConfig.APPLICATION_ID)
                             addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
@@ -85,7 +84,6 @@ object HeadsetStateDispatcher : HookContext() {
             }
         }, IntentFilter().apply {
             addAction(LegacyPodsAction.ACTION_PODS_UI_INIT)
-            addAction(LegacyPodsAction.ACTION_REFRESH_STATUS)
             addAction(LegacyPodsAction.ACTION_CONNECT_POD_REQUEST)
             addAction(LegacyPodsAction.ACTION_DISCONNECT_POD_REQUEST)
         }, Context.RECEIVER_EXPORTED)

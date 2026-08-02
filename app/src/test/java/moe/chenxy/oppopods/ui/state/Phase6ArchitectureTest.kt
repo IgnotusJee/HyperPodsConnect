@@ -110,7 +110,6 @@ class Phase6ArchitectureTest {
                 "ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE",
                 "ACTION_CONNECT_POD_REQUEST",
                 "ACTION_DISCONNECT_POD_REQUEST",
-                "ACTION_REFRESH_STATUS",
                 "ACTION_CYCLE_ANC",
                 "ACTION_AUTO_GAME_MODE_CHANGED",
                 "ACTION_GAME_MODE_IMPLEMENTATION_CHANGED",

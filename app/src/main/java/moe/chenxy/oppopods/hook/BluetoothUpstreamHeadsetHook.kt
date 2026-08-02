@@ -201,10 +201,6 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
         }
         receiverRegistered = true
         context?.let(HeadphoneSnapshotReceiver::requestSnapshot)
-        context?.sendBroadcast(Intent(LegacyPodsAction.ACTION_REFRESH_STATUS).apply {
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-        })
         Log.d(TAG, "registered status receiver context=$context")
     }
 

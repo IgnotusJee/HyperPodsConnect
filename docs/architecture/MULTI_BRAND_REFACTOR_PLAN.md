@@ -1185,6 +1185,29 @@ bridge 与 `RfcommController` facade 已删除，剩余系统副作用集中到�
 - OPPO 与 Sony 均有 Stable/Controlled/Read-only 明确分级；
 - release build 禁止危险协议操作。
 
+### Phase 12：发布候选与集成层收尾（已完成，2026-08-02）
+
+Phase 12 不扩展协议命令或无真机证据的型号矩阵，先把 Phase 11 已验证的架构收敛为可发布、
+可持续维护的基线。首批工作删除 `OppoSystemIntegrationAdapter` 中无调用者的媒体路由控制、
+重复 MiUI payload 构造和无消费者状态缓存，并把旧 `ACTION_REFRESH_STATUS` 完整迁移到
+version 2 `FeatureCommand.RefreshAll`。
+
+剩余旧 action 必须有明确的跨进程生命周期、系统 UI 副作用、配置同步或 debug/release 门禁
+职责；不能仅因名称含 `legacy` 就删除。执行记录和保留矩阵见
+[`PHASE12_RELEASE_HARDENING.md`](PHASE12_RELEASE_HARDENING.md)。
+
+完成标准：
+
+- 无调用者的 Android 集成分支被删除并有架构测试防回流；
+- 可由 version 2 command/snapshot 覆盖的旧 action 不再注册或发送；
+- 保留 action 的调用者、目标进程和不可替代职责均有文档记录；
+- JVM、Android lint/compile、debug/release 构建、依赖边界与 fixture 脱敏检查通过；
+- 需要真机验证的系统副作用在发布候选安装后完成最小回归。
+
+完成结论：上述标准均已满足。`BatteryParams` / `PodParams` 经评估后继续作为 Android 系统 UI
+边界上的 `Parcelable` 展示 DTO 保留，设备 confirmed 状态仍只来自 version 2 snapshot。本阶段
+只建立发布候选基线，不创建发布标签或 Release。
+
 ## 8. 测试策略
 
 ### 8.1 纯 JVM 测试
@@ -1336,13 +1359,10 @@ sony_verified_writes_enabled
 
 ## 13. 下一步执行顺序
 
-Phase 0–11 已完成并通过真机验收。当前重构计划没有预先定义 Phase 12；后续候选工作为：
+Phase 0–12 已完成。当前不进入发布流程，后续转为证据驱动的维护与独立演进：
 
-1. 继续缩减 `OppoSystemIntegrationAdapter` 中仍存在的旧 action 入口；
-2. 评估以通用 presentation model 替换仅用于通知、灵动岛和 Compose 展示的
-   `BatteryParams` / `PodParams`；
-3. 将完整 JVM、Android lint/compile、debug/release 构建、依赖边界和 fixture 脱敏扫描
-   固化为发布候选门禁；
-4. 仅在取得新增型号、固件或 OEM 的动态证据后扩展精确兼容矩阵。
-
-新增型号仍必须逐设备满足动态证据、精确白名单、读回与恢复验证，不从现有型号外推。
+1. 仅在取得新增型号、固件或 OEM 的动态证据后扩展精确兼容矩阵；
+2. runtime health、session lifecycle、配置同步和系统 UI 副作用如需版本化，分别建立独立设计与
+   真机验收计划，不回填到已经关闭的 Phase 12；
+3. 新增型号仍必须逐设备满足动态证据、精确白名单、读回与恢复验证，不从现有型号外推；
+4. 发布、版本标签与制品分发由后续明确指令单独启动。

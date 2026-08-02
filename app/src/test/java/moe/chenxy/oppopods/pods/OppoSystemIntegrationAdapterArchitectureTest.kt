@@ -82,11 +82,29 @@ class OppoSystemIntegrationAdapterArchitectureTest {
         assumeTrue("OppoSystemIntegrationAdapter source is not reachable", source != null)
 
         listOf(
-            "MediaRouter2",
             "MiuiStrongToastUtil",
             "setRegularBatteryLevel",
         ).forEach { effect ->
             assertTrue("missing explicit Android integration effect: $effect", source!!.contains(effect))
+        }
+    }
+
+    @Test
+    fun `removed media routing and duplicate projection code cannot return`() {
+        val source = adapterSource()
+        assumeTrue("OppoSystemIntegrationAdapter source is not reachable", source != null)
+
+        listOf(
+            "ACTION_REFRESH_STATUS",
+            "MediaRouter2",
+            "MediaRoute2Info",
+            "connectAudio(",
+            "disconnectAudio(",
+            "miuiRefreshPayload(",
+            "legacyNoiseMode(",
+            "mergeWearStatus(",
+        ).forEach { removed ->
+            assertFalse("dead integration branch returned: $removed", source!!.contains(removed))
         }
     }
 }

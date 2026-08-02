@@ -1,20 +1,13 @@
 package moe.chenxy.oppopods.pods
 
 import android.annotation.SuppressLint
-import android.app.StatusBarManager
 import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
-import android.media.MediaRoute2Info
-import android.media.MediaRouter2
-import android.media.RouteDiscoveryPreference
 import android.os.SystemClock
-import java.util.concurrent.Executor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,7 +19,6 @@ import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.HeadphoneState
 import moe.chenxy.headphones.core.feature.WearComponent
 import moe.chenxy.headphones.core.feature.NoiseControlMode as CoreNoiseControlMode
-import moe.chenxy.headphones.core.feature.SpatialAudioMode as CoreSpatialAudioMode
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.headphones.core.operation.OperationEvent
 import moe.chenxy.headphones.core.session.DisconnectCause
@@ -41,9 +33,7 @@ import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.hook.Log
 import moe.chenxy.oppopods.runtime.bluetoothprocess.BluetoothProcessRuntimeHost
-import moe.chenxy.oppopods.utils.MediaControl
 import moe.chenxy.oppopods.utils.SystemApisUtils
-import moe.chenxy.oppopods.utils.SystemApisUtils.setIconVisibility
 import moe.chenxy.oppopods.utils.miuiStrongToast.MiuiStrongToastUtil
 import moe.chenxy.oppopods.utils.miuiStrongToast.MiuiStrongToastUtil.cancelPodsNotificationByMiuiBt
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
@@ -65,20 +55,12 @@ object OppoSystemIntegrationAdapter {
     lateinit var mDevice: BluetoothDevice
     private lateinit var mPrefs: SharedPreferences
 
-    private var scanToken: MediaRouter2.ScanToken? = null
-    var routes: List<MediaRoute2Info> = listOf()
-    private lateinit var mediaRouter: MediaRouter2
-
     private var mShowedConnectedToast = false
     private var isConnected = false
     private var lastTempBatt = 0
-    lateinit var currentBatteryParams: BatteryParams
+    private lateinit var currentBatteryParams: BatteryParams
     private var currentAnc = 1
     private var currentGameMode = false
-    private var currentTransparencyVocalEnhancement = false
-    private var currentSpatialAudioMode = SpatialAudioMode.OFF
-    private var currentEqPreset = -1
-    private var currentDualDeviceConnection = false
     private var autoGameModeEnabled = false
     private var gameModeImplementation = GameModeImplementation.STANDARD
     private var lastGameModeStatusUpdateMs = 0L
@@ -86,12 +68,10 @@ object OppoSystemIntegrationAdapter {
     private var lastKnownCaseCharging = false
     private var cachedDeviceName = ""
     private var receiverRegistered = false
-    private var routeScanStarted = false
     private var currentWearStatus = WearStatus()
     private val rawHexSessionGate = RawHexSessionGate(BuildConfig.ALLOW_RAW_PROTOCOL_CONSOLE)
 
     private val lifecycleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var reconnectPending = false
     private var lastEngineState = HeadphoneState()
     private var readyGeneration = -1L
 
@@ -106,7 +86,6 @@ object OppoSystemIntegrationAdapter {
             LegacyPodsAction.ACTION_PODS_UI_CLOSED -> {
                 rawHexSessionGate.lock()
             }
-            LegacyPodsAction.ACTION_REFRESH_STATUS -> queryStatus(immediateReconnect = true)
             LegacyPodsAction.ACTION_AUTO_GAME_MODE_CHANGED ->
                 autoGameModeEnabled = intent.getBooleanExtra("enabled", autoGameModeEnabled)
             LegacyPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED -> {
@@ -165,7 +144,6 @@ object OppoSystemIntegrationAdapter {
         if (!receiverRegistered) {
             context.registerReceiver(broadcastReceiver, IntentFilter().apply {
                 addAction(LegacyPodsAction.ACTION_PODS_UI_CLOSED)
-                addAction(LegacyPodsAction.ACTION_REFRESH_STATUS)
                 addAction(LegacyPodsAction.ACTION_AUTO_GAME_MODE_CHANGED)
                 addAction(LegacyPodsAction.ACTION_GAME_MODE_IMPLEMENTATION_CHANGED)
                 addAction(LegacyPodsAction.ACTION_CYCLE_ANC)
@@ -178,11 +156,7 @@ object OppoSystemIntegrationAdapter {
             receiverRegistered = true
         }
 
-        MediaControl.mContext = context
-        mediaRouter = MediaRouter2.getInstance(context)
-        startRoutesScan()
         isConnected = true
-        reconnectPending = false
         lastEngineState = HeadphoneState()
         lifecycleScope.launch {
             delay(500)
@@ -205,7 +179,6 @@ object OppoSystemIntegrationAdapter {
         publishStateChanges(previous, snapshot.state)
         when (val connection = snapshot.connection) {
             is SessionState.Ready -> {
-                reconnectPending = false
                 if (readyGeneration != snapshot.generationId) {
                     readyGeneration = snapshot.generationId
                     Log.d(TAG, "engine session ready generation=${snapshot.generationId}")
@@ -213,11 +186,8 @@ object OppoSystemIntegrationAdapter {
                     if (autoGameModeEnabled) lifecycleScope.launch { enableGameModeOnConnect() }
                 }
             }
-            is SessionState.Reconnecting -> {
-                reconnectPending = true
-            }
+            is SessionState.Reconnecting -> Unit
             is SessionState.Failed -> {
-                reconnectPending = connection.canRetry
                 Log.e(TAG, "engine session failed: ${connection.detail.orEmpty()}")
                 RfcommLog.e(mContext, TAG, "session failed: ${connection.detail.orEmpty()}")
             }
@@ -268,36 +238,10 @@ object OppoSystemIntegrationAdapter {
                 currentAnc = coreNoiseModeToStatus(value)
             }
         }
-        current.transparencyVocalEnhancement.confirmed?.let { value ->
-            if (value != previous.transparencyVocalEnhancement.confirmed) {
-                currentTransparencyVocalEnhancement = value
-            }
-        }
-        current.equalizer.confirmed?.let { value ->
-            if (value != previous.equalizer.confirmed) {
-                value.id.substringAfter("oppo:").toIntOrNull()?.let { preset ->
-                    currentEqPreset = preset
-                }
-            }
-        }
         current.lowLatency.confirmed?.let { value ->
             if (value != previous.lowLatency.confirmed) {
                 currentGameMode = value
                 lastGameModeStatusUpdateMs = SystemClock.elapsedRealtime()
-            }
-        }
-        current.spatialAudio.confirmed?.let { value ->
-            if (value != previous.spatialAudio.confirmed) {
-                currentSpatialAudioMode = when (value) {
-                    CoreSpatialAudioMode.OFF -> SpatialAudioMode.OFF
-                    CoreSpatialAudioMode.FIXED -> SpatialAudioMode.FIXED
-                    CoreSpatialAudioMode.HEAD_TRACKING -> SpatialAudioMode.HEAD_TRACKING
-                }
-            }
-        }
-        current.dualDeviceConnection.confirmed?.let { value ->
-            if (value != previous.dualDeviceConnection.confirmed) {
-                currentDualDeviceConnection = value
             }
         }
     }
@@ -312,11 +256,9 @@ object OppoSystemIntegrationAdapter {
 
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
         isConnected = false
-        reconnectPending = false
         BluetoothProcessRuntimeHost.disconnectAsync(DisconnectCause.REQUESTED)
 
         mContext?.let {
-            stopRoutesScan()
             cancelPodsNotificationByMiuiBt(context, device)
             if (receiverRegistered) {
                 it.unregisterReceiver(broadcastReceiver)
@@ -327,15 +269,10 @@ object OppoSystemIntegrationAdapter {
         currentWearStatus = WearStatus()
         currentAnc = 1
         currentGameMode = false
-        currentTransparencyVocalEnhancement = false
-        currentSpatialAudioMode = SpatialAudioMode.OFF
-        currentEqPreset = -1
-        currentDualDeviceConnection = false
         lastKnownCaseBattery = 0
         lastKnownCaseCharging = false
         cachedDeviceName = ""
         mContext = null
-        MediaControl.mContext = null
     }
 
     private fun launchCommand(command: FeatureCommand, reason: String) {
@@ -346,9 +283,6 @@ object OppoSystemIntegrationAdapter {
             }
         }
     }
-
-    private fun setGameMode(enabled: Boolean) =
-        launchCommand(FeatureCommand.SetLowLatency(enabled), "game mode control")
 
     private suspend fun enableGameModeOnConnect() {
         delay(500)
@@ -386,10 +320,6 @@ object OppoSystemIntegrationAdapter {
             else -> return
         }
         launchCommand(FeatureCommand.SetNoiseControl(domain), "anc control")
-    }
-
-    private fun queryStatus(immediateReconnect: Boolean = true) {
-        BluetoothProcessRuntimeHost.refreshAsync()
     }
 
     @OptIn(ExperimentalStdlibApi::class)
@@ -453,17 +383,6 @@ object OppoSystemIntegrationAdapter {
         CoreNoiseControlMode.NOISE_CANCELLATION_DEEP -> 8
     }
 
-    private fun legacyNoiseMode(mode: CoreNoiseControlMode): NoiseControlMode = when (mode) {
-        CoreNoiseControlMode.OFF -> NoiseControlMode.OFF
-        CoreNoiseControlMode.NOISE_CANCELLATION -> NoiseControlMode.NOISE_CANCELLATION
-        CoreNoiseControlMode.NOISE_CANCELLATION_SMART -> NoiseControlMode.NOISE_CANCELLATION_SMART
-        CoreNoiseControlMode.NOISE_CANCELLATION_LIGHT -> NoiseControlMode.NOISE_CANCELLATION_LIGHT
-        CoreNoiseControlMode.NOISE_CANCELLATION_MEDIUM -> NoiseControlMode.NOISE_CANCELLATION_MEDIUM
-        CoreNoiseControlMode.NOISE_CANCELLATION_DEEP -> NoiseControlMode.NOISE_CANCELLATION_DEEP
-        CoreNoiseControlMode.ADAPTIVE -> NoiseControlMode.ADAPTIVE
-        CoreNoiseControlMode.TRANSPARENCY -> NoiseControlMode.TRANSPARENCY
-    }
-
     fun handleBatteryChanged(result: Map<BatteryComponent, BatteryState>) {
         val leftState = result[BatteryComponent.LEFT] ?: result[BatteryComponent.SINGLE]
         val rightState = result[BatteryComponent.RIGHT]
@@ -501,12 +420,6 @@ object OppoSystemIntegrationAdapter {
         setRegularBatteryLevel(lastTempBatt)
     }
 
-    private fun mergeWearStatus(current: WearStatus, update: WearStatus) = WearStatus(
-        left = update.left ?: current.left,
-        right = update.right ?: current.right,
-        case = update.case ?: current.case,
-    )
-
     private fun showIslandForWearStatusChange(previous: WearStatus, current: WearStatus) {
         if (!::currentBatteryParams.isInitialized) return
         val changes = setOfNotNull(
@@ -534,111 +447,6 @@ object OppoSystemIntegrationAdapter {
             WearState.IN_CASE -> ConfigManager.ISLAND_SHOW_TIMING_IN_CASE
             else -> null
         }
-    }
-
-    private val routeCallback = object : MediaRouter2.RouteCallback() {
-        override fun onRoutesUpdated(routes: List<MediaRoute2Info>) {
-            this@OppoSystemIntegrationAdapter.routes = routes
-        }
-    }
-
-    private fun startRoutesScan() {
-        if (routeScanStarted) return
-        val executor = Executor { runnable -> lifecycleScope.launch { runnable?.run() } }
-        val features = listOf(
-            MediaRoute2Info.FEATURE_LIVE_AUDIO,
-            MediaRoute2Info.FEATURE_LIVE_VIDEO,
-        )
-        mediaRouter.registerRouteCallback(
-            executor,
-            routeCallback,
-            RouteDiscoveryPreference.Builder(features, true).build(),
-        )
-        scanToken = mediaRouter.requestScan(MediaRouter2.ScanRequest.Builder().build())
-        routeScanStarted = true
-    }
-
-    private fun stopRoutesScan() {
-        scanToken?.let(mediaRouter::cancelScanRequest)
-        if (routeScanStarted) {
-            mediaRouter.unregisterRouteCallback(routeCallback)
-            routeScanStarted = false
-        }
-    }
-
-    fun miuiRefreshPayload(
-        battery: BatteryParams?,
-        anc: Int,
-        transparencyVocalEnhancement: Boolean = false,
-    ): String {
-        val values = MutableList(16) { "" }
-        values[0] = miuiBatteryValue(battery?.left)
-        values[1] = miuiBatteryValue(battery?.right)
-        values[2] = miuiBatteryValue(battery?.case)
-        values[7] = when (anc) {
-            5 -> "0103"
-            6 -> "0101"
-            7 -> "0100"
-            8 -> "0102"
-            3 -> if (transparencyVocalEnhancement) "0201" else "0200"
-            else -> "0000"
-        }
-        values[8] = "true"
-        values[11] = "00"
-        values[13] = "00"
-        values[14] = "00"
-        return values.joinToString(",")
-    }
-
-    private fun miuiBatteryValue(params: PodParams?): String {
-        if (params?.isConnected != true) return "255"
-        val value = params.battery.coerceIn(0, 100)
-        return (if (params.isCharging) value or 128 else value).toString()
-    }
-
-    fun disconnectAudio(context: Context, device: BluetoothDevice?) {
-        val adapter = context.getSystemService(BluetoothManager::class.java).adapter
-        MediaControl.sendPause()
-        adapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
-            override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile != BluetoothProfile.HEADSET) return
-                try {
-                    proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java)
-                        .invoke(proxy, device)
-                } finally {
-                    adapter.closeProfileProxy(BluetoothProfile.HEADSET, proxy)
-                }
-            }
-            override fun onServiceDisconnected(profile: Int) = Unit
-        }, BluetoothProfile.HEADSET)
-        lifecycleScope.launch {
-            delay(500)
-            routes.firstOrNull { it.type == MediaRoute2Info.TYPE_BUILTIN_SPEAKER }
-                ?.let(mediaRouter::transferTo)
-        }
-        setRegularBatteryLevel(lastTempBatt)
-    }
-
-    fun connectAudio(context: Context, device: BluetoothDevice?) {
-        val adapter = context.getSystemService(BluetoothManager::class.java).adapter
-        adapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
-            override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile != BluetoothProfile.HEADSET) return
-                try {
-                    proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)
-                        .invoke(proxy, device)
-                } finally {
-                    adapter.closeProfileProxy(BluetoothProfile.HEADSET, proxy)
-                }
-            }
-            override fun onServiceDisconnected(profile: Int) = Unit
-        }, BluetoothProfile.HEADSET)
-        routes.firstOrNull {
-            it.type == MediaRoute2Info.TYPE_BLUETOOTH_A2DP && it.name == device?.name
-        }?.let(mediaRouter::transferTo)
-        val statusBarManager = context.getSystemService("statusbar") as StatusBarManager
-        statusBarManager.setIconVisibility("wireless_headset", true)
-        setRegularBatteryLevel(lastTempBatt)
     }
 
     fun setRegularBatteryLevel(level: Int) {

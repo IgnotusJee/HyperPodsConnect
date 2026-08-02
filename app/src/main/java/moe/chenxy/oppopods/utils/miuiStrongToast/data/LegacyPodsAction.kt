@@ -11,7 +11,6 @@ object LegacyPodsAction {
     const val ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE = "chen.action.oppopods.module_bluetooth_service_alive"
     const val ACTION_CONNECT_POD_REQUEST = "chen.action.oppopods.connect_pod_request"
     const val ACTION_DISCONNECT_POD_REQUEST = "chen.action.oppopods.disconnect_pod_request"
-    const val ACTION_REFRESH_STATUS = "chen.action.oppopods.refresh_status"
     const val ACTION_CYCLE_ANC = "chen.action.oppopods.cycle_anc"
     const val ACTION_AUTO_GAME_MODE_CHANGED = "chen.action.oppopods.auto_game_mode_changed"
     const val ACTION_GAME_MODE_IMPLEMENTATION_CHANGED = "chen.action.oppopods.game_mode_implementation_changed"

@@ -60,8 +60,8 @@ class OppoCoreAdapterTest {
 
     @Test
     fun `device id is stable across address formatting differences`() {
-        val a = OppoCoreAdapter.identityOf("B0:38:E2:E6:93:B4", "OPPO Enco Air5s")
-        val b = OppoCoreAdapter.identityOf("b038e2e69 3b4".replace(" ", ""), "OPPO Enco Air5s")
+        val a = OppoCoreAdapter.identityOf("02:00:00:00:00:01", "OPPO Enco Air5s")
+        val b = OppoCoreAdapter.identityOf("020000000 001".replace(" ", ""), "OPPO Enco Air5s")
         assertEquals(a.id, b.id)
     }
 

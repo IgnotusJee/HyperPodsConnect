@@ -419,12 +419,11 @@ object SettingsHeadsetHook : HookContext() {
 
     private fun requestBluetoothStatus(reason: String) {
         val ctx = context ?: return
-        listOf(LegacyPodsAction.ACTION_PODS_UI_INIT, LegacyPodsAction.ACTION_REFRESH_STATUS).forEach { action ->
-            ctx.sendBroadcast(Intent(action).apply {
-                setPackage("com.android.bluetooth")
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            })
-        }
+        ctx.sendBroadcast(Intent(LegacyPodsAction.ACTION_PODS_UI_INIT).apply {
+            setPackage("com.android.bluetooth")
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+        })
+        HyperOsHeadphoneAdapter.execute(ctx, FeatureCommand.RefreshAll)
         Log.d(TAG, "requested bluetooth status reason=$reason")
     }
 
@@ -642,10 +641,6 @@ object SettingsHeadsetHook : HookContext() {
             ctx,
             FeatureCommand.SetTransparencyVocalEnhancement(enabled),
         )
-        ctx.sendBroadcast(Intent(LegacyPodsAction.ACTION_REFRESH_STATUS).apply {
-            setPackage("com.android.bluetooth")
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-        })
         Log.d(TAG, "sendOppoTransparencyVocalEnhancement broadcast sent enabled=$enabled")
     }
 

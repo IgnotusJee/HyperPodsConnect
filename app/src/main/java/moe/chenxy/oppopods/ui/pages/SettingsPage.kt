@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import moe.chenxy.oppopods.R
@@ -62,6 +63,7 @@ fun SettingsPage(
     onOpenAbout: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val profileRepository = remember(context) {
         DeviceProfileRepository(
             context.getSharedPreferences(ConfigManager.PREFS_NAME, Context.MODE_PRIVATE),
@@ -99,8 +101,8 @@ fun SettingsPage(
         Toast.makeText(
             context,
             result.fold(
-                onSuccess = { context.getString(R.string.profile_imported, it) },
-                onFailure = { context.getString(R.string.profile_archive_failed) },
+                onSuccess = { resources.getString(R.string.profile_imported, it) },
+                onFailure = { resources.getString(R.string.profile_archive_failed) },
             ),
             Toast.LENGTH_SHORT,
         ).show()
