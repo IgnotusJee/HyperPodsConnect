@@ -11,6 +11,7 @@ data class SonyNoiseControlState(
     val changeStatus: SonyValueChangeStatus,
     val ambientSoundMode: SonyAmbientSoundMode,
     internal val ambientSelected: Boolean,
+    internal val vendorNoiseValue: Int? = null,
 )
 
 enum class SonyValueChangeStatus(val code: Int) {

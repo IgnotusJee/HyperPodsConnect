@@ -33,6 +33,7 @@ import moe.chenxy.headphones.protocol.sony.frame.TandemDecodeResult
 import moe.chenxy.headphones.protocol.sony.frame.TandemFrame
 import moe.chenxy.headphones.protocol.sony.frame.TandemStreamDecoder
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeature
+import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolGeneration
 import moe.chenxy.headphones.protocol.sony.message.SonyCommand
 import moe.chenxy.headphones.protocol.sony.message.SonyDataType
 import moe.chenxy.headphones.protocol.sony.profile.SonyProfile
@@ -445,6 +446,116 @@ class SonySessionTest {
     }
 
     @Test
+    fun `exact WH v1 SPP writes notifies reads back and restores NCASM and EQ`() = runBlocking {
+        val transport = FakeSonyTransport(protocolGeneration = SonyProtocolGeneration.V1)
+        val factory = object : TransportFactory {
+            override suspend fun create(
+                device: DeviceIdentity,
+                spec: TransportSpec,
+            ): ByteTransport {
+                assertEquals(SonyProfile.SONY_SPP_V1_UUID, (spec as TransportSpec.Spp).serviceUuid)
+                return transport
+            }
+        }
+        val session = SonySession(
+            DriverSessionContext(
+                candidate(advertisedUuids = setOf(SonyProfile.SONY_SPP_V1_UUID)),
+                factory,
+            ),
+            responseTimeoutMillis = 300,
+            transportSettleDelayMillis = 0,
+        )
+
+        session.connect()
+
+        assertTrue(session.connection.value is SessionState.Ready)
+        assertEquals(CompatibilityLevel.STABLE, session.profile.value?.compatibilityLevel)
+        assertEquals(NoiseControlMode.NOISE_CANCELLATION, session.state.value.noiseControl.confirmed)
+        assertEquals(SonyEqualizerFeature.BASS_BOOST_ID, session.state.value.equalizer.confirmed?.id)
+        assertTrue(session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.canRead == true)
+        assertTrue(session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.canWrite == true)
+        assertTrue(session.profile.value?.capability(FeatureId.EQUALIZER)?.canRead == true)
+        assertTrue(session.profile.value?.capability(FeatureId.EQUALIZER)?.canWrite == true)
+        assertEquals(
+            setOf("OFF", "NOISE_CANCELLATION", "TRANSPARENCY"),
+            session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.allowedValues,
+        )
+
+        val ambient = session.execute(
+            FeatureCommand.SetNoiseControl(NoiseControlMode.TRANSPARENCY),
+        )
+        assertTrue(ambient.succeeded)
+        assertEquals(NoiseControlMode.TRANSPARENCY, session.state.value.noiseControl.confirmed)
+        assertEquals(20, session.state.value.ambientSoundLevel.confirmed)
+        assertEquals(
+            byteArrayOf(0x68, 0x02, 0x03, 0x02, 0x00, 0x01, 0x00, 0x14).toList(),
+            transport.commandWrites.last {
+                it.first().toInt() and 0xFF == SonyCommand.NCASM_SET_PARAM
+            }.toList(),
+        )
+
+        assertTrue(session.execute(FeatureCommand.SetAmbientSoundLevel(11)).succeeded)
+        assertTrue(
+            session.execute(
+                FeatureCommand.SetTransparencyVocalEnhancement(true),
+            ).succeeded,
+        )
+        assertEquals(11, session.state.value.ambientSoundLevel.confirmed)
+        assertEquals(true, session.state.value.transparencyVocalEnhancement.confirmed)
+        assertTrue(
+            session.execute(
+                FeatureCommand.SetTransparencyVocalEnhancement(false),
+            ).succeeded,
+        )
+        assertTrue(
+            session.execute(
+                FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+            ).succeeded,
+        )
+        assertEquals(NoiseControlMode.NOISE_CANCELLATION, session.state.value.noiseControl.confirmed)
+
+        assertTrue(
+            session.execute(
+                FeatureCommand.SetEqualizerPreset(
+                    EqualizerPreset(SonyEqualizerFeature.OFF_ID),
+                ),
+            ).succeeded,
+        )
+        assertEquals(SonyEqualizerFeature.OFF_ID, session.state.value.equalizer.confirmed?.id)
+        assertEquals(
+            byteArrayOf(0x58, 0x01, 0x00, 0x00).toList(),
+            transport.commandWrites.last {
+                it.first().toInt() and 0xFF == SonyCommand.EQEBB_SET_PARAM
+            }.toList(),
+        )
+        assertTrue(
+            session.execute(
+                FeatureCommand.SetEqualizerPreset(
+                    EqualizerPreset(SonyEqualizerFeature.BASS_BOOST_ID),
+                ),
+            ).succeeded,
+        )
+        assertEquals(SonyEqualizerFeature.BASS_BOOST_ID, session.state.value.equalizer.confirmed?.id)
+
+        val off = session.execute(FeatureCommand.SetNoiseControl(NoiseControlMode.OFF))
+        assertTrue(off.succeeded)
+        assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
+        assertEquals(
+            byteArrayOf(0x68, 0x02, 0x00, 0x02, 0x02, 0x01, 0x00, 0x00).toList(),
+            transport.commandWrites.last {
+                it.first().toInt() and 0xFF == SonyCommand.NCASM_SET_PARAM
+            }.toList(),
+        )
+        assertTrue(
+            session.execute(
+                FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+            ).succeeded,
+        )
+        assertEquals(NoiseControlMode.NOISE_CANCELLATION, session.state.value.noiseControl.confirmed)
+        session.disconnect()
+    }
+
+    @Test
     fun `nearby firmware misses Sony write whitelist without emitting SET`() = runBlocking {
         val transport = FakeSonyTransport(
             kind = TransportKind.BLE_GATT,
@@ -625,6 +736,7 @@ private class FailingSonyTransport : ByteTransport {
 
 private class FakeSonyTransport(
     override val kind: TransportKind = TransportKind.CLASSIC_SPP,
+    private val protocolGeneration: SonyProtocolGeneration = SonyProtocolGeneration.V2,
     private val model: String = "WH-1000XM4",
     private val firmware: String = "2.5.1",
     private val supportFunctions: IntArray = intArrayOf(0x0001),
@@ -638,10 +750,15 @@ private class FakeSonyTransport(
     val commandWrites = CopyOnWriteArrayList<ByteArray>()
     var ackWrites = 0
     private var noiseControl = byteArrayOf(0x17, 0x01, 0x00, 0x00, 0x00, 0x0A)
+    private var v1NoiseControl = byteArrayOf(0x02, 0x01, 0x02, 0x02, 0x01, 0x00, 0x00)
     private var equalizer: ByteArray? = if (model == "LinkBuds S") {
         byteArrayOf(0x00, 0x16, 0x06, 0x11, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)
     } else {
-        null
+        if (protocolGeneration == SonyProtocolGeneration.V1) {
+            byteArrayOf(0x01, 0x16, 0x06, 0x11, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)
+        } else {
+            null
+        }
     }
 
     override suspend fun open() {
@@ -680,7 +797,11 @@ private class FakeSonyTransport(
 
     private fun response(request: ByteArray): ByteArray? = when (request.firstOrNull()?.toInt()?.and(0xFF)) {
         SonyCommand.CONNECT_GET_PROTOCOL_INFO ->
-            byteArrayOf(0x01, 0, 0, 0, 0, 2, 1, 1)
+            if (protocolGeneration == SonyProtocolGeneration.V1) {
+                byteArrayOf(0x01, 0, 0x70, 0)
+            } else {
+                byteArrayOf(0x01, 0, 0, 0, 0, 2, 1, 1)
+            }
         SonyCommand.CONNECT_GET_CAPABILITY_INFO ->
             byteArrayOf(0x03, 0, 0x12, 0x34)
         SonyCommand.CONNECT_GET_DEVICE_INFO -> {
@@ -695,36 +816,75 @@ private class FakeSonyTransport(
                 }.toByteArray()
         SonyCommand.POWER_GET_STATUS ->
             byteArrayOf(0x23, request[1], 76, 0)
+        SonyCommand.COMMON_GET_BATTERY_LEVEL ->
+            byteArrayOf(SonyCommand.COMMON_RET_BATTERY_LEVEL.toByte(), request[1], 76, 0)
+        SonyCommand.NCASM_GET_CAPABILITY ->
+            if (protocolGeneration == SonyProtocolGeneration.V1) {
+                byteArrayOf(
+                    SonyCommand.NCASM_RET_CAPABILITY.toByte(),
+                    0x02, 0x02, 0x03, 0x01, 0x02,
+                    0x00, 0x14, 0x01, 0x14,
+                )
+            } else {
+                null
+            }
         SonyCommand.NCASM_GET_PARAM ->
-            byteArrayOf(SonyCommand.NCASM_RET_PARAM.toByte()) + noiseControl
+            if (protocolGeneration == SonyProtocolGeneration.V1) {
+                byteArrayOf(SonyCommand.NCASM_RET_PARAM.toByte()) + v1NoiseControl
+            } else {
+                byteArrayOf(SonyCommand.NCASM_RET_PARAM.toByte()) + noiseControl
+            }
         SonyCommand.NCASM_SET_PARAM -> {
-            noiseControl = request.copyOfRange(1, request.size)
+            if (protocolGeneration == SonyProtocolGeneration.V1) {
+                if (request.size != 8 || request[1] != 0x02.toByte()) return null
+                v1NoiseControl = request.copyOfRange(1, request.size)
+            } else {
+                noiseControl = request.copyOfRange(1, request.size)
+            }
             if (notifyOnSet) {
-                byteArrayOf(SonyCommand.NCASM_NTFY_PARAM.toByte()) + noiseControl
+                byteArrayOf(SonyCommand.NCASM_NTFY_PARAM.toByte()) +
+                    if (protocolGeneration == SonyProtocolGeneration.V1) {
+                        v1NoiseControl
+                    } else {
+                        noiseControl
+                    }
             } else {
                 null
             }
         }
+        SonyCommand.EQEBB_GET_CAPABILITY ->
+            if (protocolGeneration == SonyProtocolGeneration.V1) {
+                byteArrayOf(
+                    SonyCommand.EQEBB_RET_CAPABILITY.toByte(),
+                    0x01, 0x06, 0x15, 0x03,
+                    0x00, 0x00,
+                    0x16, 0x00,
+                    0xA1.toByte(), 0x00,
+                )
+            } else {
+                null
+            }
         SonyCommand.EQEBB_GET_PARAM ->
             equalizer?.let { byteArrayOf(SonyCommand.EQEBB_RET_PARAM.toByte()) + it }
         SonyCommand.EQEBB_SET_PARAM -> {
+            val selector = if (protocolGeneration == SonyProtocolGeneration.V1) 0x01 else 0x00
             if (
-                request.size != 4 || request[1] != 0x00.toByte() ||
+                request.size != 4 || request[1] != selector.toByte() ||
                 request[3] != 0x00.toByte()
             ) return null
             equalizer = when (request[2].toInt() and 0xFF) {
-                0x00 -> byteArrayOf(0x00, 0x00, 0x06, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)
-                0x10 -> byteArrayOf(0x00, 0x10, 0x06, 0x09, 0x0A, 0x0F, 0x11, 0x11, 0x13)
-                0x11 -> byteArrayOf(0x00, 0x11, 0x06, 0x12, 0x09, 0x0B, 0x0A, 0x0D, 0x0F)
-                0x12 -> byteArrayOf(0x00, 0x12, 0x06, 0x07, 0x09, 0x08, 0x07, 0x06, 0x04)
-                0x13 -> byteArrayOf(0x00, 0x13, 0x06, 0x01, 0x07, 0x09, 0x07, 0x05, 0x02)
-                0x14 -> byteArrayOf(0x00, 0x14, 0x06, 0x0A, 0x10, 0x0E, 0x0C, 0x0D, 0x09)
-                0x15 -> byteArrayOf(0x00, 0x15, 0x06, 0x0A, 0x0A, 0x0A, 0x0C, 0x10, 0x14)
-                0x16 -> byteArrayOf(0x00, 0x16, 0x06, 0x11, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)
-                0x17 -> byteArrayOf(0x00, 0x17, 0x06, 0x00, 0x0E, 0x0D, 0x0B, 0x0C, 0x00)
-                0xA0 -> byteArrayOf(0x00, 0xA0.toByte(), 0x06, 0x00, 0x0A, 0x0A, 0x0A, 0x06, 0x02)
-                0xA1 -> byteArrayOf(0x00, 0xA1.toByte(), 0x06, 0x08, 0x11, 0x0A, 0x0A, 0x0B, 0x0C)
-                0xA2 -> byteArrayOf(0x00, 0xA2.toByte(), 0x06, 0x01, 0x01, 0x14, 0x0A, 0x0B, 0x0C)
+                0x00 -> byteArrayOf(selector.toByte(), 0x00, 0x06, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)
+                0x10 -> byteArrayOf(selector.toByte(), 0x10, 0x06, 0x09, 0x0A, 0x0F, 0x11, 0x11, 0x13)
+                0x11 -> byteArrayOf(selector.toByte(), 0x11, 0x06, 0x12, 0x09, 0x0B, 0x0A, 0x0D, 0x0F)
+                0x12 -> byteArrayOf(selector.toByte(), 0x12, 0x06, 0x07, 0x09, 0x08, 0x07, 0x06, 0x04)
+                0x13 -> byteArrayOf(selector.toByte(), 0x13, 0x06, 0x01, 0x07, 0x09, 0x07, 0x05, 0x02)
+                0x14 -> byteArrayOf(selector.toByte(), 0x14, 0x06, 0x0A, 0x10, 0x0E, 0x0C, 0x0D, 0x09)
+                0x15 -> byteArrayOf(selector.toByte(), 0x15, 0x06, 0x0A, 0x0A, 0x0A, 0x0C, 0x10, 0x14)
+                0x16 -> byteArrayOf(selector.toByte(), 0x16, 0x06, 0x11, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)
+                0x17 -> byteArrayOf(selector.toByte(), 0x17, 0x06, 0x00, 0x0E, 0x0D, 0x0B, 0x0C, 0x00)
+                0xA0 -> byteArrayOf(selector.toByte(), 0xA0.toByte(), 0x06, 0x00, 0x0A, 0x0A, 0x0A, 0x06, 0x02)
+                0xA1 -> byteArrayOf(selector.toByte(), 0xA1.toByte(), 0x06, 0x08, 0x11, 0x0A, 0x0A, 0x0B, 0x0C)
+                0xA2 -> byteArrayOf(selector.toByte(), 0xA2.toByte(), 0x06, 0x01, 0x01, 0x14, 0x0A, 0x0B, 0x0C)
                 else -> return null
             }
             if (notifyOnSet) {

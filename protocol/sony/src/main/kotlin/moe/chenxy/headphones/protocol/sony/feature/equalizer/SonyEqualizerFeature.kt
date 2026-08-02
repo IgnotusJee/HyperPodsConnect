@@ -102,8 +102,8 @@ object SonyEqualizerFeature {
     fun matches(message: SonyMdrMessage): Boolean =
         message.payload.getOrNull(1)?.toInt()?.and(0xFF) == INQUIRED_TYPE
 
-    private fun toVendorPreset(preset: EqualizerPreset): Int? = vendorPresetById[preset.id]
+    internal fun toVendorPreset(preset: EqualizerPreset): Int? = vendorPresetById[preset.id]
 
-    private fun toDomainPreset(value: Int): EqualizerPreset? =
+    internal fun toDomainPreset(value: Int): EqualizerPreset? =
         presetIdByVendor[value]?.let(::EqualizerPreset)
 }

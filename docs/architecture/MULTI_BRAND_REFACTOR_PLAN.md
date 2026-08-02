@@ -1364,10 +1364,17 @@ sony_verified_writes_enabled
 
 ## 13. 下一步执行顺序
 
-Phase 0–12 已完成。当前不进入发布流程，后续转为证据驱动的维护与独立演进：
+Phase 0–12 已完成。下一阶段已经建立独立的 Phase 13–16 路线图，不回填到已经关闭的 Phase 12：
 
-1. 仅在取得新增型号、固件或 OEM 的动态证据后扩展精确兼容矩阵；
-2. runtime health、session lifecycle、配置同步和系统 UI 副作用如需版本化，分别建立独立设计与
-   真机验收计划，不回填到已经关闭的 Phase 12；
-3. 新增型号仍必须逐设备满足动态证据、精确白名单、读回与恢复验证，不从现有型号外推；
-4. 发布、版本标签与制品分发由后续明确指令单独启动。
+1. Phase 13：Sony Classic SPP 的降噪/环境声/EQ 等功能闭环；
+2. Phase 14：Sony、OPPO 等设备的自定义 EQ 领域模型、协议与 UI；
+3. Phase 15：按产品/颜色证据自动解析并缓存官方设备图片；
+4. Phase 16：完善 MiLink 状态桥，并实现具有明确降级路径的耳机弹窗。
+
+完整范围、技术边界与验收标准见
+[`PHASE13_16_NEXT_STAGE_ROADMAP.md`](PHASE13_16_NEXT_STAGE_ROADMAP.md)，小米原生与 OPPO 官方
+弹窗参考代码论证见
+[`../reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md`](../reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md)。
+
+所有阶段继续遵守动态证据、精确白名单、读回与原值恢复约束，不从既有型号外推。发布、版本标签与
+制品分发仍由后续明确指令单独启动。

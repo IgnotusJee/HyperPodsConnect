@@ -31,8 +31,8 @@ object SonyProfile {
                 model = "WH-1000XM4",
                 firmware = "2.5.1",
                 transport = TransportKind.CLASSIC_SPP,
-                level = CompatibilityLevel.READ_ONLY,
-                evidence = "Phase 8 repeated SPP read-only device validation",
+                level = CompatibilityLevel.STABLE,
+                evidence = "Phase 13 SPP reversible controls and 20-cycle stability gate",
             ),
             CompatibilityMatrixEntry(
                 vendorId = VendorId.SONY,
@@ -72,6 +72,7 @@ object SonyProfile {
         supportInfo: SonySupportInfo,
         noiseControlReadVerified: Boolean,
         equalizerReadVerified: Boolean,
+        equalizerPresetIds: Set<String> = SonyEqualizerFeature.allowedPresetIds,
     ): DeviceProfile {
         val noiseControlWritable = noiseControlReadVerified &&
             isNoiseControlWriteWhitelisted(
@@ -97,13 +98,13 @@ object SonyProfile {
                 evidence = EvidenceLevel.VERIFIED,
                 availableOnTransports = setOf(initial.transport),
                 requiresReadback = true,
-                allowedValues = setOf(
-                    "OFF",
-                    "NOISE_CANCELLATION",
-                    "TRANSPARENCY",
-                ),
+                allowedValues = setOf("OFF", "NOISE_CANCELLATION", "TRANSPARENCY"),
                 source = if (noiseControlWritable) {
-                    "LinkBuds S 4.2.1 / GATT / table1 official-app dynamic evidence"
+                    if (protocolInfo.generation == SonyProtocolGeneration.V1) {
+                        "WH-1000XM4 2.5.1 / SPP / table1 capability-gated evidence"
+                    } else {
+                        "LinkBuds S 4.2.1 / GATT / table1 official-app dynamic evidence"
+                    }
                 } else {
                     "Sony NC/ASM parameter 0x17 read verified; writes not whitelisted"
                 },
@@ -120,7 +121,11 @@ object SonyProfile {
                         SonyNoiseControlFeature.AMBIENT_LEVEL_MAX
                     ).map(Int::toString).toSet(),
                 source = if (noiseControlWritable) {
-                    "LinkBuds S 4.2.1 / GATT / table1 ambient-level dynamic evidence"
+                    if (protocolInfo.generation == SonyProtocolGeneration.V1) {
+                        "WH-1000XM4 2.5.1 / SPP / table1 ambient-level device evidence"
+                    } else {
+                        "LinkBuds S 4.2.1 / GATT / table1 ambient-level dynamic evidence"
+                    }
                 } else {
                     "Sony NC/ASM ambient level read verified; writes not whitelisted"
                 },
@@ -134,7 +139,11 @@ object SonyProfile {
                 requiresReadback = true,
                 allowedValues = setOf("false", "true"),
                 source = if (noiseControlWritable) {
-                    "LinkBuds S 4.2.1 / GATT / table1 ambient NORMAL-VOICE dynamic evidence"
+                    if (protocolInfo.generation == SonyProtocolGeneration.V1) {
+                        "WH-1000XM4 2.5.1 / SPP / table1 ambient NORMAL-VOICE device evidence"
+                    } else {
+                        "LinkBuds S 4.2.1 / GATT / table1 ambient NORMAL-VOICE dynamic evidence"
+                    }
                 } else {
                     "Sony NC/ASM ambient sub-mode read verified; writes not whitelisted"
                 },
@@ -148,10 +157,14 @@ object SonyProfile {
                 evidence = EvidenceLevel.VERIFIED,
                 availableOnTransports = setOf(initial.transport),
                 requiresReadback = true,
-                allowedValues = SonyEqualizerFeature.allowedPresetIds,
-                valueLabels = SonyEqualizerFeature.valueLabels,
+                allowedValues = equalizerPresetIds,
+                valueLabels = SonyEqualizerFeature.valueLabels.filterKeys(equalizerPresetIds::contains),
                 source = if (equalizerWritable) {
-                    "LinkBuds S 4.2.1 / GATT / table1 EQ preset dynamic evidence"
+                    if (protocolInfo.generation == SonyProtocolGeneration.V1) {
+                        "WH-1000XM4 2.5.1 / SPP / table1 preset capability evidence"
+                    } else {
+                        "LinkBuds S 4.2.1 / GATT / table1 EQ preset dynamic evidence"
+                    }
                 } else {
                     "Sony EQEBB parameter read verified; writes not whitelisted"
                 },
@@ -170,13 +183,13 @@ object SonyProfile {
                 },
             ),
             features = capabilities,
-            compatibilityLevel = compatibilityMatrix.resolve(
-                VendorId.SONY,
-                model,
-                firmware,
-                initial.transport,
-            )?.level ?: if (noiseControlWritable || equalizerWritable) {
-                CompatibilityLevel.CONTROLLED
+            compatibilityLevel = if (noiseControlWritable || equalizerWritable) {
+                compatibilityMatrix.resolve(
+                    VendorId.SONY,
+                    model,
+                    firmware,
+                    initial.transport,
+                )?.level ?: CompatibilityLevel.CONTROLLED
             } else {
                 CompatibilityLevel.READ_ONLY
             },
@@ -194,28 +207,46 @@ object SonyProfile {
     fun shouldQueryEqualizer(protocolInfo: SonyProtocolInfo): Boolean =
         protocolInfo.generation == SonyProtocolGeneration.V2 && protocolInfo.table1Enabled
 
+    fun shouldProbeV1Controls(
+        protocolInfo: SonyProtocolInfo,
+        model: String,
+        firmware: String,
+    ): Boolean =
+        protocolInfo.generation == SonyProtocolGeneration.V1 &&
+            protocolInfo.table1Enabled &&
+            model == "WH-1000XM4" &&
+            firmware == "2.5.1"
+
     fun isNoiseControlWriteWhitelisted(
         transportKind: TransportKind,
         protocolInfo: SonyProtocolInfo,
         model: String,
         firmware: String,
         supportInfo: SonySupportInfo,
-    ): Boolean =
+    ): Boolean = when {
         transportKind == TransportKind.BLE_GATT &&
             model == "LinkBuds S" &&
-            firmware == "4.2.1" &&
-            shouldQueryNoiseControl(protocolInfo, supportInfo)
+            firmware == "4.2.1" -> shouldQueryNoiseControl(protocolInfo, supportInfo)
+        transportKind == TransportKind.CLASSIC_SPP &&
+            model == "WH-1000XM4" &&
+            firmware == "2.5.1" -> shouldProbeV1Controls(protocolInfo, model, firmware)
+        else -> false
+    }
 
     fun isEqualizerWriteWhitelisted(
         transportKind: TransportKind,
         protocolInfo: SonyProtocolInfo,
         model: String,
         firmware: String,
-    ): Boolean =
+    ): Boolean = when {
         transportKind == TransportKind.BLE_GATT &&
             model == "LinkBuds S" &&
-            firmware == "4.2.1" &&
-            shouldQueryEqualizer(protocolInfo)
+            firmware == "4.2.1" -> shouldQueryEqualizer(protocolInfo)
+        transportKind == TransportKind.CLASSIC_SPP &&
+            model == "WH-1000XM4" &&
+            firmware == "2.5.1" -> shouldProbeV1Controls(protocolInfo, model, firmware)
+        else -> false
+    }
 
     fun batteryTypes(model: String?): List<SonyBatteryType> = when (topology(model)) {
         DeviceTopology.EARBUDS_WITH_CASE ->

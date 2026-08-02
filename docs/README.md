@@ -12,6 +12,9 @@
 | Sony Classic SPP 只读实现与验收进度 | [architecture/PHASE8_SONY_CLASSIC_SPP_READONLY.md](architecture/PHASE8_SONY_CLASSIC_SPP_READONLY.md) |
 | Sony BLE GATT 只读实现与双机验收 | [architecture/PHASE9_SONY_BLE_GATT_READONLY.md](architecture/PHASE9_SONY_BLE_GATT_READONLY.md) |
 | Sony 可逆控制与 Phase 10 闭环 | [architecture/PHASE10_SONY_REVERSIBLE_CONTROLS.md](architecture/PHASE10_SONY_REVERSIBLE_CONTROLS.md) |
+| Phase 13–16 下一阶段目标与验收顺序 | [architecture/PHASE13_16_NEXT_STAGE_ROADMAP.md](architecture/PHASE13_16_NEXT_STAGE_ROADMAP.md) |
+| Phase 13 Sony SPP 当前执行记录 | [architecture/PHASE13_SONY_SPP_CONTROLS.md](architecture/PHASE13_SONY_SPP_CONTROLS.md) |
+| 小米原生/OPPO 官方弹窗机制与 Hook 可行性 | [reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md](reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md) |
 | 新增厂商或型号需要满足哪些边界 | [architecture/VENDOR_EXTENSION_CHECKLIST.md](architecture/VENDOR_EXTENSION_CHECKLIST.md) |
 | 官方 App 协议是怎么逆出来的 | [reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md](reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md) |
 | 怎么在真机上抓包取证 | [reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md](reverse-engineering/ROOTED_ANDROID_BLUETOOTH_CAPTURE_PLAN.md) |
@@ -27,6 +30,12 @@ Phase 7（通用 GATT transport）、Phase 8（Sony Classic SPP 只读 MVP）、
 WH-1000XM4 / 2.5.1 上完成官方 App 对照和 20/20 次稳定性循环；Phase 9 已在两台
 Android 16 / HyperOS 手机上闭环 LinkBuds S 4.2.1 GATT 只读路径；Phase 10 已闭环
 NC/ASM 三态、环境声 level `1..20`、NORMAL/VOICE 与全部 12 个官方 EQ preset。
+
+Phase 13 **已完成**：WH-1000XM4 2.5.1 / Sony v1 SPP 的 capability-gated NC/ASM、
+全效果 OFF 与 preset EQ 已完成 ACK/通知、强制 GET 回读、原值恢复和 20/20 稳定性门禁，精确
+型号/固件/transport tuple 达到 `STABLE`。Phase 14–16 已规划，依次推进多厂商自定义 EQ、
+官方设备图片自动解析，以及 MiLink 状态桥与耳机弹窗。小米/OPPO 弹窗已完成首轮静态论证；
+静态反编译结论不会在动态 trace 与真机回归前标记为完成。
 
 模块结构目前是 `:app`、`:core`、`:engine`、`:protocol:oppo`、`:protocol:sony`、
 `:transport:android`。`:core`、`:engine` 与两个 protocol 模块都是纯 Kotlin/JVM

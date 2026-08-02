@@ -7,8 +7,14 @@ import moe.chenxy.headphones.protocol.sony.feature.SonyHandshake
 import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolGeneration
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryFeature
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeature
+import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV1EqualizerCapability
+import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV1EqualizerFeature
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyAmbientSoundMode
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1AmbientSettingType
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1NoiseControlCapability
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1NoiseControlFeature
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1NoiseSettingType
 import moe.chenxy.headphones.protocol.sony.frame.TandemDecodeResult
 import moe.chenxy.headphones.protocol.sony.frame.TandemStreamDecoder
 import moe.chenxy.headphones.protocol.sony.message.SonyCommand
@@ -86,6 +92,113 @@ class SonyParsersTest {
         assertEquals(11, support?.functions?.size)
         assertEquals(0x7162, support?.functions?.first())
         assertEquals(0x2221, support?.functions?.last())
+    }
+
+    @Test
+    fun `v1 combined NCASM requires capability and parses NC ambient and off`() {
+        val capability = SonyV1NoiseControlFeature.parseCapability(
+            message(
+                byteArrayOf(
+                    0x61, 0x02, 0x02, 0x03, 0x01, 0x02,
+                    0x00, 0x14, 0x01, 0x14,
+                ),
+            ),
+        )!!
+
+        val noiseCancelling = SonyV1NoiseControlFeature.parse(
+            message(byteArrayOf(0x67, 0x02, 0x01, 0x02, 0x02, 0x01, 0x00, 0x00)),
+            capability,
+        )!!
+        val ambient = SonyV1NoiseControlFeature.parse(
+            message(byteArrayOf(0x69, 0x02, 0x03, 0x02, 0x00, 0x01, 0x01, 0x14)),
+            capability,
+        )!!
+        val off = SonyV1NoiseControlFeature.parse(
+            message(byteArrayOf(0x67, 0x02, 0x00, 0x02, 0x00, 0x01, 0x00, 0x10)),
+            capability,
+        )!!
+
+        assertEquals(NoiseControlMode.NOISE_CANCELLATION, noiseCancelling.mode)
+        assertEquals(NoiseControlMode.TRANSPARENCY, ambient.mode)
+        assertEquals(SonyAmbientSoundMode.VOICE, ambient.ambientSoundMode)
+        assertEquals(20, ambient.ambientLevel)
+        assertEquals(NoiseControlMode.OFF, off.mode)
+        assertEquals(
+            byteArrayOf(0x68, 0x02, 0x03, 0x02, 0x00, 0x01, 0x00, 0x14).toList(),
+            SonyV1NoiseControlFeature.set(
+                NoiseControlMode.TRANSPARENCY,
+                noiseCancelling,
+                capability,
+            )?.toList(),
+        )
+        assertEquals(
+            byteArrayOf(0x68, 0x02, 0x03, 0x02, 0x00, 0x01, 0x01, 0x0B).toList(),
+            SonyV1NoiseControlFeature.setAmbientLevel(11, ambient, capability)?.toList(),
+        )
+        assertEquals(
+            byteArrayOf(0x68, 0x02, 0x00, 0x02, 0x00, 0x01, 0x01, 0x14).toList(),
+            SonyV1NoiseControlFeature.set(NoiseControlMode.OFF, ambient, capability)?.toList(),
+        )
+        assertNull(
+            SonyV1NoiseControlFeature.set(
+                NoiseControlMode.OFF,
+                ambient.copy(vendorNoiseValue = null),
+                capability,
+            ),
+        )
+        assertNull(
+            SonyV1NoiseControlFeature.parse(
+                message(byteArrayOf(0x67, 0x02, 0x02, 0x02, 0x00, 0x01, 0x00, 0x10)),
+                capability,
+            ),
+        )
+    }
+
+    @Test
+    fun `v1 EQ capability constrains selector bands and presets`() {
+        val capability = SonyV1EqualizerFeature.parseCapability(
+            message(
+                byteArrayOf(
+                    0x51, 0x01, 0x06, 0x15, 0x03,
+                    0x00, 0x00,
+                    0x16, 0x00,
+                    0xA1.toByte(), 0x00,
+                ),
+            ),
+        )!!
+        val state = SonyV1EqualizerFeature.parse(
+            message(
+                byteArrayOf(
+                    0x57, 0x01, 0x16, 0x06,
+                    0x11, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A,
+                ),
+            ),
+            capability,
+        )!!
+
+        assertEquals(SonyEqualizerFeature.BASS_BOOST_ID, state.preset.id)
+        assertEquals(3, capability.presetIds.size)
+        assertEquals(byteArrayOf(0x50, 0x01, 0x00).toList(), SonyV1EqualizerFeature.queryCapability().toList())
+        assertEquals(byteArrayOf(0x56, 0x01).toList(), SonyV1EqualizerFeature.query().toList())
+        assertEquals(
+            byteArrayOf(0x58, 0x01, 0x00, 0x00).toList(),
+            SonyV1EqualizerFeature.set(
+                EqualizerPreset(SonyEqualizerFeature.OFF_ID),
+                capability,
+            )?.toList(),
+        )
+        assertNull(
+            SonyV1EqualizerFeature.set(
+                EqualizerPreset(SonyEqualizerFeature.SPEECH_ID),
+                capability,
+            ),
+        )
+        assertNull(
+            SonyV1EqualizerFeature.parse(
+                message(byteArrayOf(0x57, 0x01, 0x17, 0x06, 0, 0, 0, 0, 0, 0)),
+                capability,
+            ),
+        )
     }
 
     @Test
@@ -271,6 +384,85 @@ class SonyParsersTest {
             SonyEqualizerFeature.parse(
                 message(byteArrayOf(0x57, 0x00, 0x16, 0x06, 0x15, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)),
             ),
+        )
+    }
+
+    @Test
+    fun `sanitized WH v1 control fixture proves notify readback and restoration`() {
+        val frames = requireNotNull(
+            javaClass.getResourceAsStream(
+                "/fixtures/sony/device-capture/wh-1000xm4-2.5.1/" +
+                    "wh-1000xm4-v1-controls.hex",
+            ),
+        ).bufferedReader().readLines()
+            .map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .map(::hex)
+        val decoded = frames.map { frame ->
+            val result = TandemStreamDecoder().feed(frame).singleOrNull()
+            assertTrue("${frame.toList()} -> $result", result is TandemDecodeResult.Frame)
+            (result as TandemDecodeResult.Frame).value
+        }
+        val messages = decoded.mapNotNull(SonyMdrMessage::from)
+        val noiseCapability = SonyV1NoiseControlCapability(
+            noiseSettingType = SonyV1NoiseSettingType.DUAL_SINGLE_OFF,
+            noiseStepCount = 2,
+            ambientSettingType = SonyV1AmbientSettingType.LEVEL_ADJUSTMENT,
+            ambientSteps = mapOf(
+                SonyAmbientSoundMode.NORMAL to 20,
+                SonyAmbientSoundMode.VOICE to 20,
+            ),
+        )
+        val equalizerCapability = SonyV1EqualizerCapability(
+            bandCount = 6,
+            levelCount = 21,
+            presetIds = setOf(
+                SonyEqualizerFeature.BASS_BOOST_ID,
+                SonyEqualizerFeature.CUSTOM_2_ID,
+            ),
+        )
+        val noiseStates = messages.mapNotNull { message ->
+            SonyV1NoiseControlFeature.parse(message, noiseCapability)
+        }
+        val equalizerStates = messages.mapNotNull { message ->
+            SonyV1EqualizerFeature.parse(message, equalizerCapability)
+        }
+
+        assertEquals(45, frames.size)
+        assertEquals(9, decoded.count { it.dataType == SonyDataType.ACK.code })
+        assertEquals(7, messages.count { it.command == SonyCommand.NCASM_SET_PARAM })
+        assertEquals(7, messages.count { it.command == SonyCommand.NCASM_NTFY_PARAM })
+        assertEquals(7, messages.count { it.command == SonyCommand.NCASM_GET_PARAM })
+        assertEquals(7, messages.count { it.command == SonyCommand.NCASM_RET_PARAM })
+        assertEquals(
+            listOf(
+                NoiseControlMode.TRANSPARENCY to (SonyAmbientSoundMode.NORMAL to 20),
+                NoiseControlMode.TRANSPARENCY to (SonyAmbientSoundMode.NORMAL to 20),
+                NoiseControlMode.TRANSPARENCY to (SonyAmbientSoundMode.NORMAL to 8),
+                NoiseControlMode.TRANSPARENCY to (SonyAmbientSoundMode.NORMAL to 8),
+                NoiseControlMode.TRANSPARENCY to (SonyAmbientSoundMode.NORMAL to 20),
+                NoiseControlMode.TRANSPARENCY to (SonyAmbientSoundMode.NORMAL to 20),
+                NoiseControlMode.TRANSPARENCY to (SonyAmbientSoundMode.VOICE to 20),
+                NoiseControlMode.TRANSPARENCY to (SonyAmbientSoundMode.VOICE to 20),
+                NoiseControlMode.NOISE_CANCELLATION to (SonyAmbientSoundMode.VOICE to 0),
+                NoiseControlMode.NOISE_CANCELLATION to (SonyAmbientSoundMode.VOICE to 0),
+                NoiseControlMode.OFF to (SonyAmbientSoundMode.VOICE to 0),
+                NoiseControlMode.OFF to (SonyAmbientSoundMode.VOICE to 0),
+                NoiseControlMode.NOISE_CANCELLATION to (SonyAmbientSoundMode.VOICE to 0),
+                NoiseControlMode.NOISE_CANCELLATION to (SonyAmbientSoundMode.VOICE to 0),
+            ),
+            noiseStates.map { state ->
+                state.mode to (state.ambientSoundMode to state.ambientLevel)
+            },
+        )
+        assertEquals(
+            listOf(
+                SonyEqualizerFeature.BASS_BOOST_ID,
+                SonyEqualizerFeature.BASS_BOOST_ID,
+                SonyEqualizerFeature.CUSTOM_2_ID,
+                SonyEqualizerFeature.CUSTOM_2_ID,
+            ),
+            equalizerStates.map { it.preset.id },
         )
     }
 

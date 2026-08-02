@@ -61,11 +61,15 @@ object SonyCommand {
     const val POWER_RET_STATUS = 0x23
     const val POWER_NTFY_STATUS = 0x25
 
+    const val EQEBB_GET_CAPABILITY = 0x50
+    const val EQEBB_RET_CAPABILITY = 0x51
     const val EQEBB_GET_PARAM = 0x56
     const val EQEBB_RET_PARAM = 0x57
     const val EQEBB_SET_PARAM = 0x58
     const val EQEBB_NTFY_PARAM = 0x59
 
+    const val NCASM_GET_CAPABILITY = 0x60
+    const val NCASM_RET_CAPABILITY = 0x61
     const val NCASM_GET_PARAM = 0x66
     const val NCASM_RET_PARAM = 0x67
     const val NCASM_SET_PARAM = 0x68
