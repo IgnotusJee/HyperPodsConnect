@@ -21,6 +21,8 @@ import moe.chenxy.headphones.core.device.DeviceIdentity
 import moe.chenxy.headphones.core.device.TransportKind
 import moe.chenxy.headphones.core.device.VendorId
 import moe.chenxy.headphones.core.driver.DriverSessionContext
+import moe.chenxy.headphones.core.feature.EvidenceLevel
+import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.feature.ValueSource
 import moe.chenxy.headphones.core.operation.FeatureCommand
@@ -176,6 +178,30 @@ class OppoSessionTest {
         assertEquals(
             NoiseControlMode.NOISE_CANCELLATION_MEDIUM,
             state.noiseControlActiveMode,
+        )
+        session.disconnect()
+    }
+
+    @Test
+    fun `wear notification promotes wear capability evidence`() = runBlocking {
+        val transport = FakeOppoTransport()
+        val session = session(transport)
+        session.connect()
+        assertEquals(
+            EvidenceLevel.ASSUMED,
+            session.profile.value!!.capability(FeatureId.WEAR_DETECTION)!!.evidence,
+        )
+
+        transport.emitNotification(byteArrayOf(0x02, 0x02, 0x01, 0x07, 0x02, 0x07))
+
+        val profile = withTimeout(1_000) {
+            session.profile.first {
+                it?.capability(FeatureId.WEAR_DETECTION)?.evidence == EvidenceLevel.VERIFIED
+            }
+        }
+        assertEquals(
+            EvidenceLevel.VERIFIED,
+            profile!!.capability(FeatureId.WEAR_DETECTION)!!.evidence,
         )
         session.disconnect()
     }

@@ -173,7 +173,9 @@ object OppoCompatibilityRegistry {
                 "oppo:1" to "Detail",
                 "oppo:2" to "Vocal",
                 "oppo:3" to "Bass",
-                "oppo:4" to "Dynaudio",
+                // The vendor table is intentionally non-contiguous: slots 4..6
+                // belong to other products, while Dynaudio is preset 7.
+                "oppo:7" to "Dynaudio",
             )
             put(
                 FeatureId.EQUALIZER,

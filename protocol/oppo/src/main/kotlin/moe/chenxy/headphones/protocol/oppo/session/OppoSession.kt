@@ -492,6 +492,16 @@ class OppoSession(
                     clock(),
                 ),
             )
+            // Wear state is notification-only on this protocol family, so it
+            // cannot be promoted during the query-based initial sync above.
+            // A successfully parsed device notification is direct evidence.
+            _profile.value = _profile.value?.let { profile ->
+                OppoCompatibilityRegistry.withEvidence(
+                    profile,
+                    verified = setOf(FeatureId.WEAR_DETECTION),
+                    firmware = profile.firmware,
+                )
+            }
         }
         parseSmartAncLevel(message)?.let { activeMode ->
             recognized = true

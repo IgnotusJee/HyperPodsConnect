@@ -42,6 +42,20 @@ class OppoCompatibilityRegistryTest {
     }
 
     @Test
+    fun `equalizer capability uses the non-contiguous Dynaudio protocol id`() {
+        val candidate = candidate("OPPO Enco Air5s")
+        val profile = OppoCompatibilityRegistry.initialProfile(
+            candidate,
+            OppoCompatibilityRegistry.resolve(candidate.displayName),
+        )
+        val equalizer = profile.capability(FeatureId.EQUALIZER)!!
+
+        assertTrue("oppo:7" in equalizer.allowedValues)
+        assertEquals("Dynaudio", equalizer.valueLabels["oppo:7"])
+        assertFalse("oppo:4" in equalizer.allowedValues)
+    }
+
+    @Test
     fun `device evidence promotes or refutes each feature independently`() {
         val candidate = candidate("OPPO Enco Air5s")
         val initial = OppoCompatibilityRegistry.initialProfile(

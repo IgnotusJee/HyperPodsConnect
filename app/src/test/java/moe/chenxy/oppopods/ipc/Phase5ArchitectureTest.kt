@@ -45,6 +45,21 @@ class Phase5ArchitectureTest {
     }
 
     @Test
+    fun `settings snapshot consumer is loaded and included in module scope`() {
+        val entry = source("src/main/java/moe/chenxy/oppopods/hook/HookEntry.kt")
+        val scope = source("src/main/resources/META-INF/xposed/scope.list")
+        assumeTrue(entry != null)
+        assumeTrue(scope != null)
+
+        assertTrue(
+            entry!!.contains(
+                "\"com.android.settings\" -> loadHook(SettingsHeadsetHook",
+            ),
+        )
+        assertTrue(scope!!.lineSequence().any { it.trim() == "com.android.settings" })
+    }
+
+    @Test
     fun `snapshot receiver does not republish legacy per-feature broadcasts`() {
         val receiver = source(
             "src/main/java/moe/chenxy/oppopods/ipc/HeadphoneSnapshotReceiver.kt",

@@ -22,7 +22,8 @@
 
 当前工程只有 `:app` 一个 Gradle 模块。主要运行位置如下：
 
-1. `HookEntry` 将模块注入 `com.android.bluetooth`、`com.xiaomi.bluetooth` 和 `com.milink.service`。
+1. 初始基线的 `HookEntry` 将模块注入 `com.android.bluetooth`、`com.xiaomi.bluetooth` 和
+   `com.milink.service`；Phase 11 已增加 `com.android.settings`。
 2. `HeadsetStateDispatcher` 在 `com.android.bluetooth` 中监听 A2DP 连接变化。
 3. 被识别为 OPPO 的设备交给全局 `RfcommController`。
 4. `RfcommController` 在蓝牙进程中建立固定 UUID 的 RFCOMM socket，直接读写 OPPO 帧。
@@ -30,7 +31,9 @@
 6. App UI 再维护一份本地状态，并通过广播发送控制请求。
 7. HyperOS Hook 各自在自己的进程中维护电量、ANC、地址等缓存副本。
 
-`SettingsHeadsetHook` 当前在 `HookEntry` 中被注释，没有进入实际加载路径；规划时不能把它当成现行可靠能力。
+初始审计时 `SettingsHeadsetHook` 在 `HookEntry` 中被注释，没有进入实际加载路径。Phase 11
+已经启用该入口并扩展 `scope.list`，真机验证记录见
+[`PHASE11_COMPATIBILITY_AND_CLEANUP.md`](PHASE11_COMPATIBILITY_AND_CLEANUP.md)。
 
 ### 2.2 主要职责混合
 
@@ -1159,11 +1162,12 @@ readback、脱敏 fixture、项目 App 真机验证与原值恢复。完整 Grad
 
 ### Phase 11：兼容性扩展和清理
 
-当前状态（2026-08-01）：**代码侧完成，等待真机验收**。schema v1、兼容档案迁移与导入导出、首版精确
+当前状态（2026-08-02）：**已闭环**。schema v1、兼容档案迁移与导入导出、首版精确
 兼容矩阵、`STABLE` 分级、产品显示名称决策和 release/raw 显式门禁已落地；旧广播
 bridge 与 `RfcommController` facade 已删除，剩余系统副作用集中到显式的
 `OppoSystemIntegrationAdapter`；旧功能写 action 与 snapshot 到逐功能状态广播均已删除，
-智能 ANC 当前强度也已进入通用 snapshot。执行记录见
+智能 ANC 当前强度也已进入通用 snapshot。OPPO Air5s、Sony LinkBuds S、WH-1000XM4、
+四个跨进程 snapshot 消费者、持久化/迁移/升级和 release raw gate 已完成真机验收。执行记录见
 [`PHASE11_COMPATIBILITY_AND_CLEANUP.md`](PHASE11_COMPATIBILITY_AND_CLEANUP.md)。
 
 改动：
@@ -1306,7 +1310,7 @@ sony_verified_writes_enabled
 
 ## 12. 已交付的多品牌里程碑
 
-截至 Phase 10，已交付范围为：
+截至 Phase 11，已交付范围为：
 
 ```text
 现有 OPPO 功能无回退
@@ -1316,6 +1320,9 @@ sony_verified_writes_enabled
 + LinkBuds S 4.2.1 的 NC/ASM、环境声 level、NORMAL/VOICE 与全部官方 EQ preset
 + 指定型号电量读取与精确写入白名单
 + 完整 trace 和兼容等级
++ schema v1 profile 持久化、迁移和导入导出
++ App、MiLink、Settings、Xiaomi Bluetooth 的版本化 snapshot 一致性
++ release raw gate、旧广播 bridge 清理和覆盖升级兼容性
 ```
 
 不在首个里程碑承诺：
@@ -1329,11 +1336,13 @@ sony_verified_writes_enabled
 
 ## 13. 下一步执行顺序
 
-Phase 0–10 已完成，下一步进入 Phase 11：
+Phase 0–11 已完成并通过真机验收。当前重构计划没有预先定义 Phase 12；后续候选工作为：
 
-1. 扩展设备、固件与 OEM 兼容矩阵；
-2. 版本化 profile schema，并补兼容档案导入导出；
-3. 清理旧广播 bridge、空 facade 与残余 OPPO 命名泄漏；
-4. 保持 release 构建中的危险操作禁用门禁。
+1. 继续缩减 `OppoSystemIntegrationAdapter` 中仍存在的旧 action 入口；
+2. 评估以通用 presentation model 替换仅用于通知、灵动岛和 Compose 展示的
+   `BatteryParams` / `PodParams`；
+3. 将完整 JVM、Android lint/compile、debug/release 构建、依赖边界和 fixture 脱敏扫描
+   固化为发布候选门禁；
+4. 仅在取得新增型号、固件或 OEM 的动态证据后扩展精确兼容矩阵。
 
 新增型号仍必须逐设备满足动态证据、精确白名单、读回与恢复验证，不从现有型号外推。
