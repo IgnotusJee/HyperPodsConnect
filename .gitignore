@@ -28,3 +28,5 @@ opencode.json
 
 # Local raw Bluetooth captures and temporary analysis artifacts.
 /.codex_tmp/
+/artifacts/
+/.understand-anything/
