@@ -56,7 +56,7 @@ fun PodStatus(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (batteryTopology == "HEADBAND") {
+        if (batteryTopology == "HEADBAND" || batteryTopology == "SINGLE_BATTERY") {
             BatteryColumn(
                 label = stringResource(R.string.earphones),
                 pod = batteryParams.left,

@@ -8,6 +8,7 @@ import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.protocol.sony.feature.SonyHandshake
 import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolGeneration
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryFeature
+import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryType
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeature
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV1EqualizerCapability
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV1EqualizerFeature
@@ -25,6 +26,7 @@ import moe.chenxy.headphones.protocol.sony.message.SonyDeviceInfoType
 import moe.chenxy.headphones.protocol.sony.message.SonyMdrMessage
 import moe.chenxy.headphones.protocol.sony.message.SonyMdrRouter
 import moe.chenxy.headphones.protocol.sony.message.SonyRoute
+import moe.chenxy.headphones.protocol.sony.profile.SonyProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -65,6 +67,7 @@ class SonyParsersTest {
     fun `rejects malformed support count and device length`() {
         assertNull(
             SonyHandshake.parseSupportFunction(
+                SonyProtocolGeneration.V2,
                 message(byteArrayOf(0x07, 0, 3, 0, 1, 2)),
             ),
         )
@@ -77,8 +80,9 @@ class SonyParsersTest {
     }
 
     @Test
-    fun `v1 support length is bytes and yields eleven two-byte functions`() {
+    fun `v1 support length is bytes and yields one-byte functions`() {
         val support = SonyHandshake.parseSupportFunction(
+            SonyProtocolGeneration.V1,
             message(
                 byteArrayOf(
                     0x07, 0x00, 0x16,
@@ -91,9 +95,16 @@ class SonyParsersTest {
             ),
         )
 
-        assertEquals(11, support?.functions?.size)
-        assertEquals(0x7162, support?.functions?.first())
-        assertEquals(0x2221, support?.functions?.last())
+        assertEquals(22, support?.functions?.size)
+        assertEquals(0x71, support?.functions?.first())
+        assertEquals(0x21, support?.functions?.last())
+        val protocol = requireNotNull(
+            SonyHandshake.parseProtocolInfo(message(byteArrayOf(0x01, 0, 0x70, 0))),
+        )
+        assertEquals(
+            listOf(SonyBatteryType.SINGLE),
+            SonyProfile.batteryTypes(protocol, requireNotNull(support)),
+        )
     }
 
     @Test
@@ -279,11 +290,20 @@ class SonyParsersTest {
                 listOf((value ushr 8).toByte(), value.toByte())
             }.toByteArray()
 
-        val support = SonyHandshake.parseSupportFunction(message(payload))
+        val support = SonyHandshake.parseSupportFunction(SonyProtocolGeneration.V2, message(payload))
 
         assertEquals(40, support?.functions?.size)
         assertEquals(0x10FF, support?.functions?.first())
         assertEquals(0x46FF, support?.functions?.last())
+        val protocol = requireNotNull(
+            SonyHandshake.parseProtocolInfo(
+                message(byteArrayOf(0x01, 0, 0, 0, 0, 2, 1, 1)),
+            ),
+        )
+        assertEquals(
+            listOf(SonyBatteryType.LEFT_RIGHT, SonyBatteryType.CRADLE),
+            SonyProfile.batteryTypes(protocol, requireNotNull(support)),
+        )
     }
 
     @Test

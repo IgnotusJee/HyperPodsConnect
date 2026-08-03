@@ -75,6 +75,8 @@ data class HeadphoneUiState(
     val lastOperation: UiOperation? = null,
 ) {
     val connected: Boolean get() = connection == UiConnectionState.CONNECTED
+    val batteryDisplayTopology: String?
+        get() = if ("SINGLE" in batteries) "SINGLE_BATTERY" else topology
 
     fun feature(id: String): UiFeatureState? = features[id]?.takeIf(UiFeatureState::visible)
 

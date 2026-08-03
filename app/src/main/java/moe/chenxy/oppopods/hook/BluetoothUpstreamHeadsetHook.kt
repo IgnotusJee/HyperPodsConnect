@@ -225,9 +225,13 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
 
         hookAddressStringResult(binderClass, listOf("getDeviceInfo"), "getDeviceInfo") { fakeSupport() }
         hookAddressStringResult(binderClass, listOf("isSupportAudioSwitch", "mo19775z1", "z1"), "isSupportAudioSwitch") { "1" }
-        hookAddressBooleanResult(binderClass, listOf("isMiTWS", "mo19771O0", "O0"), "isMiTWS", true)
-        hookAddressBooleanResult(binderClass, listOf("checkIsMiTWS", "mo19766B", "B"), "checkIsMiTWS", true)
-        hookAddressBooleanResult(binderClass, listOf("getRingFindState", "mo19772m0", "m0"), "getRingFindState", false)
+        hookAddressBooleanResult(binderClass, listOf("isMiTWS", "mo19771O0", "O0"), "isMiTWS") {
+            HyperOsHeadphoneAdapter.isTwsDevice()
+        }
+        hookAddressBooleanResult(binderClass, listOf("checkIsMiTWS", "mo19766B", "B"), "checkIsMiTWS") {
+            HyperOsHeadphoneAdapter.isTwsDevice()
+        }
+        hookAddressBooleanResult(binderClass, listOf("getRingFindState", "mo19772m0", "m0"), "getRingFindState") { false }
 
         runCatching {
             hookBefore(binderClass.method("setCommonCommand", Int::class.java, String::class.java, BluetoothDevice::class.java)) {
@@ -323,7 +327,12 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
         }.onFailure { Log.w(TAG, "hook BinderC6776v.$label skipped", it) }
     }
 
-    private fun hookAddressBooleanResult(binderClass: Class<*>, methodNames: List<String>, label: String, forced: Boolean) {
+    private fun hookAddressBooleanResult(
+        binderClass: Class<*>,
+        methodNames: List<String>,
+        label: String,
+        forced: () -> Boolean,
+    ) {
         val methodName = methodNames.firstOrNull { name ->
             runCatching { binderClass.method(name, String::class.java) }.isSuccess
         } ?: run {
@@ -334,8 +343,8 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
             hookBefore(binderClass.method(methodName, String::class.java)) {
                 val address = args[0] as? String
                 if (address == null || !isOppoAddress(address)) return@hookBefore
-                result = forced
-                Log.d(TAG, "BinderC6776v.$label forced address=$address result=$forced method=$methodName")
+                result = forced()
+                Log.d(TAG, "BinderC6776v.$label forced address=$address result=$result method=$methodName")
             }
             Log.d(TAG, "BinderC6776v.$label hook installed method=$methodName")
         }.onFailure { Log.w(TAG, "hook BinderC6776v.$label skipped", it) }
@@ -439,8 +448,8 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
                 14 -> handleSetCommonCommand(data, reply)
                 15 -> handleCommonConfig(data, reply)
                 16 -> handleRegisterCallbackDevice(data, reply)
-                18 -> handleAddressBoolean("isMiTWS", data, reply, true)
-                19 -> handleAddressBoolean("checkIsMiTWS", data, reply, true)
+                18 -> handleAddressBoolean("isMiTWS", data, reply, HyperOsHeadphoneAdapter.isTwsDevice())
+                19 -> handleAddressBoolean("checkIsMiTWS", data, reply, HyperOsHeadphoneAdapter.isTwsDevice())
                 20 -> handleAddressString("isSupportAudioSwitch", data, reply, "1")
                 24 -> handleAddressBoolean("getRingFindState", data, reply, false)
                 else -> null

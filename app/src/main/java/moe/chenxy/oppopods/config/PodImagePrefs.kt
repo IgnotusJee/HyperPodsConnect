@@ -71,7 +71,7 @@ data class EarphonePref(
     fun imagePath(resource: PodImageResource): String? =
         userImagePath(resource) ?: officialImagePath(resource)
 
-    /** User-selected artwork wins; official hero resources then follow HeyMelody's fallback order. */
+    /** User-selected artwork wins; downloaded official resources follow their semantic priority. */
     fun heroArtworkPath(): String? =
         boxImagePath
             ?: leftImagePath
@@ -207,6 +207,7 @@ object PodImagePrefs {
         name: String,
         selector: DeviceArtworkSelector,
         images: Map<PodImageResource, ByteArray>,
+        source: DeviceArtworkSource = DeviceArtworkSource.OFFICIAL_CDN,
     ): List<EarphonePref> {
         if (address.isBlank() || images.isEmpty()) return load(prefs)
         val current = load(prefs)
@@ -214,7 +215,7 @@ object PodImagePrefs {
         val validated = validateImages(images) ?: return current
         val descriptor = DeviceArtworkDescriptor(
             selector = selector,
-            source = DeviceArtworkSource.OFFICIAL_LOCAL_CACHE,
+            source = source,
             assets = validated.map { (resource, image) -> image.toAsset(resource) }
                 .sortedBy { it.resource.ordinal },
             resolvedAtMillis = System.currentTimeMillis(),

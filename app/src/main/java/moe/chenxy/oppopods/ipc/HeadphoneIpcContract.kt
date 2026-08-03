@@ -29,6 +29,7 @@ object HeadphoneIpcContract {
     const val SETTINGS_PACKAGE = "com.android.settings"
     const val ACTION_HEADPHONE_COMMAND = "moe.chenxy.oppopods.action.HEADPHONE_COMMAND_V3"
     const val ACTION_HEADPHONE_EVENT = "moe.chenxy.oppopods.action.HEADPHONE_EVENT_V3"
+    const val ACTION_RESTART_SCOPE = "moe.chenxy.oppopods.action.RESTART_SCOPE"
 
     const val EXTRA_CONTRACT_VERSION = "contract_version"
     const val EXTRA_REQUEST_ID = "request_id"

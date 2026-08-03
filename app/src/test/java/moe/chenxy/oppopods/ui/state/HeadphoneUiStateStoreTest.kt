@@ -59,6 +59,16 @@ class HeadphoneUiStateStoreTest {
     }
 
     @Test
+    fun `single battery component selects one-column battery presentation`() {
+        val state = HeadphoneUiState(
+            topology = "UNKNOWN",
+            batteries = mapOf("SINGLE" to BatteryPayload("SINGLE", 90, false)),
+        )
+
+        assertEquals("SINGLE_BATTERY", state.batteryDisplayTopology)
+    }
+
+    @Test
     fun `smart noise control active mode reaches the vendor neutral UI state`() {
         val store = HeadphoneUiStateStore()
         store.accept(fakeSnapshot(noiseControlActiveMode = "NOISE_CANCELLATION_MEDIUM"))

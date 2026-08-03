@@ -90,12 +90,6 @@
     <string name="official_image_selected">官方设备图片（自动匹配）</string>
     <string name="custom_image_default">使用默认图片</string>
     <string name="custom_image_restore_default">恢复默认图片</string>
-    <string name="import_melody_images">导入图片</string>
-    <string name="import_melody_images_summary">核验官方图片精确匹配</string>
-    <string name="import_melody_images_hint">从欢律读取产品与配色标识，不使用设备名称模糊匹配。</string>
-    <string name="import_melody_images_empty">未找到该设备唯一匹配的官方图片。</string>
-    <string name="import_melody_images_root_required">请检查 ROOT 权限。</string>
-    <string name="import_melody_images_action">刷新缓存</string>
     <string name="theme_title">主题</string>
     <string name="theme_follow_system">跟随系统</string>
     <string name="theme_light">浅色</string>
@@ -143,7 +137,7 @@
     <string name="fake_device_id_summary">留空时默认使用 01010607</string>
     <string name="notification_btn_disconnect">断开连接</string>
     <string name="restart_scope_title">重启作用域</string>
-    <string name="restart_scope_summary">选择要通过 root 重启的作用域软件。</string>
+    <string name="restart_scope_summary">选择要重启的 LSPosed 作用域。</string>
     <string name="restart_scope_success">作用域已重启</string>
     <string name="restart_scope_failed">Root 重启失败</string>
     <string name="anc_implementation">ANC 兼容模式</string>

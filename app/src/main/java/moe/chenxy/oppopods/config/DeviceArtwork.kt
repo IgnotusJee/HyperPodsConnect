@@ -6,6 +6,7 @@ import java.security.MessageDigest
 @Serializable
 enum class DeviceArtworkSource {
     OFFICIAL_LOCAL_CACHE,
+    OFFICIAL_CDN,
 }
 
 @Serializable

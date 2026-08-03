@@ -10,7 +10,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +24,7 @@ import moe.chenxy.oppopods.ipc.IpcSenderPolicy
 import moe.chenxy.oppopods.ipc.isSentFrom
 import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
+import moe.chenxy.oppopods.integration.miuiAncLevel
 import moe.chenxy.oppopods.integration.toIntegrationState
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.oppopods.utils.PodImageLoader
@@ -177,7 +180,9 @@ object SettingsHeadsetHook : HookContext() {
         hookStringStaticResult("com.android.settings.bluetooth.HeadsetIDConstants", "checkSupport") { support ->
             support.startsWith(fakeDeviceId()) || support.contains(fakeDeviceId())
         }
-        hookStringStaticResult("com.android.settings.bluetooth.HeadsetIDConstants", "isTWS01Headset") { it == fakeDeviceId() }
+        hookStringStaticResult("com.android.settings.bluetooth.HeadsetIDConstants", "isTWS01Headset") {
+            it == fakeDeviceId() && HyperOsHeadphoneAdapter.isTwsDevice()
+        }
         hookStringStaticResult("com.android.settings.bluetooth.HeadsetIDConstants", "isK77sHeadset") { false }
         hookBleMmaConnectByContext()
         hookBleMmaConnectByService()
@@ -237,8 +242,8 @@ object SettingsHeadsetHook : HookContext() {
         hookProxyVoidDeviceNoop(proxyClass, "connect", BluetoothDevice::class.java)
         hookProxyVoidDeviceNoop(proxyClass, "getDeviceConfig", BluetoothDevice::class.java)
         hookProxyVoidDeviceStringNoop(proxyClass, "getCommonConfig", BluetoothDevice::class.java, String::class.java)
-        hookProxyBooleanStringResult(proxyClass, "isMiTWS") { true }
-        hookProxyBooleanStringResult(proxyClass, "checkIsMiTWS") { true }
+        hookProxyBooleanStringResult(proxyClass, "isMiTWS") { HyperOsHeadphoneAdapter.isTwsDevice() }
+        hookProxyBooleanStringResult(proxyClass, "checkIsMiTWS") { HyperOsHeadphoneAdapter.isTwsDevice() }
         hookProxyBooleanStringResult(proxyClass, "getRingFindState") { false }
         hookProxyVoidDeviceCommand(proxyClass, "changeAncMode", Int::class.java, BluetoothDevice::class.java) { commandArgs ->
             val miMode = commandArgs[0] as? Int ?: return@hookProxyVoidDeviceCommand null
@@ -370,6 +375,7 @@ object SettingsHeadsetHook : HookContext() {
                 instance?.let { headsetFragments[it] = true }
                 requestBluetoothStatus("fragment-create")
                 startPeriodicRefresh()
+                updateBatteryTopology(instance)
                 injectFragmentStatus(instance)
             }
         }.onFailure { Log.w(TAG, "hook MiuiHeadsetFragment.onCreateView skipped", it) }
@@ -381,6 +387,7 @@ object SettingsHeadsetHook : HookContext() {
                 instance?.let { headsetFragments[it] = true }
                 requestBluetoothStatus("service-connected")
                 startPeriodicRefresh()
+                updateBatteryTopology(instance)
                 injectFragmentStatus(instance)
             }
         }.onFailure { Log.w(TAG, "hook MiuiHeadsetFragment.onServiceConnected skipped", it) }
@@ -521,6 +528,7 @@ object SettingsHeadsetHook : HookContext() {
 
     private fun injectFragmentStatus(fragment: Any?) {
         runCatching {
+            updateBatteryTopology(fragment)
             val payload = "${settingsAncMode()}|0100;0101;0102;0103;0200;0201|${settingsBatteryString()}|00"
             Log.d(TAG, "injectFragmentStatus payload=$payload ${fragmentDebug(fragment)}")
             callMethod(fragment, "updateAtUiInfo", payload)
@@ -534,6 +542,28 @@ object SettingsHeadsetHook : HookContext() {
             }
             Log.d(TAG, "fragment status injected anc=$currentAnc battery=${settingsBatteryString()}")
         }.onFailure { Log.w(TAG, "inject fragment status failed", it) }
+    }
+
+    /** Collapse Xiaomi's fixed left/right/case row for any capability-reported single battery. */
+    private fun updateBatteryTopology(fragment: Any?) {
+        if (HyperOsHeadphoneAdapter.isTwsDevice()) return
+        val root = runCatching { getObjectField(fragment, "mRootView") as? View }.getOrNull() ?: return
+        val resources = root.resources
+        fun view(idName: String): View? {
+            val id = resources.getIdentifier(idName, "id", "com.android.settings")
+            return id.takeIf { it != 0 }?.let(root::findViewById)
+        }
+        listOf("batteryright", "batterybox", "diverleft", "diverright").forEach { idName ->
+            view(idName)?.visibility = View.GONE
+        }
+        view("batteryleft")?.let { left ->
+            left.visibility = View.VISIBLE
+            left.layoutParams = left.layoutParams.apply {
+                width = ViewGroup.LayoutParams.MATCH_PARENT
+            }
+        }
+        (view("textViewHeadset") as? TextView)?.text = "耳机"
+        Log.d(TAG, "single-device battery topology applied")
     }
 
     private fun isOppoFragment(fragment: Any?): Boolean {
@@ -621,15 +651,16 @@ object SettingsHeadsetHook : HookContext() {
 
     private fun settingsAncLevel(): String {
         loadState()
-        // MIUI Settings level codes: 0103=Smart, 0101=Light, 0100=Medium, 0102=Deep, 0201=Transparency vocal enhancement.
-        return when (currentAnc) {
-            5 -> "0103"
-            6 -> "0101"
-            7 -> "0100"
-            8 -> "0102"
-            3 -> if (currentTransparencyVocalEnhancement) "0201" else "0200"
-            else -> "0000"
+        val noise = when (currentAnc) {
+            2 -> "NOISE_CANCELLATION"
+            3 -> "TRANSPARENCY"
+            5 -> "NOISE_CANCELLATION_SMART"
+            6 -> "NOISE_CANCELLATION_LIGHT"
+            7 -> "NOISE_CANCELLATION_MEDIUM"
+            8 -> "NOISE_CANCELLATION_DEEP"
+            else -> "OFF"
         }
+        return miuiAncLevel(noise, currentTransparencyVocalEnhancement)
     }
 
     private fun settingsRefreshPayload(): String {

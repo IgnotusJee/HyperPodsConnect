@@ -222,7 +222,7 @@ class SonySession(
         val support = exchange(
             SonyHandshake.getSupportFunction(),
             SonyCommand.CONNECT_RET_SUPPORT_FUNCTION,
-        )?.let(SonyHandshake::parseSupportFunction)
+        )?.let { SonyHandshake.parseSupportFunction(protocol.generation, it) }
         if (capability == null || model == null || firmware == null || support == null) {
             failAndClose(
                 created,
@@ -247,7 +247,7 @@ class SonySession(
         transition(SessionEvent.CapabilitiesLoaded)
 
         var batteryObserved = false
-        SonyProfile.batteryProbeTypes.forEach { type ->
+        SonyProfile.batteryTypes(protocol, support).forEach { type ->
             val response = exchange(
                 SonyBatteryFeature.query(protocol.generation, type),
                 expectedCommand = if (protocol.generation == SonyProtocolGeneration.V2) {

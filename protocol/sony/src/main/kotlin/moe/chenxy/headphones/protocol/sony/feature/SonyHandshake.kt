@@ -85,7 +85,10 @@ object SonyHandshake {
             .takeIf(String::isNotBlank)
     }
 
-    fun parseSupportFunction(message: SonyMdrMessage): SonySupportInfo? {
+    fun parseSupportFunction(
+        generation: SonyProtocolGeneration,
+        message: SonyMdrMessage,
+    ): SonySupportInfo? {
         val bytes = message.payload
         if (
             message.command != SonyCommand.CONNECT_RET_SUPPORT_FUNCTION ||
@@ -93,17 +96,19 @@ object SonyHandshake {
             (bytes[1].toInt() and 0xFF) != 0
         ) return null
         val lengthOrCount = bytes[2].toInt() and 0xFF
-        val functionCount = when {
-            lengthOrCount % 2 == 0 && bytes.size == 3 + lengthOrCount ->
-                lengthOrCount / 2
-            bytes.size == 3 + lengthOrCount * 2 ->
-                lengthOrCount
-            else -> return null
-        }
-        val values = (0 until functionCount).map { index ->
-            val offset = 3 + index * 2
-            ((bytes[offset].toInt() and 0xFF) shl 8) or
-                (bytes[offset + 1].toInt() and 0xFF)
+        val values = when (generation) {
+            SonyProtocolGeneration.V1 -> {
+                if (bytes.size != 3 + lengthOrCount) return null
+                bytes.drop(3).map { it.toInt() and 0xFF }
+            }
+            SonyProtocolGeneration.V2 -> {
+                if (bytes.size != 3 + lengthOrCount * 2) return null
+                (0 until lengthOrCount).map { index ->
+                    val offset = 3 + index * 2
+                    ((bytes[offset].toInt() and 0xFF) shl 8) or
+                        (bytes[offset + 1].toInt() and 0xFF)
+                }
+            }
         }
         return SonySupportInfo(values, bytes.copyOf(), fingerprint(bytes))
     }

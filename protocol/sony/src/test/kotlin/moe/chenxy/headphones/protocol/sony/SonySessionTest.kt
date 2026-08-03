@@ -204,7 +204,7 @@ class SonySessionTest {
                 kind = TransportKind.BLE_GATT,
                 model = "LinkBuds S",
                 firmware = "4.2.1",
-                supportFunctions = intArrayOf(0x17FF),
+                supportFunctions = intArrayOf(0x17FF, 0x20FF),
             )
             val candidate = candidate(
                 advertisedUuids = emptySet(),
@@ -277,7 +277,7 @@ class SonySessionTest {
                 kind = TransportKind.BLE_GATT,
                 model = "LinkBuds S",
                 firmware = "4.2.1",
-                supportFunctions = intArrayOf(0x17FF),
+                supportFunctions = intArrayOf(0x17FF, 0x20FF),
             )
             val candidate = candidate(
                 advertisedUuids = emptySet(),
@@ -365,7 +365,7 @@ class SonySessionTest {
             kind = TransportKind.BLE_GATT,
             model = "LinkBuds S",
             firmware = "4.2.1",
-            supportFunctions = intArrayOf(0x17FF),
+            supportFunctions = intArrayOf(0x17FF, 0x20FF),
         )
         val candidate = candidate(
             advertisedUuids = emptySet(),
@@ -584,6 +584,13 @@ class SonySessionTest {
         session.connect()
 
         assertTrue(session.connection.value is SessionState.Ready)
+        assertEquals(
+            listOf(0),
+            transport.commandWrites
+                .filter { it.first().toInt() and 0xFF == SonyCommand.COMMON_GET_BATTERY_LEVEL }
+                .map { it[1].toInt() and 0xFF },
+        )
+        assertEquals(setOf(BatteryComponent.SINGLE), session.state.value.batteries.keys)
         assertEquals(CompatibilityLevel.CONTROLLED, session.profile.value?.compatibilityLevel)
         assertEquals(NoiseControlMode.NOISE_CANCELLATION, session.state.value.noiseControl.confirmed)
         assertEquals(SonyEqualizerFeature.BASS_BOOST_ID, session.state.value.equalizer.confirmed?.id)
@@ -702,7 +709,7 @@ class SonySessionTest {
             kind = TransportKind.BLE_GATT,
             model = "LinkBuds S",
             firmware = "4.2.2",
-            supportFunctions = intArrayOf(0x17FF),
+            supportFunctions = intArrayOf(0x17FF, 0x20FF),
         )
         val candidate = candidate(
             advertisedUuids = emptySet(),
@@ -755,7 +762,7 @@ class SonySessionTest {
             kind = TransportKind.BLE_GATT,
             model = "LinkBuds S",
             firmware = "4.2.1",
-            supportFunctions = intArrayOf(0x17FF),
+            supportFunctions = intArrayOf(0x17FF, 0x20FF),
             notifyOnSet = false,
         )
         val candidate = candidate(
@@ -880,7 +887,11 @@ private class FakeSonyTransport(
     private val protocolGeneration: SonyProtocolGeneration = SonyProtocolGeneration.V2,
     private val model: String = "WH-1000XM4",
     private val firmware: String = "2.5.1",
-    private val supportFunctions: IntArray = intArrayOf(0x0001),
+    private val supportFunctions: IntArray = if (protocolGeneration == SonyProtocolGeneration.V1) {
+        intArrayOf(0x11)
+    } else {
+        intArrayOf(0x20FF)
+    },
     private val notifyOnSet: Boolean = true,
     private val equalizerSupported: Boolean =
         model == "LinkBuds S" || protocolGeneration == SonyProtocolGeneration.V1,
@@ -951,10 +962,15 @@ private class FakeSonyTransport(
             byteArrayOf(0x05, type, value.length.toByte()) + value.toByteArray()
         }
         SonyCommand.CONNECT_GET_SUPPORT_FUNCTION ->
-            byteArrayOf(0x07, 0, supportFunctions.size.toByte()) +
-                supportFunctions.flatMap { value ->
-                    listOf((value ushr 8).toByte(), value.toByte())
-                }.toByteArray()
+            if (protocolGeneration == SonyProtocolGeneration.V1) {
+                byteArrayOf(0x07, 0, supportFunctions.size.toByte()) +
+                    supportFunctions.map(Int::toByte).toByteArray()
+            } else {
+                byteArrayOf(0x07, 0, supportFunctions.size.toByte()) +
+                    supportFunctions.flatMap { value ->
+                        listOf((value ushr 8).toByte(), value.toByte())
+                    }.toByteArray()
+            }
         SonyCommand.POWER_GET_STATUS ->
             byteArrayOf(0x23, request[1], 76, 0)
         SonyCommand.COMMON_GET_BATTERY_LEVEL ->

@@ -24,6 +24,16 @@ import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeatur
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
 
 object SonyProfile {
+    private const val V1_BATTERY_LEVEL = 0x11
+    private const val V1_LEFT_RIGHT_BATTERY_LEVEL = 0x15
+    private const val V1_CRADLE_BATTERY_LEVEL = 0x18
+    private const val V2_BATTERY_LEVEL = 0x20
+    private const val V2_LEFT_RIGHT_BATTERY_LEVEL = 0x21
+    private const val V2_CRADLE_BATTERY_LEVEL = 0x22
+    private const val V2_BATTERY_WITH_THRESHOLD = 0x28
+    private const val V2_LR_BATTERY_WITH_THRESHOLD = 0x29
+    private const val V2_CRADLE_BATTERY_WITH_THRESHOLD = 0x2A
+
     fun initial(
         candidate: DeviceCandidate,
         transportKind: TransportKind,
@@ -182,7 +192,42 @@ object SonyProfile {
             transportKind == TransportKind.CLASSIC_SPP || transportKind == TransportKind.BLE_GATT
     }
 
-    val batteryProbeTypes: List<SonyBatteryType> = SonyBatteryType.entries
+    /**
+     * Mirrors Sound Connect's capability-table selection without consulting a model name.
+     * V1 advertises one-byte function codes; V2 advertises a function code plus version.
+     */
+    fun batteryTypes(
+        protocolInfo: SonyProtocolInfo,
+        supportInfo: SonySupportInfo,
+    ): List<SonyBatteryType> {
+        fun hasV2Function(vararg codes: Int): Boolean = supportInfo.functions.any { function ->
+            (function ushr 8) in codes
+        }
+
+        return when (protocolInfo.generation) {
+            SonyProtocolGeneration.V1 -> buildList {
+                when {
+                    V1_BATTERY_LEVEL in supportInfo.functions -> add(SonyBatteryType.SINGLE)
+                    V1_LEFT_RIGHT_BATTERY_LEVEL in supportInfo.functions ->
+                        add(SonyBatteryType.LEFT_RIGHT)
+                }
+                if (V1_CRADLE_BATTERY_LEVEL in supportInfo.functions) {
+                    add(SonyBatteryType.CRADLE)
+                }
+            }
+            SonyProtocolGeneration.V2 -> buildList {
+                when {
+                    hasV2Function(V2_LEFT_RIGHT_BATTERY_LEVEL, V2_LR_BATTERY_WITH_THRESHOLD) ->
+                        add(SonyBatteryType.LEFT_RIGHT)
+                    hasV2Function(V2_BATTERY_LEVEL, V2_BATTERY_WITH_THRESHOLD) ->
+                        add(SonyBatteryType.SINGLE)
+                }
+                if (hasV2Function(V2_CRADLE_BATTERY_LEVEL, V2_CRADLE_BATTERY_WITH_THRESHOLD)) {
+                    add(SonyBatteryType.CRADLE)
+                }
+            }
+        }
+    }
 
     fun topology(components: Set<BatteryComponent>): DeviceTopology = when {
         BatteryComponent.LEFT in components || BatteryComponent.RIGHT in components ->

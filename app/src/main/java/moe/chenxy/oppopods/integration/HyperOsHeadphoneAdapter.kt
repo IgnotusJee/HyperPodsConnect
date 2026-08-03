@@ -34,6 +34,9 @@ object HyperOsHeadphoneAdapter {
     fun setSpatialAudio(context: Context, platformMode: Int): String =
         execute(context, FeatureCommand.SetSpatialAudio(spatialAudioFromPlatform(platformMode)))
 
+    /** HyperOS uses this bit to choose between its three-part TWS and single-device UI. */
+    fun isTwsDevice(): Boolean = state.isTwsForHyperOs()
+
     fun noiseControlFromPlatform(mode: Int): NoiseControlMode = when (mode) {
         2 -> NoiseControlMode.NOISE_CANCELLATION
         3 -> NoiseControlMode.TRANSPARENCY
@@ -60,14 +63,7 @@ object HyperOsHeadphoneAdapter {
         val vocalEnhancement = state
             .feature(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT.name)
             ?.displayed?.toBooleanStrictOrNull() == true
-        values[7] = when (noise) {
-            "NOISE_CANCELLATION_SMART" -> "0103"
-            "NOISE_CANCELLATION_LIGHT" -> "0101"
-            "NOISE_CANCELLATION_MEDIUM" -> "0100"
-            "NOISE_CANCELLATION_DEEP" -> "0102"
-            "TRANSPARENCY" -> if (vocalEnhancement) "0201" else "0200"
-            else -> "0000"
-        }
+        values[7] = miuiAncLevel(noise, vocalEnhancement)
         values[8] = "true"
         values[11] = "00"
         values[13] = "00"
@@ -81,4 +77,24 @@ object HyperOsHeadphoneAdapter {
         val level = battery.level.coerceIn(0, 100)
         return (if (battery.charging) level or 128 else level).toString()
     }
+}
+
+internal fun HeadphoneUiState.isTwsForHyperOs(): Boolean {
+    if ("SINGLE" in batteries) return false
+    return when (topology) {
+        "EARBUDS_WITH_CASE", "EARBUDS_NO_CASE" -> true
+        "HEADBAND", "NECKBAND" -> false
+        else -> batteries.keys.any { it == "LEFT" || it == "RIGHT" || it == "CASE" } || deviceId == null
+    }
+}
+
+internal fun miuiAncLevel(noise: String?, vocalEnhancement: Boolean): String = when (noise) {
+    // Basic ANC is a real enabled state too. MIUI has no level-less code, so use its neutral
+    // 0100 level to select the ANC button without inventing a stronger Sony/OPPO intensity.
+    "NOISE_CANCELLATION", "NOISE_CANCELLATION_MEDIUM" -> "0100"
+    "NOISE_CANCELLATION_SMART" -> "0103"
+    "NOISE_CANCELLATION_LIGHT" -> "0101"
+    "NOISE_CANCELLATION_DEEP" -> "0102"
+    "TRANSPARENCY" -> if (vocalEnhancement) "0201" else "0200"
+    else -> "0000"
 }

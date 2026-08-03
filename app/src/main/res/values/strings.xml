@@ -89,12 +89,6 @@
     <string name="official_image_selected">Official device image (auto)</string>
     <string name="custom_image_default">Use default image</string>
     <string name="custom_image_restore_default">Restore default image</string>
-    <string name="import_melody_images">Import Images</string>
-    <string name="import_melody_images_summary">Verify the exact official image match</string>
-    <string name="import_melody_images_hint">The product and color identifiers are read from HeyTap Headset. No model-name fuzzy matching is used.</string>
-    <string name="import_melody_images_empty">No unique official image match was found for this device.</string>
-    <string name="import_melody_images_root_required">Please check ROOT permission.</string>
-    <string name="import_melody_images_action">Refresh Cache</string>
     <string name="theme_title">Theme</string>
     <string name="theme_follow_system">Follow System</string>
     <string name="theme_light">Light</string>
@@ -142,7 +136,7 @@
     <string name="fake_device_id_summary">Empty value falls back to 01010607.</string>
     <string name="notification_btn_disconnect">Disconnect</string>
     <string name="restart_scope_title">Restart Scope</string>
-    <string name="restart_scope_summary">Select apps to restart with root.</string>
+    <string name="restart_scope_summary">Select LSPosed scopes to restart.</string>
     <string name="restart_scope_success">Scope restarted</string>
     <string name="restart_scope_failed">Root restart failed</string>
     <string name="anc_implementation">ANC Compatibility Mode</string>

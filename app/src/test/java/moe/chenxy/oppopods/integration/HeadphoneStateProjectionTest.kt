@@ -5,6 +5,7 @@ import moe.chenxy.oppopods.ui.state.HeadphoneUiState
 import moe.chenxy.oppopods.ui.state.UiConnectionState
 import moe.chenxy.oppopods.ui.state.UiFeatureState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -39,6 +40,38 @@ class HeadphoneStateProjectionTest {
         assertEquals(3, projected.anc)
         assertEquals(true, projected.transparencyVocalEnhancement)
         assertEquals(2, projected.spatialAudioMode)
+    }
+
+    @Test
+    fun `single battery projects as a non TWS device`() {
+        val state = HeadphoneUiState(
+            deviceId = "sony:wh",
+            topology = "UNKNOWN",
+            batteries = mapOf("SINGLE" to BatteryPayload("SINGLE", 90, false)),
+        )
+
+        assertFalse(state.isTwsForHyperOs())
+    }
+
+    @Test
+    fun `earbud components project as TWS without model name checks`() {
+        val state = HeadphoneUiState(
+            deviceId = "sony:buds",
+            topology = "UNKNOWN",
+            batteries = mapOf(
+                "LEFT" to BatteryPayload("LEFT", 80, false),
+                "RIGHT" to BatteryPayload("RIGHT", 70, false),
+            ),
+        )
+
+        assertTrue(state.isTwsForHyperOs())
+    }
+
+    @Test
+    fun `basic ANC maps to an enabled MIUI ANC level`() {
+        assertEquals("0100", miuiAncLevel("NOISE_CANCELLATION", false))
+        assertEquals("0200", miuiAncLevel("TRANSPARENCY", false))
+        assertEquals("0000", miuiAncLevel("OFF", false))
     }
 
     private fun feature(id: String, value: String) = UiFeatureState(

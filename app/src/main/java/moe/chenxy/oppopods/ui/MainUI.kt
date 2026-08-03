@@ -48,6 +48,7 @@ import moe.chenxy.oppopods.OppoPodsApp
 import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.config.DeviceArtworkSelector
+import moe.chenxy.oppopods.config.DeviceArtworkSource
 import moe.chenxy.oppopods.config.PodImagePrefs
 import moe.chenxy.oppopods.config.PodImageResource
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
@@ -567,6 +568,7 @@ fun MainUI(
         name: String,
         selector: DeviceArtworkSelector,
         images: Map<PodImageResource, ByteArray>,
+        source: DeviceArtworkSource = DeviceArtworkSource.OFFICIAL_CDN,
     ) {
         earphonePrefs.value = PodImagePrefs.saveOfficialImages(
             context = context,
@@ -576,6 +578,7 @@ fun MainUI(
             name = name,
             selector = selector.copy(firmware = headphoneUiState.firmware),
             images = images,
+            source = source,
         )
     }
 
@@ -593,27 +596,23 @@ fun MainUI(
         }
         val resolved = withContext(Dispatchers.IO) {
             when {
-                state.vendorId.equals("oppo", ignoreCase = true) -> {
-                    val candidate = RootManager.resolveMelodyImageCandidate(state.title, address)
-                        ?: return@withContext null
-                    val images = RootManager.readMelodyImages(candidate) ?: return@withContext null
-                    DeviceArtworkSelector(
-                        vendorId = "oppo",
-                        productId = candidate.productId,
-                        colorId = candidate.colorId,
-                        model = candidate.model,
-                    ) to images
-                }
                 state.vendorId.equals("sony", ignoreCase = true) -> {
-                    val candidate = RootManager.resolveSonyImageCandidate(state.title, address)
+                    val network = RootManager.resolveSonyOfficialNetworkCandidate(state.title)
                         ?: return@withContext null
-                    val images = RootManager.readSonyImages(candidate) ?: return@withContext null
-                    candidate.selector to images
+                    val images = RootManager.readSonyOfficialNetworkImages(network)
+                        ?: return@withContext null
+                    network.selector to images
                 }
                 else -> null
             }
         } ?: return@LaunchedEffect
-        saveOfficialPodImages(address, state.title, resolved.first, resolved.second)
+        saveOfficialPodImages(
+            address,
+            state.title,
+            resolved.first,
+            resolved.second,
+            DeviceArtworkSource.OFFICIAL_CDN,
+        )
     }
 
     fun restartScopes(packages: List<String>) {
@@ -621,7 +620,7 @@ fun MainUI(
         restartingScopes = true
         coroutineScope.launch {
             val success = withContext(Dispatchers.IO) {
-                RootManager.restartPackages(packages)
+                RootManager.restartPackages(context, packages)
             }
             restartingScopes = false
             showRestartScopeDialog = false
@@ -658,7 +657,7 @@ fun MainUI(
                 mainTitle = mainTitle.value,
                 displayTitle = displayTitle,
                 displayBattery = displayBattery,
-                displayTopology = headphoneUiState.topology,
+                displayTopology = headphoneUiState.batteryDisplayTopology,
                 displayWearStatus = displayWearStatus,
                 displayAnc = displayAnc,
                 onAncModeChange = { setAncMode(it) },
@@ -777,19 +776,6 @@ fun MainUI(
                 onOpenSystemHeadsetSettings = { openSystemHeadsetSettings() },
                 onSavePodImages = { address, name, images, clearedImages ->
                     savePodImages(address, name, images, clearedImages)
-                },
-                onSavePodImageBytes = { address, name, candidate, images ->
-                    saveOfficialPodImages(
-                        address = address,
-                        name = name,
-                        selector = DeviceArtworkSelector(
-                            vendorId = "oppo",
-                            productId = candidate.productId,
-                            colorId = candidate.colorId,
-                            model = candidate.model,
-                        ),
-                        images = images,
-                    )
                 },
             )
         }

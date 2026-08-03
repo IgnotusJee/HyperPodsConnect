@@ -214,7 +214,7 @@ private fun PodHeroArtwork(
                 if (imageView.drawable !== drawable) imageView.setImageDrawable(drawable)
                 (drawable as? Animatable)?.start()
             } else {
-                imageView.setImageResource(R.drawable.img_box)
+                imageView.setImageResource(R.drawable.ic_generic_headphones)
             }
         },
     )
