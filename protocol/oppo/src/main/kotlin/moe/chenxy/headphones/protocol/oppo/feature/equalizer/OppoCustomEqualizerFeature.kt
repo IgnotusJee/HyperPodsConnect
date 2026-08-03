@@ -34,8 +34,8 @@ object OppoCustomEqualizerFeature {
     private const val SLOT_PREFIX = "oppo:eq:custom:"
     const val CREATION_SLOT_ID = "oppo:eq:custom:new"
 
-    /** HeyMelody Air5s customEqUiVersion=2 creation template, confirmed in the official UI. */
-    private val AIR5S_FREQUENCIES_HZ = listOf(
+    /** HeyMelody customEqUiVersion=2 fallback when an empty device has no slot to describe itself. */
+    private val DEFAULT_FREQUENCIES_HZ = listOf(
         31,
         62,
         125,
@@ -137,9 +137,9 @@ object OppoCustomEqualizerFeature {
         slot.takeIf { it.eqId == 0 && !it.selected }
             ?.let { encode(ACTION_ADD, it, it.gains) }
 
-    /** Creates the official ten-band Air5s draft; the device assigns its persistent id. */
-    fun createAir5s(curve: EqualizerCurve): ByteArray? {
-        if (!air5sCreationSpec().accepts(curve)) return null
+    /** Creates the official ten-band protocol draft; the device assigns its persistent id. */
+    fun create(curve: EqualizerCurve): ByteArray? {
+        if (!creationSpec().accepts(curve)) return null
         return add(
             OppoCustomEqualizerSlot(
                 selected = false,
@@ -147,7 +147,7 @@ object OppoCustomEqualizerFeature {
                 maxGain = 6,
                 eqId = 0,
                 name = "HyperPods Custom",
-                frequenciesHz = AIR5S_FREQUENCIES_HZ,
+                frequenciesHz = DEFAULT_FREQUENCIES_HZ,
                 gains = curve.gains,
             ),
         )
@@ -178,8 +178,8 @@ object OppoCustomEqualizerFeature {
             writableSlotIds = if (writable) setOf(slot.slotId) else emptySet(),
         )
 
-    fun air5sCreationSpec(): EqualizerCurveSpec = EqualizerCurveSpec(
-        bands = AIR5S_FREQUENCIES_HZ.map { frequency ->
+    fun creationSpec(): EqualizerCurveSpec = EqualizerCurveSpec(
+        bands = DEFAULT_FREQUENCIES_HZ.map { frequency ->
             EqualizerBandSpec(
                 id = "oppo:eq:frequency:$frequency",
                 displayName = formatFrequency(frequency),

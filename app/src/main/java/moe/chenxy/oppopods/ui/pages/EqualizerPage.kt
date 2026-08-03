@@ -58,7 +58,7 @@ internal fun EqualizerPage(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
-    val model = buildEqualizerUiModel(vendorId, deviceName, feature, curveState)
+    val model = buildEqualizerUiModel(vendorId, feature, curveState)
     var editingCustom by remember { mutableStateOf<UiFeatureOption?>(null) }
     var deleteTarget by remember { mutableStateOf<UiFeatureOption?>(null) }
     var customName by remember { mutableStateOf("") }
@@ -83,7 +83,7 @@ internal fun EqualizerPage(
             Card {
                 model.presets.forEach { option ->
                     EqualizerOptionRow(
-                        label = equalizerOptionLabel(model.isAir5s, option),
+                        label = option.label,
                         selected = option.value == model.selectedId,
                         editable = option.value in model.editablePresetIds,
                         enabled = feature.writable,
@@ -101,7 +101,7 @@ internal fun EqualizerPage(
                 Card {
                     model.customPresets.forEach { option ->
                         EqualizerOptionRow(
-                            label = equalizerOptionLabel(model.isAir5s, option),
+                            label = option.label,
                             selected = option.value == model.selectedId,
                             editable = true,
                             enabled = feature.writable,
@@ -141,7 +141,7 @@ internal fun EqualizerPage(
                     EqualizerCurveEditor(
                         state = curveState,
                         curve = editorCurve,
-                        useAir5sLayout = model.isAir5s,
+                        useOppoLayout = model.layout == EqualizerBrandLayout.OPPO,
                         useSonyLayout = model.layout == EqualizerBrandLayout.SONY,
                         enabled = feature.writable && !curveState.stale,
                         onCurveChange = onCurveChange,
@@ -292,25 +292,10 @@ private fun EqualizerOptionRow(
 private const val MAX_CUSTOM_EQ_NAME_BYTES = 128
 
 @Composable
-private fun equalizerOptionLabel(
-    isAir5s: Boolean,
-    option: UiFeatureOption,
-): String = if (isAir5s) {
-    when (option.value) {
-        "oppo:0" -> stringResource(R.string.eq_air5s_ultimate_sound)
-        "oppo:2" -> stringResource(R.string.eq_air5s_pure_vocals)
-        "oppo:1" -> stringResource(R.string.eq_air5s_powerful_bass)
-        else -> option.label
-    }
-} else {
-    option.label
-}
-
-@Composable
 private fun EqualizerCurveEditor(
     state: UiEqualizerCurveState,
     curve: EqualizerCurve,
-    useAir5sLayout: Boolean,
+    useOppoLayout: Boolean,
     useSonyLayout: Boolean,
     enabled: Boolean,
     onCurveChange: (EqualizerCurve) -> Unit,
@@ -342,7 +327,7 @@ private fun EqualizerCurveEditor(
             modifier = Modifier.padding(bottom = 8.dp),
         )
         when {
-            useAir5sLayout -> VerticalEqualizerBands(
+            useOppoLayout -> VerticalEqualizerBands(
                 state = state,
                 gains = gains,
                 indices = state.spec.bands.indices.toList(),

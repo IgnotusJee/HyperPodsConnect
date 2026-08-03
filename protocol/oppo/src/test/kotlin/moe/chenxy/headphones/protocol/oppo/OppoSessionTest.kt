@@ -379,6 +379,11 @@ private class FakeOppoTransport(
         val responsePayload = when (request.command) {
             OppoCommand.QUERY_CAPABILITY -> ByteArray(9).apply {
                 this[0] = 0
+                // Official zero-based capability bitmap: firmware, battery,
+                // switch-set, ANC, EQ and batch notification commands.
+                this[1] = 0x83.toByte()
+                this[2] = 0x05
+                this[3] = 0x40
                 if (customEqSupported) this[5] = 0x04
             }
             OppoCommand.QUERY_NOTIFICATION_SUPPORT -> byteArrayOf(0, 3, 1, 2, 3)

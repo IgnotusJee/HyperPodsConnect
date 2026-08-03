@@ -140,6 +140,7 @@ class SonySession(
     private var v1NoiseControlCapability: SonyV1NoiseControlCapability? = null
     private var v1EqualizerCapability: SonyV1EqualizerCapability? = null
     private var v2EqualizerCapability: SonyV2EqualizerCapability? = null
+    private val observedBatteryTypes = linkedSetOf<SonyBatteryType>()
 
     @Volatile
     private var noiseControlState: SonyNoiseControlState? = null
@@ -246,7 +247,7 @@ class SonySession(
         transition(SessionEvent.CapabilitiesLoaded)
 
         var batteryObserved = false
-        SonyProfile.batteryTypes(model).forEach { type ->
+        SonyProfile.batteryProbeTypes.forEach { type ->
             val response = exchange(
                 SonyBatteryFeature.query(protocol.generation, type),
                 expectedCommand = if (protocol.generation == SonyProtocolGeneration.V2) {
@@ -257,6 +258,7 @@ class SonySession(
             )
             if (response?.let { SonyBatteryFeature.parse(protocol.generation, it) } != null) {
                 batteryObserved = true
+                observedBatteryTypes += type
             }
         }
         if (!batteryObserved) {
@@ -272,7 +274,7 @@ class SonySession(
                 responsePredicate = SonyNoiseControlFeature::matches,
             )
             noiseControlObserved = response?.let(SonyNoiseControlFeature::parse) != null
-        } else if (SonyProfile.shouldProbeV1Controls(protocol, model, firmware)) {
+        } else if (SonyProfile.shouldQueryV1NoiseControl(protocol)) {
             v1NoiseControlCapability = exchange(
                 SonyV1NoiseControlFeature.queryCapability(),
                 SonyCommand.NCASM_RET_CAPABILITY,
@@ -335,6 +337,25 @@ class SonySession(
             },
             equalizerValueLabels = v2EqualizerCapability?.valueLabels
                 ?: SonyEqualizerFeature.valueLabels,
+            batteryComponents = _state.value.batteries.keys,
+            ambientLevelRange = when (protocol.generation) {
+                SonyProtocolGeneration.V1 -> v1NoiseControlCapability
+                    ?.takeIf {
+                        it.ambientSettingType ==
+                            moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1AmbientSettingType.LEVEL_ADJUSTMENT
+                    }
+                    ?.ambientSteps
+                    ?.values
+                    ?.maxOrNull()
+                    ?.let { SonyV1NoiseControlFeature.AMBIENT_LEVEL_MIN..it }
+                SonyProtocolGeneration.V2 ->
+                    SonyNoiseControlFeature.AMBIENT_LEVEL_MIN..SonyNoiseControlFeature.AMBIENT_LEVEL_MAX
+            }.takeIf { noiseControlObserved },
+            transparencyVocalEnhancementSupported = noiseControlObserved && when (protocol.generation) {
+                SonyProtocolGeneration.V1 -> v1NoiseControlCapability?.ambientSteps?.keys
+                    ?.containsAll(SonyAmbientSoundMode.entries) == true
+                SonyProtocolGeneration.V2 -> true
+            },
         )
         transition(SessionEvent.InitialStateSynchronized)
     }
@@ -355,7 +376,7 @@ class SonySession(
             )
         }
         if (FeatureId.BATTERY in requested) {
-            SonyProfile.batteryTypes(_profile.value?.model).forEach { type ->
+            observedBatteryTypes.forEach { type ->
                 exchange(
                     SonyBatteryFeature.query(generation, type),
                     if (generation == SonyProtocolGeneration.V2) {
@@ -1305,9 +1326,13 @@ class SonySession(
             val gattEligible =
                 TransportKind.BLE_GATT in candidate.availableTransports &&
                     (advertisedGatt || bondedNameRoute)
+            val sppUuid = resolveServiceUuid(candidate)
             if (
                 gattEligible &&
-                candidate.displayName.equals(LINKBUDS_S_MODEL, ignoreCase = true)
+                (
+                    advertisedGatt ||
+                        sppUuid?.equals(SonyProfile.SONY_SPP_V2_UUID, ignoreCase = true) == true
+                    )
             ) {
                 return SonyTransportRoute(
                     TransportKind.BLE_GATT,
@@ -1320,7 +1345,6 @@ class SonySession(
                     },
                 )
             }
-            val sppUuid = resolveServiceUuid(candidate)
             if (sppUuid != null && TransportKind.CLASSIC_SPP in candidate.availableTransports) {
                 return SonyTransportRoute(
                     TransportKind.CLASSIC_SPP,
@@ -1343,8 +1367,6 @@ class SonySession(
             }
             return null
         }
-
-        private const val LINKBUDS_S_MODEL = "LinkBuds S"
 
         fun isSonyNameHint(name: String?): Boolean {
             val value = name.orEmpty()

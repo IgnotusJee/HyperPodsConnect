@@ -19,20 +19,16 @@ object DeviceCapabilityOverride {
 }
 
 /**
- * Legacy UI adapter over the protocol-owned compatibility registry.
- *
- * Keeping these functions avoids an IPC/UI migration in Phase 4 while ensuring
- * the model table has one authority.
+ * Legacy adapter for explicit user overrides. Automatic discovery belongs to
+ * the live protocol session and never consumes a Bluetooth model name.
  */
 fun detectDeviceCapabilities(
-    deviceName: String,
     adaptiveOverride: Int = DeviceCapabilityOverride.AUTO,
     spatialAudioOverride: Int = DeviceCapabilityOverride.AUTO,
     spatialSoundSwitchOverride: Int = DeviceCapabilityOverride.AUTO,
     ancImplementationOverride: Int = DeviceCapabilityOverride.AUTO,
 ): DeviceCapabilities {
     val profile = OppoCompatibilityRegistry.resolve(
-        deviceName,
         OppoCompatibilityOverrides(
             adaptiveSupported = adaptiveOverride.asBooleanOverride(),
             spatialAudioSupported = spatialAudioOverride.asBooleanOverride(),
@@ -55,18 +51,6 @@ fun detectDeviceCapabilities(
         },
     )
 }
-
-fun isAdaptiveSupportedByName(deviceName: String): Boolean =
-    OppoCompatibilityRegistry.resolve(deviceName).adaptiveSupported
-
-fun isSpatialAudioSupportedByName(deviceName: String): Boolean =
-    OppoCompatibilityRegistry.resolve(deviceName).spatialAudioSupported
-
-fun isSpatialSoundSwitchSupportedByName(deviceName: String): Boolean =
-    OppoCompatibilityRegistry.resolve(deviceName).spatialSoundSwitchSupported
-
-fun isLegacyAncDeviceByName(deviceName: String): Boolean =
-    OppoCompatibilityRegistry.resolve(deviceName).ancEncoding == OppoAncEncoding.COMPATIBLE
 
 private fun Int.asBooleanOverride(): Boolean? = when (this) {
     DeviceCapabilityOverride.FORCE_ENABLED -> true

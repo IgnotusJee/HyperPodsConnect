@@ -3,6 +3,7 @@ package moe.chenxy.headphones.protocol.sony.profile
 import moe.chenxy.headphones.core.device.DeviceCandidate
 import moe.chenxy.headphones.core.device.TransportKind
 import moe.chenxy.headphones.core.device.VendorId
+import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.DeviceProfile
 import moe.chenxy.headphones.core.feature.DeviceTopology
@@ -11,8 +12,6 @@ import moe.chenxy.headphones.core.feature.EqualizerCurveSpec
 import moe.chenxy.headphones.core.feature.FeatureCapability
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.ProtocolDescriptor
-import moe.chenxy.headphones.core.profile.CompatibilityMatrix
-import moe.chenxy.headphones.core.profile.CompatibilityMatrixEntry
 import moe.chenxy.headphones.core.transport.GattMtuFailurePolicy
 import moe.chenxy.headphones.core.transport.GattPreparationStep
 import moe.chenxy.headphones.core.transport.GattWriteMode
@@ -25,27 +24,6 @@ import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeatur
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
 
 object SonyProfile {
-    val compatibilityMatrix = CompatibilityMatrix(
-        listOf(
-            CompatibilityMatrixEntry(
-                vendorId = VendorId.SONY,
-                model = "WH-1000XM4",
-                firmware = "2.5.1",
-                transport = TransportKind.CLASSIC_SPP,
-                level = CompatibilityLevel.STABLE,
-                evidence = "Phase 13 SPP reversible controls and 20-cycle stability gate",
-            ),
-            CompatibilityMatrixEntry(
-                vendorId = VendorId.SONY,
-                model = "LinkBuds S",
-                firmware = "4.2.1",
-                transport = TransportKind.BLE_GATT,
-                level = CompatibilityLevel.STABLE,
-                evidence = "Phase 9-10 two-phone read and reversible-control validation",
-            ),
-        ),
-    )
-
     fun initial(
         candidate: DeviceCandidate,
         transportKind: TransportKind,
@@ -55,7 +33,7 @@ object SonyProfile {
         vendorId = VendorId.SONY,
         model = candidate.displayName,
         firmware = null,
-        topology = topology(candidate.displayName),
+        topology = DeviceTopology.UNKNOWN,
         transport = transportKind,
         protocol = ProtocolDescriptor(
             name = "Sony Tandem/MDR",
@@ -76,13 +54,14 @@ object SonyProfile {
         equalizerPresetIds: Set<String> = SonyEqualizerFeature.allowedPresetIds,
         equalizerCurveSpec: EqualizerCurveSpec? = null,
         equalizerValueLabels: Map<String, String> = SonyEqualizerFeature.valueLabels,
+        batteryComponents: Set<BatteryComponent> = emptySet(),
+        ambientLevelRange: IntRange? = null,
+        transparencyVocalEnhancementSupported: Boolean = false,
     ): DeviceProfile {
         val noiseControlWritable = noiseControlReadVerified &&
-            isNoiseControlWriteWhitelisted(
+            supportsCapabilityGatedNoiseControlWrites(
                 initial.transport,
                 protocolInfo,
-                model,
-                firmware,
                 supportInfo,
             )
         val equalizerWritable = equalizerReadVerified &&
@@ -100,16 +79,10 @@ object SonyProfile {
                 availableOnTransports = setOf(initial.transport),
                 requiresReadback = true,
                 allowedValues = setOf("OFF", "NOISE_CANCELLATION", "TRANSPARENCY"),
-                source = if (noiseControlWritable) {
-                    if (protocolInfo.generation == SonyProtocolGeneration.V1) {
-                        "WH-1000XM4 2.5.1 / SPP / table1 capability-gated evidence"
-                    } else {
-                        "LinkBuds S 4.2.1 / GATT / table1 official-app dynamic evidence"
-                    }
-                } else {
-                    "Sony NC/ASM parameter 0x17 read verified; writes not whitelisted"
-                },
+                source = "Sony table1 NC/ASM capability and parameter read verified",
             )
+        }
+        if (noiseControlReadVerified && ambientLevelRange != null) {
             capabilities[FeatureId.AMBIENT_SOUND_LEVEL] = FeatureCapability(
                 featureId = FeatureId.AMBIENT_SOUND_LEVEL,
                 canRead = true,
@@ -117,20 +90,11 @@ object SonyProfile {
                 evidence = EvidenceLevel.VERIFIED,
                 availableOnTransports = setOf(initial.transport),
                 requiresReadback = true,
-                allowedValues = (
-                    SonyNoiseControlFeature.AMBIENT_LEVEL_MIN..
-                        SonyNoiseControlFeature.AMBIENT_LEVEL_MAX
-                    ).map(Int::toString).toSet(),
-                source = if (noiseControlWritable) {
-                    if (protocolInfo.generation == SonyProtocolGeneration.V1) {
-                        "WH-1000XM4 2.5.1 / SPP / table1 ambient-level device evidence"
-                    } else {
-                        "LinkBuds S 4.2.1 / GATT / table1 ambient-level dynamic evidence"
-                    }
-                } else {
-                    "Sony NC/ASM ambient level read verified; writes not whitelisted"
-                },
+                allowedValues = ambientLevelRange.map(Int::toString).toSet(),
+                source = "Sony table1 NC/ASM device-reported ambient range",
             )
+        }
+        if (noiseControlReadVerified && transparencyVocalEnhancementSupported) {
             capabilities[FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT] = FeatureCapability(
                 featureId = FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
                 canRead = true,
@@ -139,15 +103,7 @@ object SonyProfile {
                 availableOnTransports = setOf(initial.transport),
                 requiresReadback = true,
                 allowedValues = setOf("false", "true"),
-                source = if (noiseControlWritable) {
-                    if (protocolInfo.generation == SonyProtocolGeneration.V1) {
-                        "WH-1000XM4 2.5.1 / SPP / table1 ambient NORMAL-VOICE device evidence"
-                    } else {
-                        "LinkBuds S 4.2.1 / GATT / table1 ambient NORMAL-VOICE dynamic evidence"
-                    }
-                } else {
-                    "Sony NC/ASM ambient sub-mode read verified; writes not whitelisted"
-                },
+                source = "Sony table1 NC/ASM NORMAL/VOICE modes verified",
             )
         }
         if (equalizerReadVerified) {
@@ -171,7 +127,7 @@ object SonyProfile {
         return initial.copy(
             model = model,
             firmware = firmware,
-            topology = topology(model),
+            topology = topology(batteryComponents),
             protocol = initial.protocol.copy(
                 version = protocolInfo.version?.toString()
                     ?: protocolInfo.generation.name.lowercase(),
@@ -182,12 +138,7 @@ object SonyProfile {
             ),
             features = capabilities,
             compatibilityLevel = if (noiseControlWritable || equalizerWritable) {
-                compatibilityMatrix.resolve(
-                    VendorId.SONY,
-                    model,
-                    firmware,
-                    initial.transport,
-                )?.level ?: CompatibilityLevel.CONTROLLED
+                CompatibilityLevel.CONTROLLED
             } else {
                 CompatibilityLevel.READ_ONLY
             },
@@ -205,33 +156,21 @@ object SonyProfile {
     fun shouldQueryEqualizer(protocolInfo: SonyProtocolInfo): Boolean =
         protocolInfo.generation == SonyProtocolGeneration.V2 && protocolInfo.table1Enabled
 
-    fun shouldProbeV1Controls(
-        protocolInfo: SonyProtocolInfo,
-        model: String,
-        firmware: String,
-    ): Boolean =
-        protocolInfo.generation == SonyProtocolGeneration.V1 &&
-            protocolInfo.table1Enabled &&
-            model == "WH-1000XM4" &&
-            firmware == "2.5.1"
+    fun shouldQueryV1NoiseControl(protocolInfo: SonyProtocolInfo): Boolean =
+        protocolInfo.generation == SonyProtocolGeneration.V1 && protocolInfo.table1Enabled
 
     fun shouldQueryV1Equalizer(protocolInfo: SonyProtocolInfo): Boolean =
         protocolInfo.generation == SonyProtocolGeneration.V1 && protocolInfo.table1Enabled
 
-    fun isNoiseControlWriteWhitelisted(
+    fun supportsCapabilityGatedNoiseControlWrites(
         transportKind: TransportKind,
         protocolInfo: SonyProtocolInfo,
-        model: String,
-        firmware: String,
         supportInfo: SonySupportInfo,
-    ): Boolean = when {
-        transportKind == TransportKind.BLE_GATT &&
-            model == "LinkBuds S" &&
-            firmware == "4.2.1" -> shouldQueryNoiseControl(protocolInfo, supportInfo)
-        transportKind == TransportKind.CLASSIC_SPP &&
-            model == "WH-1000XM4" &&
-            firmware == "2.5.1" -> shouldProbeV1Controls(protocolInfo, model, firmware)
-        else -> false
+    ): Boolean = protocolInfo.table1Enabled && when (protocolInfo.generation) {
+        SonyProtocolGeneration.V1 -> transportKind == TransportKind.CLASSIC_SPP
+        SonyProtocolGeneration.V2 ->
+            SonyNoiseControlFeature.FUNCTION_ID in supportInfo.functions &&
+                (transportKind == TransportKind.CLASSIC_SPP || transportKind == TransportKind.BLE_GATT)
     }
 
     fun supportsCapabilityGatedEqualizerWrites(
@@ -243,21 +182,16 @@ object SonyProfile {
             transportKind == TransportKind.CLASSIC_SPP || transportKind == TransportKind.BLE_GATT
     }
 
-    fun batteryTypes(model: String?): List<SonyBatteryType> = when (topology(model)) {
-        DeviceTopology.EARBUDS_WITH_CASE ->
-            listOf(SonyBatteryType.LEFT_RIGHT, SonyBatteryType.CRADLE)
-        else -> listOf(SonyBatteryType.SINGLE)
-    }
+    val batteryProbeTypes: List<SonyBatteryType> = SonyBatteryType.entries
 
-    fun topology(model: String?): DeviceTopology {
-        val normalized = model.orEmpty().uppercase()
-        return when {
-            normalized.startsWith("WF-") || "LINKBUDS" in normalized ->
+    fun topology(components: Set<BatteryComponent>): DeviceTopology = when {
+        BatteryComponent.LEFT in components || BatteryComponent.RIGHT in components ->
+            if (BatteryComponent.CASE in components) {
                 DeviceTopology.EARBUDS_WITH_CASE
-            normalized.startsWith("WI-") -> DeviceTopology.NECKBAND
-            normalized.startsWith("WH-") -> DeviceTopology.HEADBAND
-            else -> DeviceTopology.UNKNOWN
-        }
+            } else {
+                DeviceTopology.EARBUDS_NO_CASE
+            }
+        else -> DeviceTopology.UNKNOWN
     }
 
     fun gattSpec(): TransportSpec.Gatt = TransportSpec.Gatt(

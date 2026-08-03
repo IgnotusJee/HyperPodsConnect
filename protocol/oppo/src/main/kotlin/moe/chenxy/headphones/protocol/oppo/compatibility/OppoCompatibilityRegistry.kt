@@ -10,8 +10,6 @@ import moe.chenxy.headphones.core.feature.EvidenceLevel
 import moe.chenxy.headphones.core.feature.FeatureCapability
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.ProtocolDescriptor
-import moe.chenxy.headphones.core.profile.CompatibilityMatrix
-import moe.chenxy.headphones.core.profile.CompatibilityMatrixEntry
 import moe.chenxy.headphones.protocol.oppo.feature.OppoAncEncoding
 
 enum class OppoLowLatencyStrategy {
@@ -33,20 +31,15 @@ data class OppoCompatibilityProfile(
     val spatialSoundSwitchSupported: Boolean,
     val ancEncoding: OppoAncEncoding,
     val lowLatencyStrategy: OppoLowLatencyStrategy,
-    val customEqualizerCreationSupported: Boolean,
-    val customEqualizerMaxSlots: Int,
     val equalizerValues: Map<String, String>,
     internal val forcedFeatures: Set<FeatureId>,
 )
 
 /**
- * The only model-name compatibility table in the OPPO protocol.
- *
- * Generic family features start as [EvidenceLevel.ASSUMED] and are promoted by
- * query replies. Model-table matches and explicit user overrides are
- * [EvidenceLevel.ADVERTISED]: they are strong enough to permit the legacy
- * model-specific controls, but still remain distinguishable from a verified
- * device response.
+ * Builds the OPPO protocol baseline without inspecting the Bluetooth name.
+ * Device responses and the official capability bitmap promote individual
+ * features later. Explicit overrides exist only for protocol variants that
+ * cannot be safely distinguished from a read-only state report.
  */
 object OppoCompatibilityRegistry {
 
@@ -60,47 +53,9 @@ object OppoCompatibilityRegistry {
         "oppo:7" to "Dynaudio",
     )
 
-    /** HeyMelody whitelist 06C810: mode types 26, 28 and 29. */
-    private val air5sEqualizerValues = linkedMapOf(
-        "oppo:0" to "Ultimate sound",
-        "oppo:2" to "Pure vocals",
-        "oppo:1" to "Powerful bass",
-    )
-
-    val compatibilityMatrix = CompatibilityMatrix(
-        listOf(
-            CompatibilityMatrixEntry(
-                vendorId = VendorId.OPPO,
-                model = "OPPO Enco Air5s",
-                firmware = "163.163.102",
-                transport = TransportKind.CLASSIC_SPP,
-                level = CompatibilityLevel.STABLE,
-                evidence = "Phase 0-7 device captures and 20-cycle session validation",
-            ),
-        ),
-    )
-
-    private val adaptiveModels = setOf(
-        "OPPO Enco Free4",
-        "OPPO Enco Free4 丹拿版",
-    )
-    private val spatialAudioModels = setOf("OPPO Enco X3")
-    private val spatialSwitchModels = setOf(
-        "OPPO Enco Free4",
-        "OPPO Enco Free4 丹拿版",
-        "OPPO Enco Air5",
-        // Verified on the Phase 0 device capture; listed explicitly so a future
-        // "Air50" cannot inherit Air5 support through substring matching.
-        "OPPO Enco Air5s",
-    )
-    private val compatibleAncModels = setOf("OPPO Enco Air2 Pro")
-    private val customEqualizerCreationModels = setOf("OPPO Enco Air5s")
-
     fun resolve(
-        modelName: String?,
         overrides: OppoCompatibilityOverrides = OppoCompatibilityOverrides(),
     ): OppoCompatibilityProfile {
-        val name = modelName.orEmpty()
         val forced = buildSet {
             if (overrides.adaptiveSupported != null) add(FeatureId.NOISE_CONTROL)
             if (overrides.spatialAudioSupported != null) add(FeatureId.SPATIAL_AUDIO)
@@ -108,27 +63,15 @@ object OppoCompatibilityRegistry {
         }
         return OppoCompatibilityProfile(
             adaptiveSupported = overrides.adaptiveSupported
-                ?: matches(name, adaptiveModels),
+                ?: false,
             spatialAudioSupported = overrides.spatialAudioSupported
-                ?: matches(name, spatialAudioModels),
+                ?: false,
             spatialSoundSwitchSupported = overrides.spatialSoundSwitchSupported
-                ?: matches(name, spatialSwitchModels),
+                ?: false,
             ancEncoding = overrides.ancEncoding
-                ?: if (matches(name, compatibleAncModels)) {
-                    OppoAncEncoding.COMPATIBLE
-                } else {
-                    OppoAncEncoding.STANDARD
-                },
+                ?: OppoAncEncoding.STANDARD,
             lowLatencyStrategy = overrides.lowLatencyStrategy,
-            customEqualizerCreationSupported = matches(name, customEqualizerCreationModels),
-            // HeyMelody CustomEqFragment defaults to three when the Air5s
-            // whitelist does not provide an explicit customEqMax value.
-            customEqualizerMaxSlots = if (matches(name, customEqualizerCreationModels)) 3 else 0,
-            equalizerValues = if (matches(name, customEqualizerCreationModels)) {
-                air5sEqualizerValues
-            } else {
-                genericEqualizerValues
-            },
+            equalizerValues = genericEqualizerValues,
             forcedFeatures = forced,
         )
     }
@@ -171,15 +114,11 @@ object OppoCompatibilityRegistry {
         }
 
         val features = buildMap {
-            put(FeatureId.BATTERY, capability(FeatureId.BATTERY, true, false))
-            put(FeatureId.WEAR_DETECTION, capability(FeatureId.WEAR_DETECTION, true, false))
+            put(FeatureId.BATTERY, capability(FeatureId.BATTERY, false, false))
+            put(FeatureId.WEAR_DETECTION, capability(FeatureId.WEAR_DETECTION, false, false))
             val noiseControlValues = linkedMapOf(
                 "OFF" to "Off",
                 "NOISE_CANCELLATION" to "Noise cancellation",
-                "NOISE_CANCELLATION_SMART" to "Smart",
-                "NOISE_CANCELLATION_LIGHT" to "Light",
-                "NOISE_CANCELLATION_MEDIUM" to "Medium",
-                "NOISE_CANCELLATION_DEEP" to "Deep",
                 "TRANSPARENCY" to "Transparency",
             ).apply {
                 if (compatibility.adaptiveSupported) put("ADAPTIVE", "Adaptive")
@@ -188,29 +127,29 @@ object OppoCompatibilityRegistry {
                 FeatureId.NOISE_CONTROL,
                 capability(
                     FeatureId.NOISE_CONTROL,
-                    true,
-                    true,
+                    false,
+                    false,
                     allowedValues = noiseControlValues.keys,
                     valueLabels = noiseControlValues,
                 ),
             )
             put(
                 FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
-                capability(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT, true, true),
+                capability(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT, false, false),
             )
             val equalizerValues = compatibility.equalizerValues
             put(
                 FeatureId.EQUALIZER,
                 capability(
                     FeatureId.EQUALIZER,
-                    true,
-                    true,
+                    false,
+                    false,
                     allowedValues = equalizerValues.keys,
                     valueLabels = equalizerValues,
                 ),
             )
-            put(FeatureId.LOW_LATENCY, capability(FeatureId.LOW_LATENCY, true, true))
-            put(FeatureId.DUAL_DEVICE_CONNECTION, capability(FeatureId.DUAL_DEVICE_CONNECTION, true, true))
+            put(FeatureId.LOW_LATENCY, capability(FeatureId.LOW_LATENCY, false, false))
+            put(FeatureId.DUAL_DEVICE_CONNECTION, capability(FeatureId.DUAL_DEVICE_CONNECTION, false, false))
             put(
                 FeatureId.SPATIAL_AUDIO,
                 capability(
@@ -235,7 +174,7 @@ object OppoCompatibilityRegistry {
                     advertised = compatibility.spatialSoundSwitchSupported,
                 ),
             )
-            put(FeatureId.FIRMWARE_VERSION, capability(FeatureId.FIRMWARE_VERSION, true, false))
+            put(FeatureId.FIRMWARE_VERSION, capability(FeatureId.FIRMWARE_VERSION, false, false))
         }
         return DeviceProfile(
             identity = candidate.identity,
@@ -253,22 +192,28 @@ object OppoCompatibilityRegistry {
     fun withEvidence(
         profile: DeviceProfile,
         verified: Set<FeatureId>,
+        writable: Set<FeatureId> = emptySet(),
         refuted: Set<FeatureId> = emptySet(),
         firmware: String? = profile.firmware,
     ): DeviceProfile {
         val features = profile.features.mapValues { (id, capability) ->
             when (id) {
-                in verified -> capability.copy(evidence = EvidenceLevel.VERIFIED, source = "device-response")
-                in refuted -> capability.copy(evidence = EvidenceLevel.REFUTED, source = "device-omission")
+                in verified -> capability.copy(
+                    canRead = true,
+                    canWrite = id in writable,
+                    evidence = EvidenceLevel.VERIFIED,
+                    source = "device-response",
+                )
+                in refuted -> capability.copy(
+                    canRead = false,
+                    canWrite = false,
+                    evidence = EvidenceLevel.REFUTED,
+                    source = "device-omission",
+                )
                 else -> capability
             }
         }
-        val level = compatibilityMatrix.resolve(
-            VendorId.OPPO,
-            profile.model,
-            firmware,
-            profile.transport,
-        )?.level ?: when {
+        val level = when {
             features.values.any { it.isWritable } -> CompatibilityLevel.CONTROLLED
             features.values.any { it.isReadable && it.evidence == EvidenceLevel.VERIFIED } ->
                 CompatibilityLevel.READ_ONLY
@@ -281,11 +226,4 @@ object OppoCompatibilityRegistry {
         )
     }
 
-    private fun matches(deviceName: String, supportedModels: Set<String>): Boolean {
-        val normalized = normalize(deviceName)
-        return normalized.isNotEmpty() && supportedModels.any { normalize(it) == normalized }
-    }
-
-    private fun normalize(value: String): String =
-        value.lowercase().filter { it.isLetterOrDigit() }
 }

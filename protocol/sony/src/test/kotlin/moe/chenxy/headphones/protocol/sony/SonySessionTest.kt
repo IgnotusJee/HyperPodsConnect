@@ -181,7 +181,7 @@ class SonySessionTest {
     }
 
     @Test
-    fun `LinkBuds S prefers validated GATT when a cached SPP UUID is also present`() {
+    fun `V2 protocol evidence prefers GATT without a model exception`() {
         val candidate = candidate(
             advertisedUuids = setOf(SonyProfile.SONY_SPP_V2_UUID),
             availableTransports = setOf(TransportKind.CLASSIC_SPP, TransportKind.BLE_GATT),
@@ -198,7 +198,7 @@ class SonySessionTest {
     }
 
     @Test
-    fun `exact LinkBuds S profile writes notifies reads back and restores noise control`() =
+    fun `V2 support function enables writes notifies reads back and restores noise control`() =
         runBlocking {
             val transport = FakeSonyTransport(
                 kind = TransportKind.BLE_GATT,
@@ -224,7 +224,7 @@ class SonySessionTest {
 
             session.connect()
 
-            assertEquals(CompatibilityLevel.STABLE, session.profile.value?.compatibilityLevel)
+            assertEquals(CompatibilityLevel.CONTROLLED, session.profile.value?.compatibilityLevel)
             assertTrue(session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.isWritable == true)
             assertTrue(
                 session.profile.value
@@ -523,7 +523,7 @@ class SonySessionTest {
     }
 
     @Test
-    fun `unlisted Sony V1 model queries and exposes custom EQ without enabling noise control`() =
+    fun `unlisted Sony V1 model exposes capability verified custom EQ and noise control`() =
         runBlocking {
             val transport = FakeSonyTransport(
                 protocolGeneration = SonyProtocolGeneration.V1,
@@ -556,9 +556,7 @@ class SonySessionTest {
                 setOf(SonyEqualizerFeature.CUSTOM_1_ID),
                 equalizer.equalizerCurveSpec?.writableSlotIds,
             )
-            assertFalse(
-                session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.isWritable == true,
-            )
+            assertTrue(session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.isWritable == true)
             session.disconnect()
         }
 
@@ -586,7 +584,7 @@ class SonySessionTest {
         session.connect()
 
         assertTrue(session.connection.value is SessionState.Ready)
-        assertEquals(CompatibilityLevel.STABLE, session.profile.value?.compatibilityLevel)
+        assertEquals(CompatibilityLevel.CONTROLLED, session.profile.value?.compatibilityLevel)
         assertEquals(NoiseControlMode.NOISE_CANCELLATION, session.state.value.noiseControl.confirmed)
         assertEquals(SonyEqualizerFeature.BASS_BOOST_ID, session.state.value.equalizer.confirmed?.id)
         assertTrue(session.profile.value?.capability(FeatureId.NOISE_CONTROL)?.canRead == true)
@@ -699,7 +697,7 @@ class SonySessionTest {
     }
 
     @Test
-    fun `nearby firmware keeps noise control gated but enables capability verified EQ`() = runBlocking {
+    fun `nearby firmware enables capability verified noise control and EQ`() = runBlocking {
         val transport = FakeSonyTransport(
             kind = TransportKind.BLE_GATT,
             model = "LinkBuds S",
@@ -735,10 +733,10 @@ class SonySessionTest {
             ),
         )
 
-        assertEquals(FailureReason.NOT_SUPPORTED, result.failure)
+        assertTrue(result.succeeded)
         assertTrue(eqResult.succeeded)
         assertTrue(transport.commandWrites.size > writesBefore)
-        assertFalse(
+        assertTrue(
             transport.commandWrites.any {
                 it.first().toInt() and 0xFF == SonyCommand.NCASM_SET_PARAM
             },

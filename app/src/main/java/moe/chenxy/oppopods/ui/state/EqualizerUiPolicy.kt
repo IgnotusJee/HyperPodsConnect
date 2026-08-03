@@ -16,7 +16,6 @@ internal data class EqualizerUiModel(
     val selectedId: String?,
     val editablePresetIds: Set<String>,
     val creationSlotId: String?,
-    val isAir5s: Boolean,
 ) {
     val selectedOption: UiFeatureOption?
         get() = (presets + customPresets).firstOrNull { it.value == selectedId }
@@ -27,7 +26,6 @@ internal data class EqualizerUiModel(
 
 internal fun buildEqualizerUiModel(
     vendorId: String?,
-    deviceName: String? = null,
     feature: UiFeatureState,
     curveState: UiEqualizerCurveState?,
 ): EqualizerUiModel {
@@ -56,7 +54,5 @@ internal fun buildEqualizerUiModel(
         selectedId = feature.displayed,
         editablePresetIds = writableSlots - OPPO_CUSTOM_EQ_CREATION_SLOT,
         creationSlotId = creationSlot,
-        isAir5s = deviceName.orEmpty().lowercase().filter(Char::isLetterOrDigit) ==
-            "oppoencoair5s",
     )
 }

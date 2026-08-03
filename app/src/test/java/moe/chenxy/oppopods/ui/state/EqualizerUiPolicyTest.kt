@@ -20,7 +20,6 @@ class EqualizerUiPolicyTest {
         )
         val model = buildEqualizerUiModel(
             vendorId = "OPPO",
-            deviceName = "OPPO Enco Air5s",
             feature = feature,
             curveState = curveState(
                 setOf("oppo:eq:custom:5", OPPO_CUSTOM_EQ_CREATION_SLOT),
@@ -31,7 +30,6 @@ class EqualizerUiPolicyTest {
         assertEquals(listOf("oppo:0", "oppo:2", "oppo:1"), model.presets.map { it.value })
         assertEquals(listOf("oppo:eq:custom:5"), model.customPresets.map { it.value })
         assertEquals(OPPO_CUSTOM_EQ_CREATION_SLOT, model.creationSlotId)
-        assertTrue(model.isAir5s)
         assertTrue(model.selectedIsEditable)
     }
 

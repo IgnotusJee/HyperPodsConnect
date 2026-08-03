@@ -9,10 +9,8 @@ import org.junit.Test
 /**
  * Spatial sound switch (feature 0x1B) captured from a real OPPO Enco Air5s.
  *
- * This settles a question the name-based capability whitelist could not answer:
- * the Air5s does support the switch, so the entry that granted it is correct in
- * outcome even though the matching rule that produced it is a coincidence. See
- * [`capability whitelist grants this device the switch by substring match`].
+ * Its presence in the batch response is the runtime capability evidence; the
+ * Bluetooth name is deliberately irrelevant.
  */
 class DeviceCaptureSpatialSwitchTest {
     private val frames = OppoTestFixtures.deviceCaptureFrames("encoair5s-spatial-switch.hex")
@@ -63,19 +61,6 @@ class DeviceCaptureSpatialSwitchTest {
         val response = frames.first { cmdOf(it) == 0x8403 }
 
         assertNull(SpatialAudioParser.parseSpatialSoundSwitchSetResponse(response))
-    }
-
-    /**
-     * The whitelist entry is `OPPO Enco Air5`, whose normalised form is a
-     * substring of `oppoencoair5s`, so this device inherits the capability
-     * rather than being listed. The capture proves the inherited answer is
-     * right; the rule that produced it still matches on a prefix and would
-     * misfire on an unrelated model whose name extends a listed one.
-     */
-    @Test
-    fun `capability whitelist grants this device the switch by substring match`() {
-        assertTrue(isSpatialSoundSwitchSupportedByName("OPPO Enco Air5s"))
-        assertTrue(isSpatialSoundSwitchSupportedByName("OPPO Enco Air5"))
     }
 
     /**

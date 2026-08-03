@@ -99,19 +99,7 @@ object OppoCoreAdapter {
     fun wearComponentOf(isLeft: Boolean): WearComponent =
         if (isLeft) WearComponent.LEFT else WearComponent.RIGHT
 
-    /**
-     * Converts the current name-based capability guess into core capabilities.
-     *
-     * Everything derived this way is [EvidenceLevel.ASSUMED], which makes it
-     * non-writable by design. The matcher decides support by testing whether a
-     * whitelisted model name is a substring of the device name, so a device
-     * whose name merely extends a listed one inherits its capabilities — an Enco
-     * Air5s picks up the Enco Air5 entry that way. A capture proved that
-     * particular inheritance happens to be right, which is exactly why it cannot
-     * be trusted in general: the rule got the right answer for the wrong reason.
-     * Real evidence has to come from a capability handshake, and until it does
-     * these entries only decide what to show, never what to send.
-     */
+    /** Converts explicit legacy overrides; automatic support comes from the live session. */
     fun toCoreCapabilities(
         capabilities: DeviceCapabilities,
         transport: TransportKind = TransportKind.CLASSIC_SPP,
@@ -126,7 +114,7 @@ object OppoCoreAdapter {
                 evidence = EvidenceLevel.ASSUMED,
                 availableOnTransports = transports,
                 requiresReadback = true,
-                source = "name-whitelist",
+                source = "legacy-user-override",
             )
 
         return buildMap {

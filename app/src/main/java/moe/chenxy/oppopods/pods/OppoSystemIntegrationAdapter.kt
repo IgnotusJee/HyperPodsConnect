@@ -399,10 +399,7 @@ object OppoSystemIntegrationAdapter {
         },
     )
 
-    private fun currentCompatibility() = OppoCompatibilityRegistry.resolve(
-        if (::mDevice.isInitialized) mDevice.name ?: cachedDeviceName else cachedDeviceName,
-        sessionOverrides(),
-    )
+    private fun currentCompatibility() = OppoCompatibilityRegistry.resolve(sessionOverrides())
 
     private fun Int.asBooleanOverride(): Boolean? = when (this) {
         DeviceCapabilityOverride.FORCE_ENABLED -> true

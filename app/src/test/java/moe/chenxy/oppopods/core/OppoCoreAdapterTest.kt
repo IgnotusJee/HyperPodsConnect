@@ -66,33 +66,33 @@ class OppoCoreAdapterTest {
     }
 
     /**
-     * The whole point of routing the name whitelist through the core model: a
-     * guess stays a guess. These capabilities can decide what a UI shows, but
-     * `isWritable` stays false so nothing derived from a model name can put a
-     * command on the wire before a handshake confirms it.
+     * Legacy override data stays assumed; only the protocol session may promote
+     * a feature to device-verified and writable.
      */
     @Test
-    fun `name derived capabilities are assumed and therefore not writable`() {
-        val capabilities = detectDeviceCapabilities("OPPO Enco Air5s")
+    fun `legacy override capabilities are assumed and therefore not writable`() {
+        val capabilities = detectDeviceCapabilities()
 
         val mapped = OppoCoreAdapter.toCoreCapabilities(capabilities)
 
         mapped.values.forEach { capability ->
             assertEquals(EvidenceLevel.ASSUMED, capability.evidence)
-            assertFalse("${capability.featureId} must not be writable on a name guess", capability.isWritable)
+            assertFalse("${capability.featureId} must not be writable before protocol evidence", capability.isWritable)
         }
     }
 
     @Test
-    fun `the substring inheritance the whitelist performs is visible in the mapping`() {
-        // "OPPO Enco Air5" is a substring of the Air5s name, so the switch is
-        // inherited rather than listed. A capture showed the inherited answer is
-        // correct for this model; the mapping still records it as assumed.
-        val air5s = OppoCoreAdapter.toCoreCapabilities(detectDeviceCapabilities("OPPO Enco Air5s"))
-        val unknown = OppoCoreAdapter.toCoreCapabilities(detectDeviceCapabilities("Some Other Buds"))
+    fun `explicit override is independent of the device name`() {
+        val enabled = OppoCoreAdapter.toCoreCapabilities(
+            detectDeviceCapabilities(
+                spatialSoundSwitchOverride =
+                    moe.chenxy.oppopods.pods.DeviceCapabilityOverride.FORCE_ENABLED,
+            ),
+        )
+        val automatic = OppoCoreAdapter.toCoreCapabilities(detectDeviceCapabilities())
 
-        assertTrue(air5s.getValue(FeatureId.SPATIAL_SOUND_SWITCH).canRead)
-        assertFalse(unknown.getValue(FeatureId.SPATIAL_SOUND_SWITCH).canRead)
+        assertTrue(enabled.getValue(FeatureId.SPATIAL_SOUND_SWITCH).canRead)
+        assertFalse(automatic.getValue(FeatureId.SPATIAL_SOUND_SWITCH).canRead)
     }
 
     @Test

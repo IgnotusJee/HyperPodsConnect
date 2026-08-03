@@ -302,7 +302,7 @@ object OppoNotificationSupportParser {
 
 object OppoCapabilityParser {
 
-    /** Returns the raw capability bitmap; interpretation is model specific. */
+    /** Returns the raw zero-based capability bitmap advertised by the device. */
     fun parse(message: OppoMessage): ByteArray? {
         if (!message.isComplete) return null
         if (message.command != OppoCommand.responseOf(OppoCommand.QUERY_CAPABILITY)) return null
@@ -316,6 +316,44 @@ object OppoCapabilityParser {
         if (byteIndex !in bitmap.indices) return false
         return (bitmap[byteIndex].toInt() and (1 shl (bitIndex % 8))) != 0
     }
+
+    /**
+     * Expands the bitmap with the command table used by the official HeyMelody
+     * `Protocol` implementation. Keeping this mapping protocol-local means a
+     * new product automatically inherits every command it advertises; neither
+     * its Bluetooth name nor its firmware is involved.
+     *
+     * Official source: reference/oppo-app-official/base-apk-jadx/sources/p008a8/a.java
+     */
+    fun commands(bitmap: ByteArray): Set<Int> = buildSet {
+        COMMANDS_BY_BIT.forEachIndexed { bit, commands ->
+            if (supports(bitmap, bit)) addAll(commands.asIterable())
+        }
+    }
+
+    fun supportsCommand(bitmap: ByteArray, command: Int): Boolean =
+        command in commands(bitmap)
+
+    private val COMMANDS_BY_BIT = listOf(
+        intArrayOf(261), intArrayOf(262), intArrayOf(263), intArrayOf(264, 1025, 1046),
+        intArrayOf(265), intArrayOf(1024), intArrayOf(1026), intArrayOf(1027),
+        intArrayOf(268, 1028), intArrayOf(1029), intArrayOf(1030, 271), intArrayOf(1031),
+        intArrayOf(), intArrayOf(1032), intArrayOf(1033), intArrayOf(), intArrayOf(),
+        intArrayOf(276), intArrayOf(), intArrayOf(1038, 1037, 277, 278), intArrayOf(1039),
+        intArrayOf(1040, 281), intArrayOf(517), intArrayOf(3840), intArrayOf(),
+        intArrayOf(280, 1041), intArrayOf(282, 1042), intArrayOf(284, 1043), intArrayOf(),
+        intArrayOf(274, 1035), intArrayOf(286, 287, 1045), intArrayOf(1037), intArrayOf(),
+        intArrayOf(289, 1047), intArrayOf(290, 1048), intArrayOf(), intArrayOf(285, 1044),
+        intArrayOf(291, 1050), intArrayOf(292, 1051), intArrayOf(293, 1052, 295, 1053, 1055),
+        intArrayOf(1057, 35, 36, 34, 294, 297), intArrayOf(61185), intArrayOf(61186),
+        intArrayOf(61187, 1054), intArrayOf(1056), intArrayOf(28), intArrayOf(),
+        intArrayOf(1058, 298), intArrayOf(61188), intArrayOf(1059, 299), intArrayOf(),
+        intArrayOf(1060), intArrayOf(61190), intArrayOf(), intArrayOf(),
+        intArrayOf(1061, 302, 1062), intArrayOf(303), intArrayOf(1063, 304),
+        intArrayOf(305, 1064), intArrayOf(1065, 306), intArrayOf(20),
+        intArrayOf(1069, 307), intArrayOf(1070), intArrayOf(61191), intArrayOf(61192),
+        intArrayOf(61193), intArrayOf(1073, 308),
+    )
 }
 
 /** Feature ids the batch query may carry, kept next to the parser that reads them. */

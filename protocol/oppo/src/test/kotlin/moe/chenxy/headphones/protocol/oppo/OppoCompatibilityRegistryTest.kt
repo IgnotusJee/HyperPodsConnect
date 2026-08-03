@@ -20,40 +20,39 @@ import org.junit.Test
 class OppoCompatibilityRegistryTest {
 
     @Test
-    fun `model-specific support is advertised while family defaults stay assumed`() {
-        val candidate = candidate("OPPO Enco Air5s")
-        val compatibility = OppoCompatibilityRegistry.resolve(candidate.displayName)
-
-        val profile = OppoCompatibilityRegistry.initialProfile(candidate, compatibility)
+    fun `Bluetooth model name does not change protocol capabilities`() {
+        val air5s = candidate("OPPO Enco Air5s")
+        val unknown = candidate("OPPO Enco Future")
+        val knownProfile = OppoCompatibilityRegistry.initialProfile(
+            air5s,
+            OppoCompatibilityRegistry.resolve(),
+        )
+        val unknownProfile = OppoCompatibilityRegistry.initialProfile(
+            unknown,
+            OppoCompatibilityRegistry.resolve(),
+        )
 
         assertEquals(
-            EvidenceLevel.ADVERTISED,
-            profile.capability(FeatureId.SPATIAL_SOUND_SWITCH)?.evidence,
+            knownProfile.features.mapValues { it.value.copy(source = "") },
+            unknownProfile.features.mapValues { it.value.copy(source = "") },
         )
-        assertEquals(
-            EvidenceLevel.ASSUMED,
-            profile.capability(FeatureId.NOISE_CONTROL)?.evidence,
-        )
-        assertFalse(profile.canWrite(FeatureId.NOISE_CONTROL))
-        assertTrue(profile.canWrite(FeatureId.SPATIAL_SOUND_SWITCH))
-        assertFalse(
-            OppoCompatibilityRegistry.resolve("OPPO Enco Air50").spatialSoundSwitchSupported,
-        )
+        assertFalse(knownProfile.canWrite(FeatureId.NOISE_CONTROL))
+        assertFalse(knownProfile.canWrite(FeatureId.SPATIAL_SOUND_SWITCH))
     }
 
     @Test
-    fun `Air5s equalizer capability follows the three official whitelist modes`() {
+    fun `equalizer baseline is protocol generic rather than model named`() {
         val candidate = candidate("OPPO Enco Air5s")
         val profile = OppoCompatibilityRegistry.initialProfile(
             candidate,
-            OppoCompatibilityRegistry.resolve(candidate.displayName),
+            OppoCompatibilityRegistry.resolve(),
         )
         val equalizer = profile.capability(FeatureId.EQUALIZER)!!
 
-        assertEquals(setOf("oppo:0", "oppo:2", "oppo:1"), equalizer.allowedValues)
-        assertEquals("Ultimate sound", equalizer.valueLabels["oppo:0"])
-        assertEquals("Pure vocals", equalizer.valueLabels["oppo:2"])
-        assertEquals("Powerful bass", equalizer.valueLabels["oppo:1"])
+        assertEquals(setOf("oppo:0", "oppo:1", "oppo:2", "oppo:3", "oppo:7"), equalizer.allowedValues)
+        assertEquals("Authentic", equalizer.valueLabels["oppo:0"])
+        assertEquals("Vocal", equalizer.valueLabels["oppo:2"])
+        assertEquals("Detail", equalizer.valueLabels["oppo:1"])
     }
 
     @Test
@@ -61,7 +60,7 @@ class OppoCompatibilityRegistryTest {
         val candidate = candidate("OPPO Enco Unknown")
         val profile = OppoCompatibilityRegistry.initialProfile(
             candidate,
-            OppoCompatibilityRegistry.resolve(candidate.displayName),
+            OppoCompatibilityRegistry.resolve(),
         )
         val equalizer = profile.capability(FeatureId.EQUALIZER)!!
 
@@ -75,12 +74,13 @@ class OppoCompatibilityRegistryTest {
         val candidate = candidate("OPPO Enco Air5s")
         val initial = OppoCompatibilityRegistry.initialProfile(
             candidate,
-            OppoCompatibilityRegistry.resolve(candidate.displayName),
+            OppoCompatibilityRegistry.resolve(),
         )
 
         val resolved = OppoCompatibilityRegistry.withEvidence(
             initial,
             verified = setOf(FeatureId.NOISE_CONTROL),
+            writable = setOf(FeatureId.NOISE_CONTROL),
             refuted = setOf(FeatureId.DUAL_DEVICE_CONNECTION),
         )
 
@@ -93,25 +93,27 @@ class OppoCompatibilityRegistryTest {
     }
 
     @Test
-    fun `only exact validated firmware is promoted to stable`() {
+    fun `firmware strings do not change compatibility level`() {
         val candidate = candidate("OPPO Enco Air5s")
         val initial = OppoCompatibilityRegistry.initialProfile(
             candidate,
-            OppoCompatibilityRegistry.resolve(candidate.displayName),
+            OppoCompatibilityRegistry.resolve(),
         )
 
         val stable = OppoCompatibilityRegistry.withEvidence(
             initial,
             verified = setOf(FeatureId.NOISE_CONTROL),
+            writable = setOf(FeatureId.NOISE_CONTROL),
             firmware = "163.163.102",
         )
         val otherFirmware = OppoCompatibilityRegistry.withEvidence(
             initial,
             verified = setOf(FeatureId.NOISE_CONTROL),
+            writable = setOf(FeatureId.NOISE_CONTROL),
             firmware = "163.163.103",
         )
 
-        assertEquals(CompatibilityLevel.STABLE, stable.compatibilityLevel)
+        assertEquals(CompatibilityLevel.CONTROLLED, stable.compatibilityLevel)
         assertEquals(CompatibilityLevel.CONTROLLED, otherFirmware.compatibilityLevel)
     }
 

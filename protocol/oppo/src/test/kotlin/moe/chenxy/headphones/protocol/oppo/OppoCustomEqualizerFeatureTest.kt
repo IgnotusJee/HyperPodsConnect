@@ -121,14 +121,14 @@ class OppoCustomEqualizerFeatureTest {
     }
 
     @Test
-    fun `Air5s creation draft uses official ten-band layout`() {
-        val spec = OppoCustomEqualizerFeature.air5sCreationSpec()
+    fun `protocol creation draft uses official ten-band layout`() {
+        val spec = OppoCustomEqualizerFeature.creationSpec()
         val curve = EqualizerCurve(
             OppoCustomEqualizerFeature.CREATION_SLOT_ID,
             List(spec.bands.size) { 0 },
         )
 
-        val frame = requireNotNull(OppoCustomEqualizerFeature.createAir5s(curve))
+        val frame = requireNotNull(OppoCustomEqualizerFeature.create(curve))
         val message = requireNotNull(OppoMessageCodec.decode(frame))
 
         assertEquals(OppoCustomEqualizerFeature.ACTION_ADD, message.payload[0].toInt())

@@ -191,6 +191,15 @@ class OppoParsersTest {
         val bitmap = OppoCapabilityParser.parse(response)!!
         assertTrue(OppoCapabilityParser.supports(bitmap, 34))
         assertFalse(OppoCapabilityParser.supports(bitmap.copyOf(4), 34))
+        val commands = OppoCapabilityParser.commands(bitmap)
+        assertTrue(OppoCommand.QUERY_BATTERY in commands)
+        assertTrue(OppoCommand.QUERY_ANC in commands)
+        assertTrue(OppoCommand.SET_ANC in commands)
+        assertTrue(OppoCommand.QUERY_EQ in commands)
+        assertTrue(OppoCommand.SET_EQ in commands)
+        assertTrue(OppoCommand.QUERY_CUSTOM_EQ in commands)
+        assertTrue(OppoCommand.SET_CUSTOM_EQ in commands)
+        assertFalse(OppoCommand.SET_SPATIAL_AUDIO in commands)
     }
 
     @Test

@@ -98,7 +98,7 @@ class OppoSession(
 ) : HeadphoneSession {
 
     val compatibility: OppoCompatibilityProfile =
-        OppoCompatibilityRegistry.resolve(context.candidate.displayName, overrides)
+        OppoCompatibilityRegistry.resolve(overrides)
 
     private val machine = SessionMachine(
         SessionState.Idle(context.candidate.identity.id, generationId = 0),
@@ -143,6 +143,9 @@ class OppoSession(
 
     private var customEqualizerCommandSupported = false
     private var customEqualizerSlots: List<OppoCustomEqualizerSlot> = emptyList()
+    private var supportedCommands: Set<Int>? = null
+    private var spatialSoundSwitchSupported = false
+    private var spatialAudioSupported = false
 
     private var incomingJob: Job? = null
     private var transportStateJob: Job? = null
@@ -211,8 +214,9 @@ class OppoSession(
         }
 
         val verified = mutableSetOf<FeatureId>()
+        val writable = mutableSetOf<FeatureId>()
         val refuted = mutableSetOf<FeatureId>()
-        syncCapabilities(verified, refuted)
+        syncCapabilities(verified, writable, refuted)
         if (verified.isEmpty()) {
             fail(
                 FailureCategory.CAPABILITY,
@@ -225,6 +229,7 @@ class OppoSession(
         _profile.value = OppoCompatibilityRegistry.withEvidence(
             requireNotNull(_profile.value),
             verified = verified,
+            writable = writable,
             refuted = refuted,
             firmware = _state.value.firmware,
         )
@@ -392,6 +397,7 @@ class OppoSession(
 
     private suspend fun syncCapabilities(
         verified: MutableSet<FeatureId>,
+        writable: MutableSet<FeatureId>,
         refuted: MutableSet<FeatureId>,
     ) {
         val capabilityReply = sendAndAwait(
@@ -399,32 +405,39 @@ class OppoSession(
             OppoCommand.responseOf(OppoCommand.QUERY_CAPABILITY),
         )
         val capabilityBitmap = capabilityReply?.let(OppoCapabilityParser::parse)
-        customEqualizerCommandSupported = capabilityBitmap?.let {
-            OppoCapabilityParser.supports(it, OppoCustomEqualizerFeature.CAPABILITY_BIT)
-        } == true
+        supportedCommands = capabilityBitmap?.let(OppoCapabilityParser::commands)
+        customEqualizerCommandSupported = supportsCommand(OppoCommand.QUERY_CUSTOM_EQ) &&
+            supportsCommand(OppoCommand.SET_CUSTOM_EQ)
+        spatialAudioSupported = supportsCommand(OppoCommand.SET_SPATIAL_AUDIO)
 
-        val battery = sendAndAwait(
+        val battery = sendIfSupported(
+            OppoCommand.QUERY_BATTERY,
             OppoBatteryFeature.query(),
-            OppoCommand.responseOf(OppoCommand.QUERY_BATTERY),
         )
         if (battery != null && OppoBatteryFeature.parse(battery) != null) {
             verified += FeatureId.BATTERY
+        } else if (!supportsCommand(OppoCommand.QUERY_BATTERY)) {
+            refuted += FeatureId.BATTERY
         }
 
-        val anc = sendAndAwait(
-            OppoNoiseControlFeature.query(),
-            OppoCommand.responseOf(OppoCommand.QUERY_ANC),
-        )
+        val anc = sendIfSupported(OppoCommand.QUERY_ANC, OppoNoiseControlFeature.query())
         if (anc != null && OppoNoiseControlFeature.parseNoiseControl(anc, compatibility.ancEncoding) != null) {
             verified += FeatureId.NOISE_CONTROL
-            verified += FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT
+            if (supportsCommand(OppoCommand.SET_ANC)) {
+                writable += FeatureId.NOISE_CONTROL
+            }
+        } else if (!supportsCommand(OppoCommand.QUERY_ANC)) {
+            refuted += FeatureId.NOISE_CONTROL
+            refuted += FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT
         }
 
-        val eq = sendAndAwait(
-            OppoEqualizerFeature.query(),
-            OppoCommand.responseOf(OppoCommand.QUERY_EQ),
-        )
-        if (eq != null && OppoEqualizerFeature.parse(eq) != null) verified += FeatureId.EQUALIZER
+        val eq = sendIfSupported(OppoCommand.QUERY_EQ, OppoEqualizerFeature.query())
+        if (eq != null && OppoEqualizerFeature.parse(eq) != null) {
+            verified += FeatureId.EQUALIZER
+            if (supportsCommand(OppoCommand.SET_EQ)) writable += FeatureId.EQUALIZER
+        } else if (!supportsCommand(OppoCommand.QUERY_EQ)) {
+            refuted += FeatureId.EQUALIZER
+        }
 
         if (customEqualizerCommandSupported) {
             val customEq = sendAndAwait(
@@ -433,6 +446,7 @@ class OppoSession(
             )
             if (customEq != null && OppoCustomEqualizerFeature.parse(customEq) != null) {
                 verified += FeatureId.EQUALIZER
+                writable += FeatureId.EQUALIZER
             }
         }
 
@@ -453,23 +467,46 @@ class OppoSession(
                 verified,
                 refuted,
             )
-            if (compatibility.spatialSoundSwitchSupported) {
-                resolveBatchFeature(
-                    values,
+            resolveBatchFeature(
+                values,
+                FeatureId.SPATIAL_SOUND_SWITCH,
+                setOf(OppoFeature.SPATIAL_SOUND_SWITCH),
+                verified,
+                refuted,
+            )
+            spatialSoundSwitchSupported = OppoFeature.SPATIAL_SOUND_SWITCH in values
+            if (supportsCommand(OppoCommand.SET_SWITCH_FEATURE)) {
+                setOf(
+                    FeatureId.LOW_LATENCY,
+                    FeatureId.DUAL_DEVICE_CONNECTION,
                     FeatureId.SPATIAL_SOUND_SWITCH,
-                    setOf(OppoFeature.SPATIAL_SOUND_SWITCH),
-                    verified,
-                    refuted,
-                )
+                ).filterTo(writable) { it in verified }
             }
         }
 
-        val firmware = sendAndAwait(
+        if (spatialAudioSupported) {
+            verified += FeatureId.SPATIAL_AUDIO
+            writable += FeatureId.SPATIAL_AUDIO
+        } else {
+            refuted += FeatureId.SPATIAL_AUDIO
+        }
+
+        val firmware = sendIfSupported(
+            OppoCommand.QUERY_FIRMWARE,
             OppoMessageCodec.encode(OppoCommand.QUERY_FIRMWARE),
-            OppoCommand.responseOf(OppoCommand.QUERY_FIRMWARE),
         )
         if (firmware?.let(OppoFirmwareParser::parse) != null) verified += FeatureId.FIRMWARE_VERSION
+        else if (!supportsCommand(OppoCommand.QUERY_FIRMWARE)) refuted += FeatureId.FIRMWARE_VERSION
     }
+
+    private fun supportsCommand(command: Int): Boolean = supportedCommands?.contains(command) != false
+
+    private suspend fun sendIfSupported(command: Int, packet: ByteArray): OppoMessage? =
+        if (supportsCommand(command)) {
+            sendAndAwait(packet, OppoCommand.responseOf(command))
+        } else {
+            null
+        }
 
     private fun resolveBatchFeature(
         values: Map<Int, Int>,
@@ -539,6 +576,7 @@ class OppoSession(
         reports.forEach { report ->
             recognized = true
             val feature = featureOf(report)
+            if (feature != null) promoteReportedFeature(feature, report)
             val source = when {
                 feature != null && feature == readbackFeature -> ValueSource.READ_BACK
                 message.command == OppoCommand.NOTIFICATION_EVENT ||
@@ -623,19 +661,70 @@ class OppoSession(
         return active.write(packet) is TransportWriteResult.Written
     }
 
+    private fun promoteReportedFeature(featureId: FeatureId, report: DeviceReport) {
+        val profile = _profile.value ?: return
+        val writable = when (featureId) {
+            FeatureId.NOISE_CONTROL,
+            FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
+            -> supportsCommand(OppoCommand.SET_ANC)
+            FeatureId.EQUALIZER ->
+                supportsCommand(OppoCommand.SET_EQ) || supportsCommand(OppoCommand.SET_CUSTOM_EQ)
+            FeatureId.LOW_LATENCY,
+            FeatureId.DUAL_DEVICE_CONNECTION,
+            FeatureId.SPATIAL_SOUND_SWITCH,
+            -> supportsCommand(OppoCommand.SET_SWITCH_FEATURE)
+            FeatureId.SPATIAL_AUDIO -> supportsCommand(OppoCommand.SET_SPATIAL_AUDIO)
+            else -> false
+        }
+        var updated = OppoCompatibilityRegistry.withEvidence(
+            profile,
+            verified = setOf(featureId),
+            writable = if (writable) setOf(featureId) else emptySet(),
+            firmware = profile.firmware,
+        )
+        if (report is DeviceReport.NoiseControl) {
+            val capability = updated.capability(FeatureId.NOISE_CONTROL) ?: return
+            val value = report.mode.name
+            updated = updated.copy(
+                features = updated.features + (
+                    FeatureId.NOISE_CONTROL to capability.copy(
+                        allowedValues = capability.allowedValues + value,
+                        valueLabels = capability.valueLabels + (value to noiseControlLabel(report.mode)),
+                    )
+                    ),
+            )
+        }
+        _profile.value = updated
+    }
+
+    private fun noiseControlLabel(mode: NoiseControlMode): String = when (mode) {
+        NoiseControlMode.OFF -> "Off"
+        NoiseControlMode.NOISE_CANCELLATION -> "Noise cancellation"
+        NoiseControlMode.NOISE_CANCELLATION_SMART -> "Smart"
+        NoiseControlMode.NOISE_CANCELLATION_LIGHT -> "Light"
+        NoiseControlMode.NOISE_CANCELLATION_MEDIUM -> "Medium"
+        NoiseControlMode.NOISE_CANCELLATION_DEEP -> "Deep"
+        NoiseControlMode.TRANSPARENCY -> "Transparency"
+        NoiseControlMode.ADAPTIVE -> "Adaptive"
+    }
+
     private fun queryPackets(features: Set<FeatureId>): List<Pair<ByteArray, Int>> {
         val result = mutableListOf<Pair<ByteArray, Int>>()
-        if (FeatureId.BATTERY in features) {
+        if (FeatureId.BATTERY in features && supportsCommand(OppoCommand.QUERY_BATTERY)) {
             result += OppoBatteryFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_BATTERY)
         }
         if (
-            FeatureId.NOISE_CONTROL in features ||
-            FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT in features
+            (
+                FeatureId.NOISE_CONTROL in features ||
+                    FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT in features
+                ) && supportsCommand(OppoCommand.QUERY_ANC)
         ) {
             result += OppoNoiseControlFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_ANC)
         }
         if (FeatureId.EQUALIZER in features) {
-            result += OppoEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_EQ)
+            if (supportsCommand(OppoCommand.QUERY_EQ)) {
+                result += OppoEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_EQ)
+            }
             if (customEqualizerCommandSupported) {
                 result += OppoCustomEqualizerFeature.query() to
                     OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ)
@@ -648,7 +737,7 @@ class OppoSession(
         ) {
             result += batchQuery() to OppoCommand.responseOf(OppoCommand.QUERY_BATCH_STATUS)
         }
-        if (FeatureId.FIRMWARE_VERSION in features) {
+        if (FeatureId.FIRMWARE_VERSION in features && supportsCommand(OppoCommand.QUERY_FIRMWARE)) {
             result += OppoMessageCodec.encode(OppoCommand.QUERY_FIRMWARE) to
                 OppoCommand.responseOf(OppoCommand.QUERY_FIRMWARE)
         }
@@ -673,7 +762,7 @@ class OppoSession(
         }
         is FeatureCommand.SetEqualizerCurve -> {
             if (command.curve.slotId == OppoCustomEqualizerFeature.CREATION_SLOT_ID) {
-                OppoCustomEqualizerFeature.createAir5s(command.curve)?.let(::listOf)
+                OppoCustomEqualizerFeature.create(command.curve)?.let(::listOf)
             } else {
                 val activeSlot = customEqualizerSlots.singleOrNull { it.selected }
                 val spec = _profile.value?.capability(FeatureId.EQUALIZER)?.equalizerCurveSpec
@@ -702,7 +791,7 @@ class OppoSession(
         is FeatureCommand.SetLowLatency ->
             OppoLatencyFeature.set(command.enabled, compatibility.lowLatencyStrategy)
         is FeatureCommand.SetSpatialAudio ->
-            listOf(OppoSpatialFeature.set(command.mode, compatibility.spatialSoundSwitchSupported))
+            listOf(OppoSpatialFeature.set(command.mode, useSwitch = false))
         is FeatureCommand.SetSpatialSoundSwitch ->
             listOf(
                 OppoSpatialFeature.set(
@@ -756,11 +845,11 @@ class OppoSession(
             slot.slotId to slot.name.ifBlank { "Custom ${slot.eqId}" }
         }
         val selected = slots.singleOrNull { it.selected }
-        val canCreate = compatibility.customEqualizerCreationSupported &&
-            slots.size < compatibility.customEqualizerMaxSlots
+        val canCreate = customEqualizerCommandSupported &&
+            slots.size < DEFAULT_CUSTOM_EQUALIZER_MAX_SLOTS
         val editingSpec = selected?.let(OppoCustomEqualizerFeature::curveSpec)
             ?: slots.firstOrNull()?.let(OppoCustomEqualizerFeature::curveSpec)
-            ?: OppoCustomEqualizerFeature.air5sCreationSpec().takeIf { canCreate }
+            ?: OppoCustomEqualizerFeature.creationSpec().takeIf { canCreate }
         val curveSpec = editingSpec?.copy(
             writableSlotIds = buildSet {
                 selected?.slotId?.let(::add)
@@ -788,10 +877,11 @@ class OppoSession(
 
     private fun isValueSupported(command: FeatureCommand): Boolean = when (command) {
         is FeatureCommand.SetNoiseControl ->
-            command.mode != NoiseControlMode.ADAPTIVE || compatibility.adaptiveSupported
+            command.mode.name in
+                _profile.value?.capability(FeatureId.NOISE_CONTROL)?.allowedValues.orEmpty()
         is FeatureCommand.SetSpatialAudio ->
-            compatibility.spatialAudioSupported || compatibility.spatialSoundSwitchSupported
-        is FeatureCommand.SetSpatialSoundSwitch -> compatibility.spatialSoundSwitchSupported
+            spatialAudioSupported
+        is FeatureCommand.SetSpatialSoundSwitch -> spatialSoundSwitchSupported
         is FeatureCommand.SetEqualizerPreset -> {
             val capability = _profile.value?.capability(FeatureId.EQUALIZER)
             command.preset.id in capability?.allowedValues.orEmpty() &&
@@ -802,8 +892,7 @@ class OppoSession(
             customEqualizerCommandSupported &&
                 (
                     command.curve.slotId != OppoCustomEqualizerFeature.CREATION_SLOT_ID ||
-                        compatibility.customEqualizerCreationSupported &&
-                        customEqualizerSlots.size < compatibility.customEqualizerMaxSlots
+                        customEqualizerSlots.size < DEFAULT_CUSTOM_EQUALIZER_MAX_SLOTS
                     ) &&
                 _profile.value?.capability(FeatureId.EQUALIZER)
                     ?.equalizerCurveSpec?.accepts(command.curve) == true
@@ -964,6 +1053,7 @@ class OppoSession(
         const val DEFAULT_CONFIRMATION_TIMEOUT_MS = 1_000L
         const val DEFAULT_TRANSPORT_SETTLE_DELAY_MS = 300L
         private const val CONFIRMATION_POLL_MS = 20L
+        private const val DEFAULT_CUSTOM_EQUALIZER_MAX_SLOTS = 3
 
         private val DEFAULT_REFRESH_FEATURES = setOf(
             FeatureId.BATTERY,
@@ -975,7 +1065,7 @@ class OppoSession(
         )
 
         private val BATCH_VENDOR_FEATURES = listOf(
-            0x0B, 0x05, 0x04, 0x0B, 0x11, 0x13,
+            0x0B, 0x05, 0x04, 0x11, 0x13,
             0x18, 0x06, 0x1B, 0x37, 0x27, 0x28,
         )
     }
