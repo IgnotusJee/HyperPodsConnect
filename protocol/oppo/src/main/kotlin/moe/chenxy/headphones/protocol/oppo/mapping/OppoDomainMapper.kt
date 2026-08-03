@@ -29,6 +29,9 @@ object OppoDomainMapper {
             levels.entries.associate { (component, value) ->
                 toBatteryComponent(component) to BatteryState(value.level, value.charging)
             },
+            // Air5s omits the closed/out-of-range case from later L/R reports.
+            // HeyMelody retains its independent box-battery field until disconnect.
+            completeSnapshot = false,
         )
 
     fun toWearReport(states: Map<OppoComponent, OppoWearState>): DeviceReport.Wearing =

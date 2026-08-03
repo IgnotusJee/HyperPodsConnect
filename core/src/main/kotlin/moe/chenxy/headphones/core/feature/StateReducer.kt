@@ -42,7 +42,11 @@ sealed interface StateUpdate {
 
 /** A value the device reported, already mapped out of vendor encoding. */
 sealed interface DeviceReport {
-    data class Batteries(val values: Map<BatteryComponent, BatteryState>) : DeviceReport
+    data class Batteries(
+        val values: Map<BatteryComponent, BatteryState>,
+        /** False when omitted components are temporarily unreachable, not explicitly absent. */
+        val completeSnapshot: Boolean = true,
+    ) : DeviceReport
     data class Wearing(val values: Map<WearComponent, WearState>) : DeviceReport
     data class NoiseControl(val mode: NoiseControlMode) : DeviceReport
     data class AmbientSoundLevel(val level: Int) : DeviceReport
@@ -131,10 +135,13 @@ object HeadphoneStateReducer {
         val at = update.atMillis
         val source = update.source
         return when (val report = update.report) {
-            // Replaced wholesale rather than merged: the component set is itself
-            // information. An Air5s reports two components in use and three once
-            // the case is involved, and merging would keep a stale case entry.
-            is DeviceReport.Batteries -> state.copy(batteries = report.values)
+            is DeviceReport.Batteries -> state.copy(
+                batteries = if (report.completeSnapshot) {
+                    report.values
+                } else {
+                    state.batteries + report.values
+                },
+            )
             is DeviceReport.Wearing -> state.copy(wearing = report.values)
 
             is DeviceReport.NoiseControl ->

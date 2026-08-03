@@ -32,6 +32,9 @@ object OppoCustomEqualizerFeature {
     private const val MAX_NAME_BYTES = 128
     private const val MAX_BAND_COUNT = 32
     private const val SLOT_PREFIX = "oppo:eq:custom:"
+    const val CREATION_SLOT_ID = "oppo:eq:custom:new"
+
+    private val AIR5S_FREQUENCIES_HZ = listOf(62, 250, 1_000, 4_000, 8_000, 16_000)
 
     fun query(): ByteArray = OppoMessageCodec.encode(OppoCommand.QUERY_CUSTOM_EQ)
 
@@ -116,6 +119,22 @@ object OppoCustomEqualizerFeature {
         slot.takeIf { it.eqId == 0 && !it.selected }
             ?.let { encode(ACTION_ADD, it, it.gains) }
 
+    /** Creates the official six-band Air5s draft; the device assigns its persistent id. */
+    fun createAir5s(curve: EqualizerCurve): ByteArray? {
+        if (!air5sCreationSpec().accepts(curve)) return null
+        return add(
+            OppoCustomEqualizerSlot(
+                selected = false,
+                minGain = -6,
+                maxGain = 6,
+                eqId = 0,
+                name = "HyperPods Custom",
+                frequenciesHz = AIR5S_FREQUENCIES_HZ,
+                gains = curve.gains,
+            ),
+        )
+    }
+
     /** Deletes an exact slot previously returned by [parse]. */
     fun delete(slot: OppoCustomEqualizerSlot): ByteArray? =
         slot.takeIf { it.eqId != 0 }
@@ -140,6 +159,19 @@ object OppoCustomEqualizerFeature {
             },
             writableSlotIds = if (writable) setOf(slot.slotId) else emptySet(),
         )
+
+    fun air5sCreationSpec(): EqualizerCurveSpec = EqualizerCurveSpec(
+        bands = AIR5S_FREQUENCIES_HZ.map { frequency ->
+            EqualizerBandSpec(
+                id = "oppo:eq:frequency:$frequency",
+                displayName = formatFrequency(frequency),
+                minGain = -6,
+                maxGain = 6,
+                centerFrequencyHz = frequency,
+            )
+        },
+        writableSlotIds = setOf(CREATION_SLOT_ID),
+    )
 
     fun slotId(eqId: Int): String = "$SLOT_PREFIX$eqId"
 

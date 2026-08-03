@@ -66,15 +66,6 @@ class OppoCustomEqDeviceTest {
         val sessionToken = "oppo-custom-eq-test-${UUID.randomUUID()}"
         val frequencies = listOf(62, 250, 1_000, 4_000, 8_000, 16_000)
         val neutralGains = List(frequencies.size) { 0 }
-        val draft = OppoCustomEqualizerSlot(
-            selected = false,
-            minGain = -6,
-            maxGain = 6,
-            eqId = 0,
-            name = "CodexTmp",
-            frequenciesHz = frequencies,
-            gains = neutralGains,
-        )
         var target: HeadphoneSnapshotPayload? = null
         var assignedSlot: OppoCustomEqualizerSlot? = null
         var rawUnlocked = false
@@ -97,9 +88,10 @@ class OppoCustomEqDeviceTest {
             assertTrue(
                 "test only recovers its own single interrupted slot",
                 initialCustomIds.isEmpty() || (
-                    initialCustomIds.size == 1 &&
+                        initialCustomIds.size == 1 &&
                         initial.capabilities.single { it.featureId == "EQUALIZER" }
-                            .valueLabels[initialCustomIds.single()] == "CodexTmp"
+                            .valueLabels[initialCustomIds.single()] in
+                            setOf("CodexTmp", "HyperPods Custom")
                     ),
             )
             if (initialCustomIds.isEmpty()) {
@@ -116,20 +108,21 @@ class OppoCustomEqDeviceTest {
             println("OPPO_CUSTOM_EQ_PHASE raw-unlock-requested")
 
             if (target == null) {
-                sendRawForReadback(
-                    context,
-                    sessionToken,
-                    requireNotNull(OppoCustomEqualizerFeature.add(draft)),
-                )
-                println("OPPO_CUSTOM_EQ_PHASE add-acknowledged")
                 target = request(
                     context,
                     snapshots,
-                    IpcCommandPayload(HeadphoneIpcContract.TYPE_REFRESH_FEATURE, value = "EQUALIZER"),
+                    IpcCommandPayload(
+                        type = HeadphoneIpcContract.TYPE_SET_EQUALIZER_CURVE,
+                        curve = EqualizerCurvePayload(
+                            OppoCustomEqualizerFeature.CREATION_SLOT_ID,
+                            neutralGains,
+                        ),
+                    ),
                     initial,
                 )
+                assertEquals("READ_BACK_CONFIRMED", target?.operation?.phase)
                 val createdId = customSlotIds(requireNotNull(target)).single()
-                println("OPPO_CUSTOM_EQ_PHASE add-read-back slot=$createdId")
+                println("OPPO_CUSTOM_EQ_PHASE production-add-read-back slot=$createdId")
             }
             val createdId = customSlotIds(requireNotNull(target)).single()
             if (target?.equalizerCurve?.confirmed?.slotId != createdId) {
@@ -141,7 +134,7 @@ class OppoCustomEqDeviceTest {
                 )
             }
             println("OPPO_CUSTOM_EQ_PHASE slot-selected")
-            assignedSlot = slotFromSnapshot(requireNotNull(target), "CodexTmp")
+            assignedSlot = slotFromSnapshot(requireNotNull(target), "HyperPods Custom")
             val original = requireNotNull(target?.equalizerCurve?.confirmed)
             val spec = requireNotNull(
                 target?.capabilities?.single { it.featureId == "EQUALIZER" }?.equalizerCurveSpec,
@@ -184,11 +177,13 @@ class OppoCustomEqDeviceTest {
             )
             assertEquals(original, target?.equalizerCurve?.confirmed)
             assertEquals("READ_BACK", target?.equalizerCurve?.source)
-            assignedSlot = slotFromSnapshot(requireNotNull(target), "CodexTmp")
+            assignedSlot = slotFromSnapshot(requireNotNull(target), "HyperPods Custom")
             println("OPPO_CUSTOM_EQ_RESTORED gains=${original.gains}")
         } finally {
             if (assignedSlot == null && target != null) {
-                assignedSlot = runCatching { slotFromSnapshot(requireNotNull(target), "CodexTmp") }
+                assignedSlot = runCatching {
+                    slotFromSnapshot(requireNotNull(target), "HyperPods Custom")
+                }
                     .getOrNull()
             }
             assignedSlot?.let { slot ->

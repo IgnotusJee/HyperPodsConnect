@@ -489,6 +489,15 @@ class OppoSession(
             updateCustomEqualizerProfile(slots)
             val selected = slots.singleOrNull { it.selected }
             if (selected != null) {
+                val pendingCurve = _state.value.equalizerCurve.pending
+                if (
+                    pendingCurve?.slotId == OppoCustomEqualizerFeature.CREATION_SLOT_ID &&
+                    pendingCurve.gains == selected.gains
+                ) {
+                    // ADD uses virtual id 0/new, while the readback contains the id
+                    // assigned by the device. Drop the virtual intent before applying truth.
+                    abandon(FeatureId.EQUALIZER)
+                }
                 apply(
                     StateUpdate.DeviceReported(
                         OppoCustomEqualizerFeature.toReport(selected),
@@ -661,10 +670,14 @@ class OppoSession(
             }
         }
         is FeatureCommand.SetEqualizerCurve -> {
-            val activeSlot = customEqualizerSlots.singleOrNull { it.selected }
-            val spec = _profile.value?.capability(FeatureId.EQUALIZER)?.equalizerCurveSpec
-            if (activeSlot == null || spec == null) null else {
-                OppoCustomEqualizerFeature.setCurve(command.curve, activeSlot, spec)?.let(::listOf)
+            if (command.curve.slotId == OppoCustomEqualizerFeature.CREATION_SLOT_ID) {
+                OppoCustomEqualizerFeature.createAir5s(command.curve)?.let(::listOf)
+            } else {
+                val activeSlot = customEqualizerSlots.singleOrNull { it.selected }
+                val spec = _profile.value?.capability(FeatureId.EQUALIZER)?.equalizerCurveSpec
+                if (activeSlot == null || spec == null) null else {
+                    OppoCustomEqualizerFeature.setCurve(command.curve, activeSlot, spec)?.let(::listOf)
+                }
             }
         }
         is FeatureCommand.SetLowLatency ->
@@ -721,7 +734,10 @@ class OppoSession(
         val updatedCapability = capability.copy(
             allowedValues = builtInValues + customValues,
             valueLabels = builtInLabels + customLabels,
-            equalizerCurveSpec = selected?.let(OppoCustomEqualizerFeature::curveSpec),
+            equalizerCurveSpec = selected?.let(OppoCustomEqualizerFeature::curveSpec)
+                ?: OppoCustomEqualizerFeature.air5sCreationSpec().takeIf {
+                    compatibility.customEqualizerCreationSupported && slots.isEmpty()
+                },
             source = "device-response:custom-eq",
         )
         _profile.value = profile.copy(
@@ -751,6 +767,10 @@ class OppoSession(
         }
         is FeatureCommand.SetEqualizerCurve ->
             customEqualizerCommandSupported &&
+                (
+                    command.curve.slotId != OppoCustomEqualizerFeature.CREATION_SLOT_ID ||
+                        compatibility.customEqualizerCreationSupported && customEqualizerSlots.isEmpty()
+                    ) &&
                 _profile.value?.capability(FeatureId.EQUALIZER)
                     ?.equalizerCurveSpec?.accepts(command.curve) == true
         else -> true
@@ -769,7 +789,14 @@ class OppoSession(
             it.pending == null && it.confirmed == command.preset
         }
         is FeatureCommand.SetEqualizerCurve -> _state.value.equalizerCurve.let {
-            it.pending == null && it.confirmed == command.curve
+            it.pending == null && if (
+                command.curve.slotId == OppoCustomEqualizerFeature.CREATION_SLOT_ID
+            ) {
+                it.confirmed?.slotId != OppoCustomEqualizerFeature.CREATION_SLOT_ID &&
+                    it.confirmed?.gains == command.curve.gains
+            } else {
+                it.confirmed == command.curve
+            }
         }
         is FeatureCommand.SetLowLatency -> _state.value.lowLatency.let {
             it.pending == null && it.confirmed == command.enabled

@@ -43,6 +43,7 @@ import moe.chenxy.oppopods.ui.state.UiOperationStatus
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.Slider
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
@@ -448,10 +449,7 @@ private fun EqualizerCurveEditor(
     enabled: Boolean,
     onCurveChange: (EqualizerCurve) -> Unit,
 ) {
-    val curve = state.displayed ?: return
-    if (curve.slotId !in state.spec.writableSlotIds) return
-    if (curve.gains.size != state.spec.bands.size) return
-    val gains = remember(curve) { curve.gains.toMutableStateList() }
+    val curve = state.displayed
 
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
         Text(
@@ -464,6 +462,30 @@ private fun EqualizerCurveEditor(
             fontSize = 13.sp,
             modifier = Modifier.padding(bottom = 8.dp),
         )
+        if (curve == null) {
+            val creationSlot = state.spec.writableSlotIds.singleOrNull()
+            TextButton(
+                text = stringResource(R.string.eq_custom_create),
+                onClick = {
+                    if (creationSlot != null) {
+                        onCurveChange(
+                            EqualizerCurve(
+                                slotId = creationSlot,
+                                gains = state.spec.bands.map { band ->
+                                    0.coerceIn(band.minGain, band.maxGain)
+                                },
+                            ),
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = enabled && creationSlot != null,
+            )
+            return@Column
+        }
+        if (curve.slotId !in state.spec.writableSlotIds) return@Column
+        if (curve.gains.size != state.spec.bands.size) return@Column
+        val gains = remember(curve) { curve.gains.toMutableStateList() }
         state.spec.bands.forEachIndexed { index, band ->
             Row(
                 modifier = Modifier.fillMaxWidth(),

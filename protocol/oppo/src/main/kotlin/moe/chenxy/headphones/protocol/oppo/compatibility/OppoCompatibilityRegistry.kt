@@ -33,6 +33,7 @@ data class OppoCompatibilityProfile(
     val spatialSoundSwitchSupported: Boolean,
     val ancEncoding: OppoAncEncoding,
     val lowLatencyStrategy: OppoLowLatencyStrategy,
+    val customEqualizerCreationSupported: Boolean,
     internal val forcedFeatures: Set<FeatureId>,
 )
 
@@ -74,6 +75,7 @@ object OppoCompatibilityRegistry {
         "OPPO Enco Air5s",
     )
     private val compatibleAncModels = setOf("OPPO Enco Air2 Pro")
+    private val customEqualizerCreationModels = setOf("OPPO Enco Air5s")
 
     fun resolve(
         modelName: String?,
@@ -99,6 +101,7 @@ object OppoCompatibilityRegistry {
                     OppoAncEncoding.STANDARD
                 },
             lowLatencyStrategy = overrides.lowLatencyStrategy,
+            customEqualizerCreationSupported = matches(name, customEqualizerCreationModels),
             forcedFeatures = forced,
         )
     }

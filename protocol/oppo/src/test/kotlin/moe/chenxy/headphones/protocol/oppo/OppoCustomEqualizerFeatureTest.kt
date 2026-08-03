@@ -98,4 +98,20 @@ class OppoCustomEqualizerFeatureTest {
         )
         assertNull(OppoCustomEqualizerFeature.delete(draft))
     }
+
+    @Test
+    fun `Air5s creation draft uses official six-band layout`() {
+        val spec = OppoCustomEqualizerFeature.air5sCreationSpec()
+        val curve = EqualizerCurve(
+            OppoCustomEqualizerFeature.CREATION_SLOT_ID,
+            List(spec.bands.size) { 0 },
+        )
+
+        val frame = requireNotNull(OppoCustomEqualizerFeature.createAir5s(curve))
+        val message = requireNotNull(OppoMessageCodec.decode(frame))
+
+        assertEquals(OppoCustomEqualizerFeature.ACTION_ADD, message.payload[0].toInt())
+        assertEquals(listOf(62, 250, 1_000, 4_000, 8_000, 16_000), spec.bands.map { it.centerFrequencyHz })
+        assertEquals(setOf(OppoCustomEqualizerFeature.CREATION_SLOT_ID), spec.writableSlotIds)
+    }
 }

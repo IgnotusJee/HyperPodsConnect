@@ -37,6 +37,7 @@ import moe.chenxy.headphones.core.transport.TransportFactory
 import moe.chenxy.headphones.core.transport.TransportSpec
 import moe.chenxy.headphones.core.transport.TransportState
 import moe.chenxy.headphones.core.transport.TransportWriteResult
+import moe.chenxy.headphones.protocol.oppo.feature.equalizer.OppoCustomEqualizerFeature
 import moe.chenxy.headphones.protocol.oppo.message.OppoCommand
 import moe.chenxy.headphones.protocol.oppo.message.OppoFeature
 import moe.chenxy.headphones.protocol.oppo.message.OppoMessage
@@ -244,6 +245,38 @@ class OppoSessionTest {
         session.disconnect()
     }
 
+    @Test
+    fun `Air5s without a custom slot creates one and confirms its assigned id`() = runBlocking {
+        val transport = FakeOppoTransport(
+            customEqSupported = true,
+            customEqInitiallyPresent = false,
+        )
+        val session = session(transport)
+        session.connect()
+
+        assertNull(session.state.value.equalizerCurve.confirmed)
+        val spec = requireNotNull(
+            session.profile.value!!.capability(FeatureId.EQUALIZER)!!.equalizerCurveSpec,
+        )
+        assertEquals(
+            setOf(OppoCustomEqualizerFeature.CREATION_SLOT_ID),
+            spec.writableSlotIds,
+        )
+        val requested = EqualizerCurve(
+            OppoCustomEqualizerFeature.CREATION_SLOT_ID,
+            List(spec.bands.size) { 0 },
+        )
+
+        val result = session.execute(FeatureCommand.SetEqualizerCurve(requested))
+
+        assertEquals(OperationPhase.READ_BACK_CONFIRMED, result.phase)
+        val confirmed = requireNotNull(session.state.value.equalizerCurve.confirmed)
+        assertEquals("oppo:eq:custom:5", confirmed.slotId)
+        assertEquals(requested.gains, confirmed.gains)
+        assertNull(session.state.value.equalizerCurve.pending)
+        session.disconnect()
+    }
+
     private fun session(
         transport: FakeOppoTransport,
         model: String = "OPPO Enco Air5s",
@@ -279,6 +312,7 @@ private class FakeOppoTransport(
     private val confirmAncWrites: Boolean = false,
     private val rejectAncWrites: Boolean = false,
     private val customEqSupported: Boolean = false,
+    customEqInitiallyPresent: Boolean = true,
 ) : ByteTransport {
     override val kind: TransportKind = TransportKind.CLASSIC_SPP
     private val _state = MutableStateFlow<TransportState>(TransportState.Closed)
@@ -289,6 +323,7 @@ private class FakeOppoTransport(
 
     private var ancValue = 0x01
     private var customEqGains = mutableListOf(0, 1, -1, 2, -2, 3)
+    private var customEqPresent = customEqInitiallyPresent
     val requests = CopyOnWriteArrayList<OppoMessage>()
 
     override suspend fun open() {
@@ -368,6 +403,7 @@ private class FakeOppoTransport(
     }
 
     private fun customEqResponse(): ByteArray {
+        if (!customEqPresent) return byteArrayOf(0, 0)
         val name = "Custom 1".toByteArray(Charsets.UTF_8)
         val frequencies = listOf(62, 250, 1_000, 4_000, 8_000, 16_000)
         return ByteArray(2 + 5 + name.size + 1 + frequencies.size * 3).also { payload ->
@@ -391,7 +427,15 @@ private class FakeOppoTransport(
     }
 
     private fun applyCustomEqUpdate(payload: ByteArray): Boolean {
-        if (payload.size < 6 || (payload[0].toInt() and 0xFF) != 2) return false
+        if (payload.size < 6) return false
+        val action = payload[0].toInt() and 0xFF
+        if (action !in setOf(
+                OppoCustomEqualizerFeature.ACTION_ADD,
+                OppoCustomEqualizerFeature.ACTION_UPDATE_OR_SELECT,
+            )
+        ) return false
+        if (action == OppoCustomEqualizerFeature.ACTION_UPDATE_OR_SELECT && !customEqPresent) return false
+        if (action == OppoCustomEqualizerFeature.ACTION_ADD && (payload[3].toInt() and 0xFF) != 0) return false
         val nameLength = payload[4].toInt() and 0xFF
         var offset = 5 + nameLength
         if (offset >= payload.size) return false
@@ -400,6 +444,7 @@ private class FakeOppoTransport(
         customEqGains = MutableList(bandCount) { index ->
             payload[offset + index * 3 + 2].toInt()
         }
+        customEqPresent = true
         return true
     }
 }

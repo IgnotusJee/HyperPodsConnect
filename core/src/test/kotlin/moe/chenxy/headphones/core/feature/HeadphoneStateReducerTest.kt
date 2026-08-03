@@ -235,6 +235,40 @@ class HeadphoneStateReducerTest {
     }
 
     @Test
+    fun `partial battery report retains components omitted while unreachable`() {
+        val withCase = HeadphoneStateReducer.reduce(
+            empty,
+            StateUpdate.DeviceReported(
+                DeviceReport.Batteries(
+                    mapOf(BatteryComponent.CASE to BatteryState(40, charging = false)),
+                    completeSnapshot = false,
+                ),
+                ValueSource.NOTIFICATION,
+                1,
+            ),
+        )
+
+        val updated = HeadphoneStateReducer.reduce(
+            withCase,
+            StateUpdate.DeviceReported(
+                DeviceReport.Batteries(
+                    mapOf(
+                        BatteryComponent.LEFT to BatteryState(90, charging = false),
+                        BatteryComponent.RIGHT to BatteryState(80, charging = false),
+                    ),
+                    completeSnapshot = false,
+                ),
+                ValueSource.NOTIFICATION,
+                2,
+            ),
+        )
+
+        assertEquals(BatteryState(40, charging = false), updated.batteries[BatteryComponent.CASE])
+        assertEquals(BatteryState(90, charging = false), updated.batteries[BatteryComponent.LEFT])
+        assertEquals(BatteryState(80, charging = false), updated.batteries[BatteryComponent.RIGHT])
+    }
+
+    @Test
     fun `explicit unavailable report clears stale equalizer curve but preserves preset`() {
         val preset = EqualizerPreset("oppo:eq:custom:4")
         val curve = EqualizerCurve(preset.id, listOf(1, 0, 0, 0, 0, 0))
