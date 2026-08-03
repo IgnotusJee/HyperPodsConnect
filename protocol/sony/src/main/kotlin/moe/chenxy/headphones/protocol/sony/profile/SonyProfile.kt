@@ -75,6 +75,7 @@ object SonyProfile {
         equalizerReadVerified: Boolean,
         equalizerPresetIds: Set<String> = SonyEqualizerFeature.allowedPresetIds,
         equalizerCurveSpec: EqualizerCurveSpec? = null,
+        equalizerValueLabels: Map<String, String> = SonyEqualizerFeature.valueLabels,
     ): DeviceProfile {
         val noiseControlWritable = noiseControlReadVerified &&
             isNoiseControlWriteWhitelisted(
@@ -85,11 +86,9 @@ object SonyProfile {
                 supportInfo,
             )
         val equalizerWritable = equalizerReadVerified &&
-            isEqualizerWriteWhitelisted(
+            supportsCapabilityGatedEqualizerWrites(
                 initial.transport,
                 protocolInfo,
-                model,
-                firmware,
             )
         val capabilities = readCapabilities(EvidenceLevel.VERIFIED, initial.transport).toMutableMap()
         if (noiseControlReadVerified) {
@@ -160,16 +159,12 @@ object SonyProfile {
                 availableOnTransports = setOf(initial.transport),
                 requiresReadback = true,
                 allowedValues = equalizerPresetIds,
-                valueLabels = SonyEqualizerFeature.valueLabels.filterKeys(equalizerPresetIds::contains),
+                valueLabels = equalizerValueLabels.filterKeys(equalizerPresetIds::contains),
                 equalizerCurveSpec = equalizerCurveSpec,
                 source = if (equalizerWritable) {
-                    if (protocolInfo.generation == SonyProtocolGeneration.V1) {
-                        "WH-1000XM4 2.5.1 / SPP / table1 preset capability evidence"
-                    } else {
-                        "LinkBuds S 4.2.1 / GATT / table1 EQ preset dynamic evidence"
-                    }
+                    "Sony table1 EQ capability and parameter read verified; official custom-EQ codec"
                 } else {
-                    "Sony EQEBB parameter read verified; writes not whitelisted"
+                    "Sony EQEBB parameter read verified; transport/protocol does not support guarded writes"
                 },
             )
         }
@@ -220,6 +215,9 @@ object SonyProfile {
             model == "WH-1000XM4" &&
             firmware == "2.5.1"
 
+    fun shouldQueryV1Equalizer(protocolInfo: SonyProtocolInfo): Boolean =
+        protocolInfo.generation == SonyProtocolGeneration.V1 && protocolInfo.table1Enabled
+
     fun isNoiseControlWriteWhitelisted(
         transportKind: TransportKind,
         protocolInfo: SonyProtocolInfo,
@@ -236,19 +234,13 @@ object SonyProfile {
         else -> false
     }
 
-    fun isEqualizerWriteWhitelisted(
+    fun supportsCapabilityGatedEqualizerWrites(
         transportKind: TransportKind,
         protocolInfo: SonyProtocolInfo,
-        model: String,
-        firmware: String,
-    ): Boolean = when {
-        transportKind == TransportKind.BLE_GATT &&
-            model == "LinkBuds S" &&
-            firmware == "4.2.1" -> shouldQueryEqualizer(protocolInfo)
-        transportKind == TransportKind.CLASSIC_SPP &&
-            model == "WH-1000XM4" &&
-            firmware == "2.5.1" -> shouldProbeV1Controls(protocolInfo, model, firmware)
-        else -> false
+    ): Boolean = protocolInfo.table1Enabled && when (protocolInfo.generation) {
+        SonyProtocolGeneration.V1 -> transportKind == TransportKind.CLASSIC_SPP
+        SonyProtocolGeneration.V2 ->
+            transportKind == TransportKind.CLASSIC_SPP || transportKind == TransportKind.BLE_GATT
     }
 
     fun batteryTypes(model: String?): List<SonyBatteryType> = when (topology(model)) {

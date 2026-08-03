@@ -3,7 +3,7 @@
 ## 1. 当前状态
 
 2026-08-03 已完成 **15A 静态实现、OPPO Enco Air5s 官方缓存取证与真机显示回归**，并完成
-**15B 高清详情资源与动画资源升级**：
+**15B 高清详情资源与动画资源升级**，并完成 **15C Sony 本地官方资源索引静态实现**：
 
 - App 连接到 OPPO 设备后，只按 HeyMelody `melody_equipment` 中唯一的精确设备记录解析图片；
 - 图片读取优先级固定为：用户自定义图 > 已验证官方缓存图 > APK 内置通用图；
@@ -21,10 +21,13 @@
 - HyperOS 系统耳机设置页通过 `MiuiHeadsetAnimation.loadDefaultInternal()` 的窄范围 Hook 替换
   `R.id.tic`，使用用户静态图 > 官方 `detailImageRes` > box/left/right 的顺序；动态 WebP 不注入
   系统静态 `ImageView`；
-- Sony 仍使用内置通用图，直到 Sound Connect 的 model/color 资源索引取得独立证据。
+- Sony Sound Connect 13.2.1 的 GraphQL 型号表、本地 SharedPreferences 和图片缓存链路已取得
+  独立证据并接入：只读取型号、颜色、SCA 图片 URL、色源及 URL→缓存文件映射，不复制账号字段，
+  也不由模块发起网络请求。
 
 Air5s 详情页、图片配置、通知与超级岛均已真机显示官方缓存图，外部进程也已通过同一
-ContentProvider 逐字节读取三张图片。Sony 设备矩阵仍待完成，因此 Phase 15 尚未闭环。
+ContentProvider 逐字节读取三张图片。Sony 静态解析、单元测试和 WH-1000XM4 真机回归已完成；
+LinkBuds S 仍需连接后完成模块内显示和 HyperOS 设置页回归，因此 Phase 15 尚未闭环。
 
 ## 2. Air5s 官方 App 证据
 
@@ -66,9 +69,32 @@ fetch14_06C810_1/res/raw/detail_model.webp
 官方配置的 `leftImageRes` 与 `rightImageRes` 分别映射到 left/right，不再沿用旧手动导入中的交叉
 映射。
 
-## 3. 解析与回退规则
+## 3. Sony Sound Connect 官方 App 证据
 
-1. 仅 vendor 为 `oppo` 且 snapshot 已 Ready 时尝试解析；
+Sound Connect 13.2.1 每日从生产 GraphQL 端点取得型号表，保存到
+`cloud_model_info_preference.xml` 的 `MODEL_INFO_LIST_JSON`。当前 schema 的图片字段为
+`sca_image_image_url` 和 `sca_anime_image_url`。图片由官方 `DownloadedFileManager` 写入
+`files/modelimage`：`CachedUrlList` 保存 CDN URL，实际文件名是 URL UTF-8 字节的 SHA-1。
+
+设备上的只读取证确认：
+
+| 型号/色源 | 官方颜色 ID | URL SHA-1 文件 | 资源 |
+| --- | --- | --- | --- |
+| WH-1000XM4 / `FF494948` | `0x00`, `0x01`（共用视觉资源） | `8dddcc4924069ced14e7fb59bae94a82e4909476` | PNG 720×720 / 86,669 bytes |
+| LinkBuds S / `FFAAB8D8` | `0x05` | `70fd86b90cebda991778abddffaa5c8553d4b762` | PNG 720×720 / 95,301 bytes |
+
+当前设备色源来自官方 `jp.co.sony.autoplay.android.preferences.xml`，先按蓝牙地址和完整型号匹配。
+云型号行再按完整型号、色源以及本地确实存在的缓存 URL 收敛。WH-1000XM4 的 `0x00/0x01`
+虽然色号不唯一，但二者 URL、色源、model id 和 model number 完全相同，因此作为一个视觉资源组
+保存两个色号；若候选对应不同图片 URL，则拒绝自动选择。
+
+Sony 当前目标资源均为单张 `DETAIL`，不伪造耳塞的 LEFT/RIGHT/BOX 拓扑图。若将来某型号的
+`sca_anime_image_url` 同时存在于官方本地缓存，则独立映射为 `HERO_ANIMATION`。所有资源继续经过
+统一的格式、尺寸、大小、解码与 SHA-256 校验后原子发布。
+
+## 4. 解析与回退规则
+
+1. vendor 为 `oppo` 或 `sony` 且 snapshot 已 Ready 时尝试各自的严格解析器；
 2. 优先用当前设备地址绑定查询官方数据库；地址无结果时回退完整 `deviceName`，结果必须只有一个
    不同的 `productId/colorId/model` tuple；
 3. 产品 ID、颜色 ID、目录和图片路径分别通过白名单正则，不接受路径片段；
@@ -79,7 +105,7 @@ fetch14_06C810_1/res/raw/detail_model.webp
 6. 任一步失败均不修改偏好，继续读取旧官方缓存或内置图；
 7. 手动“导入图片”入口改为同一精确解析器的缓存刷新入口，不再列出所有 `control_*` 供模糊手选。
 
-## 4. 验证记录
+## 5. 验证记录
 
 - `:app:compileDebugKotlin`：通过；
 - `:app:testDebugUnitTest`：通过；
@@ -103,10 +129,22 @@ fetch14_06C810_1/res/raw/detail_model.webp
 - Air5s 系统设置页真机日志记录 `Settings hero replaced ... bitmap=780x780`，截图视觉核验显示
   OPPO 官方高清盒图且未被后续 MIUI 刷新覆盖；
 - 单元测试覆盖 PNG 元数据、超限/未知格式拒绝、用户图优先级和官方设备记录严格解析。
+- Sony 单元测试覆盖 SharedPreferences XML 转义、按地址读取色源、GraphQL 型号过滤、共用视觉
+  色号折叠、不同 URL 歧义拒绝以及官方 URL SHA-1 文件名。
+- WH-1000XM4 真机安装使用完整 `:app:installDebug`，随后重启 `com.android.bluetooth`、
+  `com.android.settings`、`com.milink.service` 和 `com.xiaomi.bluetooth` 四个 LSPosed 作用域；
+- WH-1000XM4 重连后 snapshot 为 `Ready / STABLE / Classic SPP / 2.5.1`，电量 90%，验证期间无
+  Sony frame decode reject；
+- 自动生成 Sony schema 2 descriptor：`productId=0x31:0x05`、`colorId=0x00,0x01`、
+  `DETAIL=image/png 720×720 / 86,669 bytes`；
+- Sound Connect 原图、模块原子缓存和非 root shell 通过 ContentProvider 读取所得 SHA-256 均为
+  `9e3bcf848f400fb0f1fb6e8ab610611604ef055fdf5b98e5aab2c613d314d936`；
+- HyperOS 设置页真机日志确认 `Settings hero replaced ... bitmap=720x720`，地址来自当前 Sony
+  snapshot，证明同一 Sony 官方图片已被 Settings 进程解码并设置到静态 Hero ImageView。
 
-## 5. 后续门禁
+## 6. 后续门禁
 
 1. 如需人工 UI 回归，验证用户自定义图覆盖、清除后回落官方图；损坏输入保留旧缓存已由
    instrumentation 覆盖；
-2. 独立审计 Sony Sound Connect 的资源索引和颜色映射；
-3. 完成 LinkBuds S、WH-1000XM4 和 Air5s 三型号真机显示矩阵后关闭 Phase 15。
+2. 对 LinkBuds S 重复 Sony descriptor、App 详情页、ContentProvider 和 HyperOS 设置页验证；
+3. LinkBuds S 通过后完成三型号真机显示矩阵并关闭 Phase 15。

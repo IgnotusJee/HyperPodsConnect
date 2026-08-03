@@ -402,11 +402,14 @@ class SonyParsersTest {
 
     @Test
     fun `parses captured EQ presets and builds only exact reversible writes`() {
+        val capability = linkBudsEqCapability()
         val bass = SonyEqualizerFeature.parse(
             message(byteArrayOf(0x57, 0x00, 0x16, 0x06, 0x11, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)),
+            capability,
         )!!
         val speech = SonyEqualizerFeature.parse(
             message(byteArrayOf(0x59, 0x00, 0x17, 0x06, 0x00, 0x0E, 0x0D, 0x0B, 0x0C, 0x00)),
+            capability,
         )!!
 
         assertEquals(SonyEqualizerFeature.BASS_BOOST_ID, bass.preset.id)
@@ -414,39 +417,116 @@ class SonyParsersTest {
         assertEquals(SonyEqualizerFeature.SPEECH_ID, speech.preset.id)
         assertEquals(
             byteArrayOf(0x58, 0x00, 0x17, 0x00).toList(),
-            SonyEqualizerFeature.set(EqualizerPreset(SonyEqualizerFeature.SPEECH_ID))?.toList(),
+            SonyEqualizerFeature.set(
+                EqualizerPreset(SonyEqualizerFeature.SPEECH_ID),
+                capability,
+            )?.toList(),
         )
         assertEquals(
             byteArrayOf(0x56, 0x00).toList(),
             SonyEqualizerFeature.query().toList(),
         )
+        assertEquals(
+            byteArrayOf(0x50, 0x00).toList(),
+            SonyEqualizerFeature.queryCapability().toList(),
+        )
         assertEquals(12, SonyEqualizerFeature.allowedPresetIds.size)
         assertEquals(
             byteArrayOf(0x58, 0x00, 0x00, 0x00).toList(),
-            SonyEqualizerFeature.set(EqualizerPreset(SonyEqualizerFeature.OFF_ID))?.toList(),
+            SonyEqualizerFeature.set(
+                EqualizerPreset(SonyEqualizerFeature.OFF_ID),
+                capability,
+            )?.toList(),
         )
         assertEquals(
             byteArrayOf(0x58, 0x00, 0xA2.toByte(), 0x00).toList(),
-            SonyEqualizerFeature.set(EqualizerPreset(SonyEqualizerFeature.CUSTOM_2_ID))?.toList(),
+            SonyEqualizerFeature.set(
+                EqualizerPreset(SonyEqualizerFeature.CUSTOM_2_ID),
+                capability,
+            )?.toList(),
         )
-        assertNull(SonyEqualizerFeature.set(EqualizerPreset("sony:eq:18")))
+        assertNull(SonyEqualizerFeature.set(EqualizerPreset("sony:eq:18"), capability))
+    }
+
+    @Test
+    fun `v2 custom EQ uses active slot and official six-band encoding`() {
+        val capability = linkBudsEqCapability()
+        val custom1 = EqualizerPreset(SonyEqualizerFeature.CUSTOM_1_ID)
+        val state = SonyEqualizerFeature.parse(
+            message(
+                byteArrayOf(
+                    0x57, 0x00, 0xA1.toByte(), 0x06,
+                    0x08, 0x11, 0x0A, 0x0A, 0x0B, 0x0C,
+                ),
+            ),
+            capability,
+        )!!
+        val curve = SonyEqualizerFeature.toDomainCurve(state, capability)!!
+        val spec = SonyEqualizerFeature.curveSpec(capability)!!
+
+        assertEquals(SonyEqualizerFeature.CUSTOM_1_ID, curve.slotId)
+        assertEquals(listOf(-2, 7, 0, 0, 1, 2), curve.gains)
+        assertEquals(
+            listOf("CLEAR BASS", "400", "1k", "2.5k", "6.3k", "16k"),
+            spec.bands.map { it.displayName },
+        )
+        assertEquals(
+            setOf(
+                SonyEqualizerFeature.MANUAL_ID,
+                SonyEqualizerFeature.CUSTOM_1_ID,
+                SonyEqualizerFeature.CUSTOM_2_ID,
+            ),
+            spec.writableSlotIds,
+        )
+        assertEquals(
+            byteArrayOf(
+                0x58, 0x00, 0xA1.toByte(), 0x06,
+                0x08, 0x11, 0x0A, 0x0A, 0x0B, 0x0C,
+            ).toList(),
+            SonyEqualizerFeature.setCurve(curve, custom1, capability)?.toList(),
+        )
+        assertNull(
+            SonyEqualizerFeature.setCurve(
+                curve.copy(slotId = SonyEqualizerFeature.CUSTOM_2_ID),
+                custom1,
+                capability,
+            ),
+        )
+        assertNull(
+            SonyEqualizerFeature.setCurve(
+                curve.copy(gains = listOf(11, 7, 0, 0, 1, 2)),
+                custom1,
+                capability,
+            ),
+        )
+        assertNull(
+            SonyEqualizerFeature.setCurve(
+                curve.copy(slotId = SonyEqualizerFeature.BASS_BOOST_ID),
+                EqualizerPreset(SonyEqualizerFeature.BASS_BOOST_ID),
+                capability,
+            ),
+        )
     }
 
     @Test
     fun `rejects malformed or unverified EQ layouts`() {
+        val capability = linkBudsEqCapability()
         assertNull(
             SonyEqualizerFeature.parse(
                 message(byteArrayOf(0x57, 0x00, 0x18, 0x06, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)),
+                capability,
             ),
         )
         assertNull(
             SonyEqualizerFeature.parse(
                 message(byteArrayOf(0x57, 0x00, 0x16, 0x05, 0x11, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)),
+                capability,
             ),
         )
         assertNull(
             SonyEqualizerFeature.parse(
                 message(byteArrayOf(0x57, 0x00, 0x16, 0x06, 0x15, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A)),
+                capability,
             ),
         )
     }
@@ -641,6 +721,7 @@ class SonyParsersTest {
 
     @Test
     fun `sanitized EQ fixture contains three reversible cycles`() {
+        val capability = linkBudsEqCapability()
         val frames = requireNotNull(
             javaClass.getResourceAsStream(
                 "/fixtures/sony/device-capture/linkbuds-s-4.2.1/linkbuds-s-eq-preset.hex",
@@ -665,12 +746,14 @@ class SonyParsersTest {
         assertEquals(6, messages.count { it.command == SonyCommand.EQEBB_NTFY_PARAM })
         assertEquals(
             SonyEqualizerFeature.BASS_BOOST_ID,
-            messages.mapNotNull(SonyEqualizerFeature::parse).lastOrNull()?.preset?.id,
+            messages.mapNotNull { SonyEqualizerFeature.parse(it, capability) }
+                .lastOrNull()?.preset?.id,
         )
     }
 
     @Test
     fun `sanitized all-preset EQ fixture covers carousel and restores baseline`() {
+        val capability = linkBudsEqCapability()
         val frames = requireNotNull(
             javaClass.getResourceAsStream(
                 "/fixtures/sony/device-capture/linkbuds-s-4.2.1/linkbuds-s-eq-all-presets.hex",
@@ -686,7 +769,7 @@ class SonyParsersTest {
         }
         val selectedPresetIds = messages
             .filter { it.command == SonyCommand.EQEBB_NTFY_PARAM }
-            .mapNotNull(SonyEqualizerFeature::parse)
+            .mapNotNull { SonyEqualizerFeature.parse(it, capability) }
             .map { it.preset.id }
 
         assertTrue(
@@ -736,6 +819,28 @@ class SonyParsersTest {
         sequence = 0,
         command = payload.first().toInt() and 0xFF,
         payload = payload,
+    )
+
+    private fun linkBudsEqCapability() = requireNotNull(
+        SonyEqualizerFeature.parseCapability(
+            message(
+                byteArrayOf(
+                    0x51, 0x00, 0x06, 0x15, 0x0C,
+                    0x00, 0x00,
+                    0x10, 0x00,
+                    0x11, 0x00,
+                    0x12, 0x00,
+                    0x13, 0x00,
+                    0x14, 0x00,
+                    0x15, 0x00,
+                    0x16, 0x00,
+                    0x17, 0x00,
+                    0xA0.toByte(), 0x00,
+                    0xA1.toByte(), 0x00,
+                    0xA2.toByte(), 0x00,
+                ),
+            ),
+        ),
     )
 
     private fun hex(value: String): ByteArray =

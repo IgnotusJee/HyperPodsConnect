@@ -60,6 +60,7 @@ import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeatur
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerState
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV1EqualizerCapability
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV1EqualizerFeature
+import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV2EqualizerCapability
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyAmbientSoundMode
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlState
@@ -138,6 +139,7 @@ class SonySession(
     private var supportInfo: SonySupportInfo? = null
     private var v1NoiseControlCapability: SonyV1NoiseControlCapability? = null
     private var v1EqualizerCapability: SonyV1EqualizerCapability? = null
+    private var v2EqualizerCapability: SonyV2EqualizerCapability? = null
 
     @Volatile
     private var noiseControlState: SonyNoiseControlState? = null
@@ -286,13 +288,20 @@ class SonySession(
             }
         }
         if (SonyProfile.shouldQueryEqualizer(protocol)) {
-            val response = exchange(
-                SonyEqualizerFeature.query(),
-                SonyCommand.EQEBB_RET_PARAM,
-                responsePredicate = SonyEqualizerFeature::matches,
-            )
-            equalizerObserved = response?.let(SonyEqualizerFeature::parse) != null
-        } else if (SonyProfile.shouldProbeV1Controls(protocol, model, firmware)) {
+            v2EqualizerCapability = exchange(
+                SonyEqualizerFeature.queryCapability(),
+                SonyCommand.EQEBB_RET_CAPABILITY,
+                responsePredicate = SonyEqualizerFeature::capabilityMatches,
+            )?.let(SonyEqualizerFeature::parseCapability)
+            val v2Capability = v2EqualizerCapability
+            if (v2Capability != null) {
+                equalizerObserved = exchange(
+                    SonyEqualizerFeature.query(),
+                    SonyCommand.EQEBB_RET_PARAM,
+                    responsePredicate = SonyEqualizerFeature::matches,
+                )?.let { SonyEqualizerFeature.parse(it, v2Capability) } != null
+            }
+        } else if (SonyProfile.shouldQueryV1Equalizer(protocol)) {
             v1EqualizerCapability = exchange(
                 SonyV1EqualizerFeature.queryCapability(),
                 SonyCommand.EQEBB_RET_CAPABILITY,
@@ -315,8 +324,17 @@ class SonySession(
             support,
             noiseControlObserved,
             equalizerObserved,
-            v1EqualizerCapability?.presetIds ?: SonyEqualizerFeature.allowedPresetIds,
-            v1EqualizerCapability?.let(SonyV1EqualizerFeature::curveSpec),
+            equalizerPresetIds = v1EqualizerCapability?.presetIds
+                ?: v2EqualizerCapability?.presetIds
+                ?: emptySet(),
+            equalizerCurveSpec = when (protocol.generation) {
+                SonyProtocolGeneration.V1 ->
+                    v1EqualizerCapability?.let(SonyV1EqualizerFeature::curveSpec)
+                SonyProtocolGeneration.V2 ->
+                    v2EqualizerCapability?.let(SonyEqualizerFeature::curveSpec)
+            },
+            equalizerValueLabels = v2EqualizerCapability?.valueLabels
+                ?: SonyEqualizerFeature.valueLabels,
         )
         transition(SessionEvent.InitialStateSynchronized)
     }
@@ -377,11 +395,13 @@ class SonySession(
                     responsePredicate = SonyV1EqualizerFeature::matches,
                 )
             } else if (generation == SonyProtocolGeneration.V2) {
-                exchange(
-                    SonyEqualizerFeature.query(),
-                    SonyCommand.EQEBB_RET_PARAM,
-                    responsePredicate = SonyEqualizerFeature::matches,
-                )
+                if (v2EqualizerCapability != null) {
+                    exchange(
+                        SonyEqualizerFeature.query(),
+                        SonyCommand.EQEBB_RET_PARAM,
+                        responsePredicate = SonyEqualizerFeature::matches,
+                    )
+                }
             }
         }
     }
@@ -544,7 +564,9 @@ class SonySession(
             SonyProtocolGeneration.V1 -> v1EqualizerCapability?.let {
                 SonyV1EqualizerFeature.parse(message, it, equalizerState?.preset)
             }
-            SonyProtocolGeneration.V2 -> SonyEqualizerFeature.parse(message)
+            SonyProtocolGeneration.V2 -> v2EqualizerCapability?.let {
+                SonyEqualizerFeature.parse(message, it)
+            }
             null -> null
         }
         equalizer?.let { state ->
@@ -661,10 +683,14 @@ class SonySession(
 
     private fun applyEqualizerState(state: SonyEqualizerState, source: ValueSource) {
         equalizerState = state
-        val curve = if (protocolInfo?.generation == SonyProtocolGeneration.V1) {
-            v1EqualizerCapability?.let { SonyV1EqualizerFeature.toDomainCurve(state, it) }
-        } else {
-            null
+        val curve = when (protocolInfo?.generation) {
+            SonyProtocolGeneration.V1 -> v1EqualizerCapability?.let {
+                SonyV1EqualizerFeature.toDomainCurve(state, it)
+            }
+            SonyProtocolGeneration.V2 -> v2EqualizerCapability?.let {
+                SonyEqualizerFeature.toDomainCurve(state, it)
+            }
+            null -> null
         }
         applyReport(DeviceReport.Equalizer(state.preset, curve), source)
     }
@@ -1043,8 +1069,14 @@ class SonySession(
 
     private fun SonyEqualizerState?.toDomainCurve(): EqualizerCurve? =
         this?.let { state ->
-            v1EqualizerCapability?.let { capability ->
-                SonyV1EqualizerFeature.toDomainCurve(state, capability)
+            when (protocolInfo?.generation) {
+                SonyProtocolGeneration.V1 -> v1EqualizerCapability?.let { capability ->
+                    SonyV1EqualizerFeature.toDomainCurve(state, capability)
+                }
+                SonyProtocolGeneration.V2 -> v2EqualizerCapability?.let {
+                    SonyEqualizerFeature.toDomainCurve(state, it)
+                }
+                null -> null
             }
         }
 
@@ -1124,7 +1156,9 @@ class SonySession(
         SonyProtocolGeneration.V1 -> v1EqualizerCapability?.let {
             SonyV1EqualizerFeature.set(preset, it)
         }
-        SonyProtocolGeneration.V2 -> SonyEqualizerFeature.set(preset)
+        SonyProtocolGeneration.V2 -> v2EqualizerCapability?.let {
+            SonyEqualizerFeature.set(preset, it)
+        }
         null -> null
     }
 
@@ -1135,7 +1169,10 @@ class SonySession(
         SonyProtocolGeneration.V1 -> v1EqualizerCapability?.let {
             SonyV1EqualizerFeature.setCurve(curve, activePreset, it)
         }
-        else -> null
+        SonyProtocolGeneration.V2 -> v2EqualizerCapability?.let {
+            SonyEqualizerFeature.setCurve(curve, activePreset, it)
+        }
+        null -> null
     }
 
     private fun equalizerQuery(): ByteArray = when (protocolInfo?.generation) {
@@ -1148,7 +1185,9 @@ class SonySession(
             SonyProtocolGeneration.V1 -> v1EqualizerCapability?.let {
                 SonyV1EqualizerFeature.parse(message, it, equalizerState?.preset)
             }
-            SonyProtocolGeneration.V2 -> SonyEqualizerFeature.parse(message)
+            SonyProtocolGeneration.V2 -> v2EqualizerCapability?.let {
+                SonyEqualizerFeature.parse(message, it)
+            }
             null -> null
         }
 

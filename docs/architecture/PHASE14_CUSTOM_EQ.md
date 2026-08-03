@@ -1,6 +1,6 @@
 # Phase 14：多厂商自定义 EQ
 
-状态：**Phase 14 已闭环：14A Sony V1、14B OPPO Enco Air5s 均完成真机可逆读回**
+状态：**Phase 14 已闭环：Sony V1、Sony V2 与 OPPO Enco Air5s 均完成真机可逆读回**
 
 ## 1. 本阶段拆分
 
@@ -33,6 +33,27 @@ OPPO 实现不按型号名猜测能力：只有设备的 `0x8100` bitmap 明确�
 `0xFF` 不是一个可选择的用户 preset，而是“编辑当前活动自定义槽位”。实现因此同时要求：当前活动
 preset 必须是 capability 声明的可写自定义槽位，command 中的 `curve.slotId` 必须与其精确一致，且
 整条曲线通过 band 数、范围和步进校验后才允许发帧。
+
+Sound Connect 13.2.1 的 table-set 2 路径位于 `sources/m20/C23425h.java`。与 V1 不同，
+`mo60297o(eqPresetId, bands)` 把实际活动的 `Manual / Custom 1 / Custom 2` preset ID 传给
+`sources/hf0/C17559c.java`，后者依次序列化 preset、band count 和全部 band；外层
+`sources/gf0/C16947x0.java` 再写入 V2 `PRESET_EQ` selector `0x00`。因此 V2 曲线 SET 为：
+
+```text
+58 00 <active-custom-preset> <band-count> <all encoded bands>
+```
+
+`C13710s` capability 同时提供 level count 和 customizable 标志，官方显示换算仍为
+`encoded - ((levelCount - 1) / 2)`。LinkBuds S 4.2.1 已捕获的 12 个 preset 状态都返回
+6 个 `0x00..0x14` 值，故该精确型号/固件使用中点 `0x0A`、显示范围 `-10..+10`，布局沿用
+Sony 六值顺序 `CLEAR BASS / 400 / 1k / 2.5k / 6.3k / 16k`。V2 实现要求曲线槽与当前活动槽
+一致。写权限不再绑定具体型号：仅当 Sony table1 代际与当前传输匹配、实时 capability 成功解析、
+EQ 状态读取成功，且 capability 明确返回可写自定义槽位时才发布完整曲线写入。
+
+实现不再按 LinkBuds S 硬编码 capability：V2 session 先按官方 `C16898a` 发送 `50 00`，严格解析
+`51 00 <band-count> <level-count> <preset-count> ...`，再以设备返回的 band 数、level 数和 preset
+集合构造曲线规格。只有恰好六值时才应用上述官方频率标签，其他 Sony 布局回退为 `Band N`；这使统一
+EQ 页面可复用于 Sony V1/V2 型号，同时不会按品牌名猜测频段、范围或槽位。
 
 ## 3. 通用实现
 
@@ -88,12 +109,44 @@ RET  57 01 A2 06 0A 13 11 13 12 11
 SPP/A2DP 全程保持连接。脱敏字节证据位于
 `testdata/fixtures/sony/device-capture/wh-1000xm4-2.5.1/wh-1000xm4-v1-custom-eq.hex`。
 
-## 5. 验证与剩余边界
+## 5. LinkBuds S 真机闭环
+
+2026-08-03 在同一台 Xiaomi 13 Pro / Android 16 上，LinkBuds S 4.2.1 通过 BLE GATT 进入
+`Ready/STABLE`。动态 `50 00` capability 查询返回 6 个频段、21 个 level 和 12 个 preset，明确包含
+`Manual / Custom 1 / Custom 2`（`A0 / A1 / A2`）。活动槽位为 Custom 1，初始 wire 曲线为：
+
+```text
+08 11 0A 0A 0B 0C  ->  Clear Bass -2；400 +7；1k 0；2.5k 0；6.3k +1；16k +2
+```
+
+只把 400 Hz 从 `+7` 调到 `+6`：
+
+```text
+SET  58 00 A1 06 08 10 0A 0A 0B 0C
+ACK
+GET  56 00
+RET  57 00 A1 06 08 10 0A 0A 0B 0C
+```
+
+随后恢复原值：
+
+```text
+SET  58 00 A1 06 08 11 0A 0A 0B 0C
+ACK
+GET  56 00
+RET  57 00 A1 06 08 11 0A 0A 0B 0C
+```
+
+该固件在两次曲线 SET 后同样没有发送 EQ NTFY；实现等待 grace window 后强制 GET，并以活动槽位和
+完整曲线一致作为成功边界。两次读回均成功，原曲线已恢复。脱敏字节证据位于
+`testdata/fixtures/sony/device-capture/linkbuds-s-4.2.1/linkbuds-s-v2-custom-eq.hex`。
+
+## 6. 验证与剩余边界
 
 自动化覆盖发送前的错误槽位、错误 band 数、越界和步进拒绝，`0xFF` 精确编码，完整 readback 才确认，
 状态 reducer 的 pending/confirmed 语义，IPC 新旧 payload 和 profile archive 兼容，以及假设备可逆恢复。
 
-## 6. OPPO 官方 App 静态链路与实现
+## 7. OPPO 官方 App 静态链路与实现
 
 HeyMelody 16.7.1 的完整 APK/JADX 代码已恢复以下调用链：
 
@@ -129,7 +182,7 @@ action 3。两者只接受 `0x8122` 中真实存在的自定义 `eqId`，固定�
 的新名称读回为成功条件；删除则要求槽位从 `0x8122` 消失，并追加内置 EQ 查询以清除已删除槽位的旧选中
 状态。名称按官方字段限制为非空且最多 128 个 UTF-8 字节。
 
-## 7. OPPO Enco Air5s 真机闭环
+## 8. OPPO Enco Air5s 真机闭环
 
 2026-08-03 在 Xiaomi 13 Pro / Android 16 上，以完整模块 APK 安装并重启全部 LSPosed 作用域后，
 OPPO Enco Air5s 163.163.102 通过 Classic SPP 进入 `Ready/STABLE`。初始 GET 返回成功且槽位数为 0：
@@ -167,8 +220,10 @@ Air5s 白名单 `customEqUiVersion=2` 的官方“添加均衡器”模板实际
 `Skip broadcast to frozen process` 丢弃读回事件；硬件测试执行器因此需要在运行期间解除测试进程冻结。
 hidden include-background 标志经复测仍无法绕过该厂商策略，故没有作为产品 workaround 保留。
 
-## 8. Phase 14 结论与剩余边界
+## 9. Phase 14 结论与剩余边界
 
-Phase 14 的完成标准已由 Sony WH-1000XM4 与 OPPO Enco Air5s 两条真机闭环满足。14C 继续作为多型号
-完善工作：新增型号仍必须取得自身 capability、频点/范围、最小改动、恢复和重连证据，不能继承 Air5s
-或 WH-1000XM4 的稳定性结论。
+Phase 14 的完成标准已由 Sony WH-1000XM4、Sony LinkBuds S 与 OPPO Enco Air5s 三条真机闭环满足。
+Sony EQ 页面和协议实现按设备 capability 动态构造，不再把 WH-1000XM4 或 LinkBuds S 的曲线能力限定
+在单一型号。未列名型号只有在 table1、实时 capability 和完整状态读回全部成立时才开放设备明确声明的
+preset/自定义槽位；频段标签、增益范围和槽位均来自该设备，不继承其他型号。兼容级别保持 `CONTROLLED`，
+只有完成最小改动、恢复与重连证据的具体型号/固件才可升级为 `STABLE`。

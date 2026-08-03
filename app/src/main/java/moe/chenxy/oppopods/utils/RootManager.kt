@@ -2,11 +2,16 @@ package moe.chenxy.oppopods.utils
 
 import android.util.Log
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import moe.chenxy.oppopods.config.DeviceArtworkSelector
 import moe.chenxy.oppopods.config.PodImageResource
 import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
 
 data class MelodyImageCandidate(
     val label: String,
@@ -19,8 +24,15 @@ data class MelodyImageCandidate(
     val boxBytes: ByteArray,
 )
 
+data class SonyImageCandidate(
+    val selector: DeviceArtworkSelector,
+    val resourcePaths: Map<PodImageResource, String>,
+    /** Small preview used only to prove the selected cache entry is readable. */
+    val previewBytes: ByteArray,
+)
+
 object RootManager {
-    private const val TAG = "OppoPods-MelodyImport"
+    private const val TAG = "OppoPods-OfficialArtwork"
     private const val MAX_IMAGE_BYTES = 8 * 1024 * 1024
     private val packageNameRegex = Regex("^[A-Za-z0-9_.]+$")
     private val productIdRegex = Regex("^[A-Za-z0-9]{3,16}$")
@@ -53,6 +65,17 @@ object RootManager {
         "/data/data/com.heytap.headset/databases/melody-model.db",
         "/data/user/0/com.heytap.headset/databases/melody-model.db",
         "/data/user_de/0/com.heytap.headset/databases/melody-model.db",
+    )
+    private val sonyDataRoots = listOf(
+        "/data_mirror/data_ce/null/0/com.sony.songpal.mdr",
+        "/data/data/com.sony.songpal.mdr",
+        "/data/user/0/com.sony.songpal.mdr",
+    )
+    private val sonyImageUrlRegex = Regex(
+        "^https://hpc-image\\.data-gateway\\.seeds\\.services/[0-9a-fA-F-]{36}\\.(png|jpe?g|webp)$",
+    )
+    private val sonyCachePathRegex = Regex(
+        "^/(data/(data|user/\\d+)|data_mirror/data_ce/null/\\d+)/com\\.sony\\.songpal\\.mdr/files/modelimage/[0-9a-f]{40}$",
     )
 
     fun restartPackages(packages: Collection<String>): Boolean {
@@ -164,6 +187,76 @@ object RootManager {
         if (!path.matches(melodyArtworkPathRegex)) {
             return null
         }
+        return readRootImage(path)
+    }
+
+    /** Resolve Sony Sound Connect's exact local model/color row without using its account data. */
+    fun resolveSonyImageCandidate(deviceName: String, deviceAddress: String? = null): SonyImageCandidate? {
+        val expectedModel = deviceName.trim().takeIf(String::isNotEmpty) ?: return null
+        val dataRoot = sonyDataRoots.firstOrNull { root ->
+            runRootText("test -f ${(root + SONY_CLOUD_PREFS).shellQuote()} && " +
+                "test -d ${(root + SONY_IMAGE_DIR).shellQuote()} && echo yes")?.trim() == "yes"
+        } ?: run {
+            Log.w(TAG, "Sony artwork resolution failed: Sound Connect cache not found")
+            return null
+        }
+        val cloudXml = runRootText("cat ${(dataRoot + SONY_CLOUD_PREFS).shellQuote()}") ?: return null
+        val cloudJson = extractSharedPreferenceString(cloudXml, SONY_CLOUD_JSON_KEY) ?: return null
+        val modelRecords = parseSonyCloudModelInfo(cloudJson, expectedModel)
+        if (modelRecords.isEmpty()) return null
+
+        val connectedColor = runRootText("cat ${(dataRoot + SONY_AUTOPLAY_PREFS).shellQuote()} 2>/dev/null")
+            ?.let { extractSharedPreferenceString(it, SONY_CONNECTED_DEVICES_KEY) }
+            ?.let { parseSonyConnectedDeviceColor(it, expectedModel, deviceAddress) }
+        val cachedUrls = runRootText("cat ${(dataRoot + SONY_IMAGE_DIR + "/CachedUrlList").shellQuote()}")
+            ?.lineSequence()
+            ?.map(String::trim)
+            ?.filter { it.matches(sonyImageUrlRegex) }
+            ?.toSet()
+            .orEmpty()
+        val selection = selectSonyCloudModelRecord(modelRecords, connectedColor, cachedUrls) ?: run {
+            Log.w(TAG, "Sony artwork resolution failed: model/color/cache match is ambiguous")
+            return null
+        }
+
+        val resources = buildMap {
+            selection.imageUrl.takeIf(cachedUrls::contains)?.let { url ->
+                put(PodImageResource.DETAIL, "$dataRoot$SONY_IMAGE_DIR/${sonyCacheFileName(url)}")
+            }
+            selection.animeUrl?.takeIf(cachedUrls::contains)?.let { url ->
+                put(PodImageResource.HERO_ANIMATION, "$dataRoot$SONY_IMAGE_DIR/${sonyCacheFileName(url)}")
+            }
+        }.filterValues { path ->
+            path.matches(sonyCachePathRegex) &&
+                runRootText("test -f ${path.shellQuote()} && echo yes")?.trim() == "yes"
+        }
+        if (PodImageResource.DETAIL !in resources) return null
+        val preview = readSonyImage(resources.getValue(PodImageResource.DETAIL)) ?: return null
+        return SonyImageCandidate(
+            selector = DeviceArtworkSelector(
+                vendorId = "sony",
+                productId = "${selection.modelId}:${selection.modelNumber}",
+                colorId = selection.colorIds.joinToString(","),
+                model = selection.modelName,
+            ),
+            resourcePaths = resources,
+            previewBytes = preview,
+        )
+    }
+
+    fun readSonyImages(candidate: SonyImageCandidate): Map<PodImageResource, ByteArray>? {
+        val images = candidate.resourcePaths.mapNotNull { (resource, path) ->
+            readSonyImage(path)?.let { resource to it }
+        }.toMap()
+        return images.takeIf { it.isNotEmpty() && it.size == candidate.resourcePaths.size }
+    }
+
+    fun readSonyImage(path: String): ByteArray? {
+        if (!path.matches(sonyCachePathRegex)) return null
+        return readRootImage(path)
+    }
+
+    private fun readRootImage(path: String): ByteArray? {
         return runCatching {
             val process = ProcessBuilder("su", "-c", "cat ${path.shellQuote()}")
                 .redirectErrorStream(false)
@@ -233,6 +326,113 @@ object RootManager {
             .orEmpty()
     }.getOrDefault(emptyMap())
 
+    internal fun extractSharedPreferenceString(xml: String, key: String): String? {
+        val keyPattern = Regex.escape(key)
+        val value = Regex(
+            "<string\\s+[^>]*name=\\\"$keyPattern\\\"[^>]*>(.*?)</string>",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+        ).find(xml)?.groupValues?.get(1) ?: return null
+        return value
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
+    }
+
+    internal fun parseSonyCloudModelInfo(json: String, expectedModel: String): List<SonyCloudModelRecord> =
+        runCatching {
+            val root = Json.parseToJsonElement(json).jsonObject
+            val records = root.objectValue("data")
+                ?.objectValue("HPC")
+                ?.get("getAllCloudModelInfos") as? JsonArray
+                ?: return@runCatching emptyList()
+            records.mapNotNull { element ->
+                val item = element as? JsonObject ?: return@mapNotNull null
+                val modelName = item.stringValue("model_name") ?: return@mapNotNull null
+                if (!modelName.equals(expectedModel, ignoreCase = true)) return@mapNotNull null
+                val imageUrl = item.stringValue("sca_image_image_url")
+                    ?.takeIf { it.matches(sonyImageUrlRegex) }
+                    ?: return@mapNotNull null
+                SonyCloudModelRecord(
+                    modelId = item.stringValue("model_id") ?: return@mapNotNull null,
+                    modelNumber = item.stringValue("model_number") ?: return@mapNotNull null,
+                    modelName = modelName,
+                    colorId = item.stringValue("model_color_id") ?: return@mapNotNull null,
+                    imageUrl = imageUrl,
+                    animeUrl = item.stringValue("sca_anime_image_url")
+                        ?.takeIf { it.matches(sonyImageUrlRegex) },
+                    sourceColor = item.stringValue("sca_source_color")?.uppercase(),
+                )
+            }
+        }.getOrDefault(emptyList())
+
+    internal fun parseSonyConnectedDeviceColor(
+        json: String,
+        expectedModel: String,
+        deviceAddress: String? = null,
+    ): String? = runCatching {
+        val devices = (Json.parseToJsonElement(json).jsonObject["devices"] as? JsonArray)
+            ?.mapNotNull { it as? JsonObject }
+            .orEmpty()
+        val normalizedAddress = deviceAddress.normalizeBluetoothAddress()
+        val matching = devices.filter { it.stringValue("modelName").equals(expectedModel, ignoreCase = true) }
+        val selected = matching.singleOrNull { device ->
+            normalizedAddress != null &&
+                device.objectValue("id")?.stringValue("address").normalizeBluetoothAddress() == normalizedAddress
+        } ?: matching.singleOrNull() ?: return@runCatching null
+        val source = selected.objectValue("colorInfo")?.objectValue("sourceColor") ?: return@runCatching null
+        val red = source.intValue("red") ?: return@runCatching null
+        val green = source.intValue("green") ?: return@runCatching null
+        val blue = source.intValue("blue") ?: return@runCatching null
+        if (red !in 0..255 || green !in 0..255 || blue !in 0..255) return@runCatching null
+        "FF%02X%02X%02X".format(red, green, blue)
+    }.getOrNull()
+
+    internal fun selectSonyCloudModelRecord(
+        records: List<SonyCloudModelRecord>,
+        sourceColor: String?,
+        cachedUrls: Set<String>,
+    ): SonyCloudModelSelection? {
+        val cached = records.filter { it.imageUrl in cachedUrls }
+        val colorMatched = if (sourceColor != null) {
+            cached.filter { it.sourceColor.equals(sourceColor, ignoreCase = true) }
+        } else {
+            cached
+        }
+        val byVisualResource = colorMatched.groupBy { it.imageUrl to it.animeUrl }
+        if (byVisualResource.size != 1) return null
+        val visuallyEquivalent = byVisualResource.values.single()
+        val first = visuallyEquivalent.first()
+        if (visuallyEquivalent.any { it.modelId != first.modelId || it.modelNumber != first.modelNumber }) return null
+        return SonyCloudModelSelection(
+            modelId = first.modelId,
+            modelNumber = first.modelNumber,
+            modelName = first.modelName,
+            colorIds = visuallyEquivalent.map(SonyCloudModelRecord::colorId).distinct().sorted(),
+            imageUrl = first.imageUrl,
+            animeUrl = first.animeUrl,
+            sourceColor = first.sourceColor,
+        )
+    }
+
+    internal fun sonyCacheFileName(url: String): String =
+        MessageDigest.getInstance("SHA-1")
+            .digest(url.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+
+    private fun JsonObject.objectValue(key: String): JsonObject? = get(key) as? JsonObject
+
+    private fun JsonObject.stringValue(key: String): String? =
+        get(key)?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
+
+    private fun JsonObject.intValue(key: String): Int? = get(key)?.jsonPrimitive?.intOrNull
+
+    private fun String?.normalizeBluetoothAddress(): String? = this
+        ?.filter(Char::isLetterOrDigit)
+        ?.uppercase()
+        ?.takeIf { it.length == 12 }
+
     private fun createMelodyCandidate(
         modelDir: String,
         productId: String,
@@ -283,10 +483,36 @@ object RootManager {
         PodImageResource.RIGHT to "rightImageRes",
         PodImageResource.CAPSULE_ANIMATION to "capsuleVideoRes",
     )
+
+    private const val SONY_CLOUD_PREFS = "/shared_prefs/cloud_model_info_preference.xml"
+    private const val SONY_AUTOPLAY_PREFS = "/shared_prefs/jp.co.sony.autoplay.android.preferences.xml"
+    private const val SONY_IMAGE_DIR = "/files/modelimage"
+    private const val SONY_CLOUD_JSON_KEY = "MODEL_INFO_LIST_JSON"
+    private const val SONY_CONNECTED_DEVICES_KEY = "autoplay.repo.all_connected_devices_info"
 }
 
 internal data class MelodyEquipmentRecord(
     val productId: String,
     val colorId: String,
     val model: String,
+)
+
+internal data class SonyCloudModelRecord(
+    val modelId: String,
+    val modelNumber: String,
+    val modelName: String,
+    val colorId: String,
+    val imageUrl: String,
+    val animeUrl: String?,
+    val sourceColor: String?,
+)
+
+internal data class SonyCloudModelSelection(
+    val modelId: String,
+    val modelNumber: String,
+    val modelName: String,
+    val colorIds: List<String>,
+    val imageUrl: String,
+    val animeUrl: String?,
+    val sourceColor: String?,
 )

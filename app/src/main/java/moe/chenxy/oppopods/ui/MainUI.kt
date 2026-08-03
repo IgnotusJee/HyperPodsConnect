@@ -72,7 +72,6 @@ import moe.chenxy.oppopods.ui.pages.ThemeSettingsPage
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.oppopods.ui.state.UiConnectionState
 import moe.chenxy.oppopods.utils.RootManager
-import moe.chenxy.oppopods.utils.MelodyImageCandidate
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
@@ -566,7 +565,7 @@ fun MainUI(
     fun saveOfficialPodImages(
         address: String,
         name: String,
-        candidate: MelodyImageCandidate,
+        selector: DeviceArtworkSelector,
         images: Map<PodImageResource, ByteArray>,
     ) {
         earphonePrefs.value = PodImagePrefs.saveOfficialImages(
@@ -575,13 +574,7 @@ fun MainUI(
             service = xposedService,
             address = address,
             name = name,
-            selector = DeviceArtworkSelector(
-                vendorId = "oppo",
-                productId = candidate.productId,
-                colorId = candidate.colorId,
-                model = candidate.model,
-                firmware = headphoneUiState.firmware,
-            ),
+            selector = selector.copy(firmware = headphoneUiState.firmware),
             images = images,
         )
     }
@@ -595,13 +588,30 @@ fun MainUI(
     ) {
         val state = headphoneUiState
         val address = state.address.orEmpty()
-        if (!state.connected || !state.vendorId.equals("oppo", ignoreCase = true) || address.isBlank()) {
+        if (!state.connected || address.isBlank()) {
             return@LaunchedEffect
         }
         val resolved = withContext(Dispatchers.IO) {
-            val candidate = RootManager.resolveMelodyImageCandidate(state.title, address) ?: return@withContext null
-            val images = RootManager.readMelodyImages(candidate) ?: return@withContext null
-            candidate to images
+            when {
+                state.vendorId.equals("oppo", ignoreCase = true) -> {
+                    val candidate = RootManager.resolveMelodyImageCandidate(state.title, address)
+                        ?: return@withContext null
+                    val images = RootManager.readMelodyImages(candidate) ?: return@withContext null
+                    DeviceArtworkSelector(
+                        vendorId = "oppo",
+                        productId = candidate.productId,
+                        colorId = candidate.colorId,
+                        model = candidate.model,
+                    ) to images
+                }
+                state.vendorId.equals("sony", ignoreCase = true) -> {
+                    val candidate = RootManager.resolveSonyImageCandidate(state.title, address)
+                        ?: return@withContext null
+                    val images = RootManager.readSonyImages(candidate) ?: return@withContext null
+                    candidate.selector to images
+                }
+                else -> null
+            }
         } ?: return@LaunchedEffect
         saveOfficialPodImages(address, state.title, resolved.first, resolved.second)
     }
@@ -769,7 +779,17 @@ fun MainUI(
                     savePodImages(address, name, images, clearedImages)
                 },
                 onSavePodImageBytes = { address, name, candidate, images ->
-                    saveOfficialPodImages(address, name, candidate, images)
+                    saveOfficialPodImages(
+                        address = address,
+                        name = name,
+                        selector = DeviceArtworkSelector(
+                            vendorId = "oppo",
+                            productId = candidate.productId,
+                            colorId = candidate.colorId,
+                            model = candidate.model,
+                        ),
+                        images = images,
+                    )
                 },
             )
         }

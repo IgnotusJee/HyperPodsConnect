@@ -136,7 +136,7 @@ object SonyV1EqualizerFeature {
         val presetIds = linkedSetOf<String>()
         repeat(presetCount) {
             if (offset + 2 > bytes.size) return null
-            val preset = SonyEqualizerFeature.toDomainPreset(u8(bytes[offset])) ?: return null
+            val preset = SonyEqualizerFeature.toDomainPreset(u8(bytes[offset]))
             val labelLength = u8(bytes[offset + 1])
             offset += 2
             if (labelLength > 0x80 || offset + labelLength > bytes.size) return null
