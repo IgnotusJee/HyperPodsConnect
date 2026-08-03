@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -31,15 +32,19 @@ import androidx.compose.ui.unit.sp
 import moe.chenxy.oppopods.R
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.feature.SpatialAudioMode
+import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.oppopods.pods.WearStatus
 import moe.chenxy.oppopods.ui.components.AncSwitch
 import moe.chenxy.oppopods.ui.components.PodStatus
 import moe.chenxy.oppopods.ui.state.UiFeatureState
+import moe.chenxy.oppopods.ui.state.UiEqualizerCurveState
 import moe.chenxy.oppopods.ui.state.UiOperation
 import moe.chenxy.oppopods.ui.state.UiOperationStatus
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Slider
+import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 
@@ -68,6 +73,8 @@ fun PodDetailPage(
     onDualDeviceConnectionChange: (Boolean) -> Unit = {},
     eqPresetId: String? = null,
     onEqPresetChange: (String) -> Unit = {},
+    equalizerCurve: UiEqualizerCurveState? = null,
+    onEqualizerCurveChange: (EqualizerCurve) -> Unit = {},
     features: Map<String, UiFeatureState> = emptyMap(),
     operation: UiOperation? = null,
     boxImagePath: String? = null,
@@ -132,6 +139,8 @@ fun PodDetailPage(
                     onDualDeviceConnectionChange = onDualDeviceConnectionChange,
                     eqPresetId = eqPresetId,
                     onEqPresetChange = onEqPresetChange,
+                    equalizerCurve = equalizerCurve,
+                    onEqualizerCurveChange = onEqualizerCurveChange,
                     features = features,
                     operation = operation,
                     bottomContentPadding = bottomContentPadding
@@ -177,6 +186,8 @@ fun PodDetailPage(
             onDualDeviceConnectionChange = onDualDeviceConnectionChange,
             eqPresetId = eqPresetId,
             onEqPresetChange = onEqPresetChange,
+            equalizerCurve = equalizerCurve,
+            onEqualizerCurveChange = onEqualizerCurveChange,
             features = features,
             operation = operation,
             bottomContentPadding = bottomContentPadding
@@ -213,6 +224,8 @@ private fun LazyListScope.podControlItems(
     onDualDeviceConnectionChange: (Boolean) -> Unit,
     eqPresetId: String?,
     onEqPresetChange: (String) -> Unit,
+    equalizerCurve: UiEqualizerCurveState?,
+    onEqualizerCurveChange: (EqualizerCurve) -> Unit,
     features: Map<String, UiFeatureState>,
     operation: UiOperation?,
     bottomContentPadding: Dp
@@ -378,6 +391,13 @@ private fun LazyListScope.podControlItems(
                     enabled = equalizer.writable,
                 )
             }
+            if (equalizer?.visible == true && equalizerCurve != null) {
+                EqualizerCurveEditor(
+                    state = equalizerCurve,
+                    enabled = equalizer.writable && !equalizerCurve.stale,
+                    onCurveChange = onEqualizerCurveChange,
+                )
+            }
             if (dualDevice?.visible == true) {
                 SwitchPreference(
                     title = stringResource(R.string.dual_device_connection),
@@ -419,5 +439,60 @@ private fun LazyListScope.podControlItems(
     }
     item {
         androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(bottomContentPadding))
+    }
+}
+
+@Composable
+private fun EqualizerCurveEditor(
+    state: UiEqualizerCurveState,
+    enabled: Boolean,
+    onCurveChange: (EqualizerCurve) -> Unit,
+) {
+    val curve = state.displayed ?: return
+    if (curve.slotId !in state.spec.writableSlotIds) return
+    if (curve.gains.size != state.spec.bands.size) return
+    val gains = remember(curve) { curve.gains.toMutableStateList() }
+
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text(
+            text = stringResource(R.string.eq_custom_title),
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+        Text(
+            text = stringResource(R.string.eq_custom_summary),
+            fontSize = 13.sp,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        state.spec.bands.forEachIndexed { index, band ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = band.displayName,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(text = if (gains[index] > 0) "+${gains[index]}" else gains[index].toString())
+            }
+            Slider(
+                value = gains[index].toFloat(),
+                onValueChange = { value ->
+                    val stepIndex = ((value - band.minGain) / band.step).roundToInt()
+                    gains[index] = (band.minGain + stepIndex * band.step)
+                        .coerceIn(band.minGain, band.maxGain)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = enabled,
+                valueRange = band.minGain.toFloat()..band.maxGain.toFloat(),
+                steps = ((band.maxGain - band.minGain) / band.step - 1).coerceAtLeast(0),
+                onValueChangeFinished = {
+                    val updated = curve.copy(gains = gains.toList())
+                    if (updated != curve) onCurveChange(updated)
+                },
+                showKeyPoints = true,
+                keyPoints = listOf(0f),
+            )
+        }
     }
 }

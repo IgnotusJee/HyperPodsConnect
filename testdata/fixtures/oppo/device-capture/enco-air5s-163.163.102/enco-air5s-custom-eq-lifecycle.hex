@@ -1,0 +1,19 @@
+# OPPO Enco Air5s / firmware 163.163.102 / Classic SPP
+# Captured on 2026-08-03. MAC address omitted.
+# Only frames actually observed or emitted on the device run are listed; no RX frame is reconstructed.
+
+# Baseline GET all custom EQ: success, zero slots.
+TX AA0700002201F00000
+RX AA0900002281F002000000
+
+# ADD CodexTmp, six neutral bands. Device subsequently assigned eqId 4.
+TX AA2700001804F0200001FA060008436F646578546D70063E0000FA0000E80300A00F00401F00803E00
+
+# Typed update changed 62 Hz from 0 to +1. The authoritative 0x0122 readback exposed:
+# slot=oppo:eq:custom:4, gains=[1,0,0,0,0,0], source=READ_BACK.
+# Typed restore then exposed gains=[0,0,0,0,0,0], source=READ_BACK.
+
+# DELETE CodexTmp after restoration.
+TX AA2700001804F0200003FA060408436F646578546D70063E0000FA0000E80300A00F00401F00803E00
+
+# Post-delete and post-Bluetooth-process-restart GET both exposed ids=[] and curve=null.

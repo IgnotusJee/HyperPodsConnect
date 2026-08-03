@@ -197,15 +197,16 @@ internal fun HeadphoneSnapshotPayload.toArchivedDeviceProfile(): ArchivedDeviceP
                 runCatching { TransportKind.valueOf(it) }.getOrNull()
             }.ifEmpty { setOf(transportKind) }
             featureId to FeatureCapability(
-                featureId,
-                payload.canRead,
-                payload.canWrite,
-                evidence,
-                transports,
-                payload.requiresReadback,
-                payload.allowedValues.toSet(),
-                payload.valueLabels,
-                payload.source,
+                featureId = featureId,
+                canRead = payload.canRead,
+                canWrite = payload.canWrite,
+                evidence = evidence,
+                availableOnTransports = transports,
+                requiresReadback = payload.requiresReadback,
+                allowedValues = payload.allowedValues.toSet(),
+                valueLabels = payload.valueLabels,
+                equalizerCurveSpec = payload.equalizerCurveSpec?.toDomain(),
+                source = payload.source,
             )
         }.toMap(),
         compatibilityLevel = compatibilityLevel,

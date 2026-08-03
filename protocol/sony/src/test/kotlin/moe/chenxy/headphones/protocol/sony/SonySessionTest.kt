@@ -17,6 +17,7 @@ import moe.chenxy.headphones.core.driver.DriverSessionContext
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.EqualizerPreset
+import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.operation.FailureReason
@@ -537,6 +538,32 @@ class SonySessionTest {
         )
         assertEquals(SonyEqualizerFeature.BASS_BOOST_ID, session.state.value.equalizer.confirmed?.id)
 
+        assertTrue(
+            session.execute(
+                FeatureCommand.SetEqualizerPreset(
+                    EqualizerPreset(SonyEqualizerFeature.CUSTOM_1_ID),
+                ),
+            ).succeeded,
+        )
+        val originalCurve = requireNotNull(session.state.value.equalizerCurve.confirmed)
+        val modifiedCurve = EqualizerCurve(
+            slotId = SonyEqualizerFeature.CUSTOM_1_ID,
+            gains = originalCurve.gains.toMutableList().apply { this[0] += 1 },
+        )
+        assertTrue(session.execute(FeatureCommand.SetEqualizerCurve(modifiedCurve)).succeeded)
+        assertEquals(modifiedCurve, session.state.value.equalizerCurve.confirmed)
+        assertEquals(
+            byteArrayOf(
+                0x58, 0x01, 0xFF.toByte(), 0x06,
+                0x09, 0x11, 0x0A, 0x0A, 0x0B, 0x0C,
+            ).toList(),
+            transport.commandWrites.last {
+                it.first().toInt() and 0xFF == SonyCommand.EQEBB_SET_PARAM && it.size > 4
+            }.toList(),
+        )
+        assertTrue(session.execute(FeatureCommand.SetEqualizerCurve(originalCurve)).succeeded)
+        assertEquals(originalCurve, session.state.value.equalizerCurve.confirmed)
+
         val off = session.execute(FeatureCommand.SetNoiseControl(NoiseControlMode.OFF))
         assertTrue(off.succeeded)
         assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
@@ -868,6 +895,22 @@ private class FakeSonyTransport(
             equalizer?.let { byteArrayOf(SonyCommand.EQEBB_RET_PARAM.toByte()) + it }
         SonyCommand.EQEBB_SET_PARAM -> {
             val selector = if (protocolGeneration == SonyProtocolGeneration.V1) 0x01 else 0x00
+            if (
+                protocolGeneration == SonyProtocolGeneration.V1 &&
+                request.size == 10 &&
+                request[1] == selector.toByte() &&
+                request[2] == 0xFF.toByte() &&
+                request[3] == 0x06.toByte()
+            ) {
+                val activePreset = equalizer?.getOrNull(1) ?: return null
+                equalizer = byteArrayOf(selector.toByte(), activePreset, 0x06) +
+                    request.copyOfRange(4, request.size)
+                return if (notifyOnSet) {
+                    byteArrayOf(SonyCommand.EQEBB_NTFY_PARAM.toByte()) + requireNotNull(equalizer)
+                } else {
+                    null
+                }
+            }
             if (
                 request.size != 4 || request[1] != selector.toByte() ||
                 request[3] != 0x00.toByte()

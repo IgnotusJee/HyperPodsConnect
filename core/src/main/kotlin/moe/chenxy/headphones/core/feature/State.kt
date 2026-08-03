@@ -26,6 +26,61 @@ enum class NoiseControlMode {
 /** A preset as the domain sees it: an opaque id plus something to show a user. */
 data class EqualizerPreset(val id: String, val displayName: String? = null)
 
+enum class EqualizerBandKind { STANDARD, CLEAR_BASS }
+
+/** One presentation-safe band exposed by a device capability. */
+data class EqualizerBandSpec(
+    val id: String,
+    val displayName: String,
+    val minGain: Int,
+    val maxGain: Int,
+    val step: Int = 1,
+    val centerFrequencyHz: Int? = null,
+    val kind: EqualizerBandKind = EqualizerBandKind.STANDARD,
+) {
+    init {
+        require(id.isNotBlank()) { "equalizer band id must not be blank" }
+        require(displayName.isNotBlank()) { "equalizer band label must not be blank" }
+        require(minGain <= maxGain) { "equalizer band range is inverted" }
+        require(step > 0) { "equalizer band step must be positive" }
+    }
+}
+
+/** Device-specific curve layout without exposing vendor wire values. */
+data class EqualizerCurveSpec(
+    val bands: List<EqualizerBandSpec>,
+    val writableSlotIds: Set<String>,
+) {
+    init {
+        require(bands.isNotEmpty()) { "equalizer curve must contain bands" }
+        require(bands.map { it.id }.distinct().size == bands.size) {
+            "equalizer band ids must be unique"
+        }
+        require(writableSlotIds.none(String::isBlank)) {
+            "equalizer writable slot id must not be blank"
+        }
+    }
+
+    fun accepts(curve: EqualizerCurve): Boolean =
+        curve.slotId in writableSlotIds &&
+            curve.gains.size == bands.size &&
+            curve.gains.zip(bands).all { (gain, band) ->
+                gain in band.minGain..band.maxGain &&
+                    (gain - band.minGain) % band.step == 0
+            }
+}
+
+/** A complete curve for one explicit custom slot, expressed in signed gain steps. */
+data class EqualizerCurve(
+    val slotId: String,
+    val gains: List<Int>,
+) {
+    init {
+        require(slotId.isNotBlank()) { "equalizer curve slot id must not be blank" }
+        require(gains.isNotEmpty()) { "equalizer curve must contain gains" }
+    }
+}
+
 enum class SpatialAudioMode { OFF, FIXED, HEAD_TRACKING }
 
 /**
@@ -110,6 +165,7 @@ data class HeadphoneState(
     val ambientSoundLevel: FeatureValue<Int> = FeatureValue.empty(),
     val transparencyVocalEnhancement: FeatureValue<Boolean> = FeatureValue.empty(),
     val equalizer: FeatureValue<EqualizerPreset> = FeatureValue.empty(),
+    val equalizerCurve: FeatureValue<EqualizerCurve> = FeatureValue.empty(),
     val lowLatency: FeatureValue<Boolean> = FeatureValue.empty(),
     val spatialAudio: FeatureValue<SpatialAudioMode> = FeatureValue.empty(),
     val spatialSoundSwitch: FeatureValue<Boolean> = FeatureValue.empty(),
@@ -123,6 +179,7 @@ data class HeadphoneState(
         ambientSoundLevel = ambientSoundLevel.markStale(),
         transparencyVocalEnhancement = transparencyVocalEnhancement.markStale(),
         equalizer = equalizer.markStale(),
+        equalizerCurve = equalizerCurve.markStale(),
         lowLatency = lowLatency.markStale(),
         spatialAudio = spatialAudio.markStale(),
         spatialSoundSwitch = spatialSoundSwitch.markStale(),

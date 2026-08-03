@@ -227,6 +227,12 @@ object OppoSystemIntegrationAdapter {
     @OptIn(ExperimentalStdlibApi::class)
     fun onOppoSessionEvent(event: OppoSessionEvent) {
         when (event) {
+            is OppoSessionEvent.TxFrame ->
+                RfcommLog.d(
+                    mContext,
+                    "RFCOMM/TX",
+                    event.bytes.toHexString(HexFormat.UpperCase),
+                )
             is OppoSessionEvent.RawChunk ->
                 RfcommLog.d(
                     mContext,

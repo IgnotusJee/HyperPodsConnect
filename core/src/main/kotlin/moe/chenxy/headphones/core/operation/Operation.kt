@@ -1,6 +1,7 @@
 package moe.chenxy.headphones.core.operation
 
 import moe.chenxy.headphones.core.feature.EqualizerPreset
+import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.feature.SpatialAudioMode
@@ -37,6 +38,10 @@ sealed interface FeatureCommand {
     }
 
     data class SetEqualizerPreset(val preset: EqualizerPreset) : FeatureCommand {
+        override val featureId: FeatureId get() = FeatureId.EQUALIZER
+    }
+
+    data class SetEqualizerCurve(val curve: EqualizerCurve) : FeatureCommand {
         override val featureId: FeatureId get() = FeatureId.EQUALIZER
     }
 

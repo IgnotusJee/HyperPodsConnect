@@ -188,6 +188,9 @@ class OppoParsersTest {
             OppoFixtures.hex("FF 75 52 EA A4 0E 07 0F").toList(),
             OppoCapabilityParser.parse(response)!!.toList(),
         )
+        val bitmap = OppoCapabilityParser.parse(response)!!
+        assertTrue(OppoCapabilityParser.supports(bitmap, 34))
+        assertFalse(OppoCapabilityParser.supports(bitmap.copyOf(4), 34))
     }
 
     @Test

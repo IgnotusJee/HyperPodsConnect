@@ -9,6 +9,10 @@ import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.canExposeState
 import moe.chenxy.headphones.core.feature.EqualizerPreset
+import moe.chenxy.headphones.core.feature.EqualizerBandKind
+import moe.chenxy.headphones.core.feature.EqualizerBandSpec
+import moe.chenxy.headphones.core.feature.EqualizerCurve
+import moe.chenxy.headphones.core.feature.EqualizerCurveSpec
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.feature.SpatialAudioMode
@@ -42,6 +46,7 @@ object HeadphoneIpcContract {
     const val TYPE_SET_TRANSPARENCY_VOCAL_ENHANCEMENT =
         "set_transparency_vocal_enhancement"
     const val TYPE_SET_EQUALIZER = "set_equalizer"
+    const val TYPE_SET_EQUALIZER_CURVE = "set_equalizer_curve"
     const val TYPE_SET_LOW_LATENCY = "set_low_latency"
     const val TYPE_SET_SPATIAL_AUDIO = "set_spatial_audio"
     const val TYPE_SET_SPATIAL_SOUND_SWITCH = "set_spatial_sound_switch"
@@ -156,6 +161,7 @@ enum class IpcConnectionState {
 data class IpcCommandPayload(
     val type: String,
     val value: String? = null,
+    val curve: EqualizerCurvePayload? = null,
 ) {
     fun toFeatureCommand(): FeatureCommand? = when (type) {
         HeadphoneIpcContract.TYPE_REFRESH_ALL -> FeatureCommand.RefreshAll
@@ -174,6 +180,8 @@ data class IpcCommandPayload(
             value?.takeIf(String::isNotBlank)
                 ?.let(::EqualizerPreset)
                 ?.let(FeatureCommand::SetEqualizerPreset)
+        HeadphoneIpcContract.TYPE_SET_EQUALIZER_CURVE ->
+            curve?.toDomain()?.let(FeatureCommand::SetEqualizerCurve)
         HeadphoneIpcContract.TYPE_SET_LOW_LATENCY ->
             value?.toBooleanStrictOrNull()?.let(FeatureCommand::SetLowLatency)
         HeadphoneIpcContract.TYPE_SET_SPATIAL_AUDIO ->
@@ -206,6 +214,11 @@ data class IpcCommandPayload(
                 )
             is FeatureCommand.SetEqualizerPreset ->
                 IpcCommandPayload(HeadphoneIpcContract.TYPE_SET_EQUALIZER, command.preset.id)
+            is FeatureCommand.SetEqualizerCurve ->
+                IpcCommandPayload(
+                    type = HeadphoneIpcContract.TYPE_SET_EQUALIZER_CURVE,
+                    curve = EqualizerCurvePayload.from(command.curve),
+                )
             is FeatureCommand.SetLowLatency ->
                 IpcCommandPayload(HeadphoneIpcContract.TYPE_SET_LOW_LATENCY, command.enabled.toString())
             is FeatureCommand.SetSpatialAudio ->
@@ -254,6 +267,7 @@ data class HeadphoneSnapshotPayload(
     val noiseControlActiveMode: String? = null,
     val features: Map<String, FeatureValuePayload>,
     val capabilities: List<CapabilityPayload>,
+    val equalizerCurve: EqualizerCurveValuePayload? = null,
     val operation: OperationPayload?,
     val emittedAtMillis: Long,
 ) {
@@ -349,17 +363,29 @@ data class HeadphoneSnapshotPayload(
                         state.dualDeviceConnection.source,
                     ),
                 ) else emptyMap(),
+                equalizerCurve = state.equalizerCurve.takeIf { mayExposeState }?.let {
+                    EqualizerCurveValuePayload(
+                        confirmed = it.confirmed?.let(EqualizerCurvePayload::from),
+                        pending = it.pending?.let(EqualizerCurvePayload::from),
+                        stale = it.stale,
+                        source = it.source?.name,
+                    )
+                },
                 capabilities = profile?.features?.values?.takeIf { mayExposeState }?.map {
                     CapabilityPayload(
-                        it.featureId.name,
-                        it.canRead,
-                        it.canWrite,
-                        it.evidence.name,
-                        it.requiresReadback,
-                        it.allowedValues.toList(),
-                        it.valueLabels,
-                        it.availableOnTransports.map { transport -> transport.name }.toSet(),
-                        it.source,
+                        featureId = it.featureId.name,
+                        canRead = it.canRead,
+                        canWrite = it.canWrite,
+                        evidence = it.evidence.name,
+                        requiresReadback = it.requiresReadback,
+                        allowedValues = it.allowedValues.toList(),
+                        valueLabels = it.valueLabels,
+                        availableOnTransports = it.availableOnTransports
+                            .map { transport -> transport.name }.toSet(),
+                        equalizerCurveSpec = it.equalizerCurveSpec?.let(
+                            EqualizerCurveSpecPayload::from,
+                        ),
+                        source = it.source,
                     )
                 }.orEmpty(),
                 operation = snapshot.lastOperation?.let {
@@ -407,6 +433,81 @@ data class FeatureValuePayload(
 )
 
 @Serializable
+data class EqualizerCurvePayload(
+    val slotId: String,
+    val gains: List<Int>,
+) {
+    fun toDomain(): EqualizerCurve? = runCatching {
+        EqualizerCurve(slotId, gains)
+    }.getOrNull()
+
+    companion object {
+        fun from(curve: EqualizerCurve) = EqualizerCurvePayload(curve.slotId, curve.gains)
+    }
+}
+
+@Serializable
+data class EqualizerCurveValuePayload(
+    val confirmed: EqualizerCurvePayload? = null,
+    val pending: EqualizerCurvePayload? = null,
+    val stale: Boolean = false,
+    val source: String? = null,
+)
+
+@Serializable
+data class EqualizerBandSpecPayload(
+    val id: String,
+    val displayName: String,
+    val minGain: Int,
+    val maxGain: Int,
+    val step: Int = 1,
+    val centerFrequencyHz: Int? = null,
+    val kind: String = EqualizerBandKind.STANDARD.name,
+) {
+    fun toDomain(): EqualizerBandSpec? = runCatching {
+        EqualizerBandSpec(
+            id = id,
+            displayName = displayName,
+            minGain = minGain,
+            maxGain = maxGain,
+            step = step,
+            centerFrequencyHz = centerFrequencyHz,
+            kind = EqualizerBandKind.valueOf(kind),
+        )
+    }.getOrNull()
+
+    companion object {
+        fun from(spec: EqualizerBandSpec) = EqualizerBandSpecPayload(
+            id = spec.id,
+            displayName = spec.displayName,
+            minGain = spec.minGain,
+            maxGain = spec.maxGain,
+            step = spec.step,
+            centerFrequencyHz = spec.centerFrequencyHz,
+            kind = spec.kind.name,
+        )
+    }
+}
+
+@Serializable
+data class EqualizerCurveSpecPayload(
+    val bands: List<EqualizerBandSpecPayload>,
+    val writableSlotIds: Set<String>,
+) {
+    fun toDomain(): EqualizerCurveSpec? {
+        val domainBands = bands.map { it.toDomain() ?: return null }
+        return runCatching { EqualizerCurveSpec(domainBands, writableSlotIds) }.getOrNull()
+    }
+
+    companion object {
+        fun from(spec: EqualizerCurveSpec) = EqualizerCurveSpecPayload(
+            bands = spec.bands.map(EqualizerBandSpecPayload::from),
+            writableSlotIds = spec.writableSlotIds,
+        )
+    }
+}
+
+@Serializable
 data class CapabilityPayload(
     val featureId: String,
     val canRead: Boolean,
@@ -416,6 +517,7 @@ data class CapabilityPayload(
     val allowedValues: List<String>,
     val valueLabels: Map<String, String> = emptyMap(),
     val availableOnTransports: Set<String> = emptySet(),
+    val equalizerCurveSpec: EqualizerCurveSpecPayload? = null,
     val source: String? = null,
 )
 

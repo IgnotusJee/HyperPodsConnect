@@ -47,7 +47,12 @@ sealed interface DeviceReport {
     data class NoiseControl(val mode: NoiseControlMode) : DeviceReport
     data class AmbientSoundLevel(val level: Int) : DeviceReport
     data class TransparencyVocalEnhancement(val enabled: Boolean) : DeviceReport
-    data class Equalizer(val preset: EqualizerPreset) : DeviceReport
+    data class Equalizer(
+        val preset: EqualizerPreset,
+        val curve: EqualizerCurve? = null,
+    ) : DeviceReport
+    /** The device explicitly reported that no custom curve is selected or present. */
+    data object EqualizerCurveUnavailable : DeviceReport
     data class LowLatency(val enabled: Boolean) : DeviceReport
     data class SpatialAudio(val mode: SpatialAudioMode) : DeviceReport
     data class SpatialSoundSwitch(val enabled: Boolean) : DeviceReport
@@ -99,6 +104,14 @@ object HeadphoneStateReducer {
             is FeatureCommand.SetEqualizerPreset ->
                 state.copy(equalizer = state.equalizer.withPending(command.preset, update.atMillis))
 
+            is FeatureCommand.SetEqualizerCurve ->
+                state.copy(
+                    equalizerCurve = state.equalizerCurve.withPending(
+                        command.curve,
+                        update.atMillis,
+                    ),
+                )
+
             is FeatureCommand.SetLowLatency ->
                 state.copy(lowLatency = state.lowLatency.withPending(command.enabled, update.atMillis))
 
@@ -139,8 +152,19 @@ object HeadphoneStateReducer {
                         state.transparencyVocalEnhancement.withConfirmed(report.enabled, source, at),
                 )
 
-            is DeviceReport.Equalizer ->
-                state.copy(equalizer = state.equalizer.withConfirmed(report.preset, source, at))
+            is DeviceReport.Equalizer -> state.copy(
+                equalizer = state.equalizer.withConfirmed(report.preset, source, at),
+                equalizerCurve = report.curve?.let {
+                    state.equalizerCurve.withConfirmed(it, source, at)
+                } ?: state.equalizerCurve,
+            )
+
+            DeviceReport.EqualizerCurveUnavailable -> state.copy(
+                equalizerCurve = FeatureValue(
+                    updatedAtMillis = at,
+                    source = source,
+                ),
+            )
 
             is DeviceReport.LowLatency ->
                 state.copy(lowLatency = state.lowLatency.withConfirmed(report.enabled, source, at))
@@ -166,7 +190,10 @@ object HeadphoneStateReducer {
             state.copy(
                 transparencyVocalEnhancement = state.transparencyVocalEnhancement.rollbackPending(),
             )
-        FeatureId.EQUALIZER -> state.copy(equalizer = state.equalizer.rollbackPending())
+        FeatureId.EQUALIZER -> state.copy(
+            equalizer = state.equalizer.rollbackPending(),
+            equalizerCurve = state.equalizerCurve.rollbackPending(),
+        )
         FeatureId.LOW_LATENCY -> state.copy(lowLatency = state.lowLatency.rollbackPending())
         FeatureId.SPATIAL_AUDIO -> state.copy(spatialAudio = state.spatialAudio.rollbackPending())
         FeatureId.SPATIAL_SOUND_SWITCH -> state.copy(spatialSoundSwitch = state.spatialSoundSwitch.rollbackPending())

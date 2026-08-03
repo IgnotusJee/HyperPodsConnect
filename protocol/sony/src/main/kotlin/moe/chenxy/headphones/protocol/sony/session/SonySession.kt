@@ -27,6 +27,7 @@ import moe.chenxy.headphones.core.driver.HeadphoneSession
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.DeviceProfile
 import moe.chenxy.headphones.core.feature.DeviceReport
+import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.HeadphoneState
 import moe.chenxy.headphones.core.feature.HeadphoneStateReducer
@@ -315,6 +316,7 @@ class SonySession(
             noiseControlObserved,
             equalizerObserved,
             v1EqualizerCapability?.presetIds ?: SonyEqualizerFeature.allowedPresetIds,
+            v1EqualizerCapability?.let(SonyV1EqualizerFeature::curveSpec),
         )
         transition(SessionEvent.InitialStateSynchronized)
     }
@@ -434,6 +436,8 @@ class SonySession(
                 return executeTransparencyVocalEnhancement(id, command)
             is FeatureCommand.SetEqualizerPreset ->
                 return executeEqualizerPreset(id, command)
+            is FeatureCommand.SetEqualizerCurve ->
+                return executeEqualizerCurve(id, command)
             else -> {
                 return terminalFailure(
                     id,
@@ -538,7 +542,7 @@ class SonySession(
         }
         val equalizer = when (generation) {
             SonyProtocolGeneration.V1 -> v1EqualizerCapability?.let {
-                SonyV1EqualizerFeature.parse(message, it)
+                SonyV1EqualizerFeature.parse(message, it, equalizerState?.preset)
             }
             SonyProtocolGeneration.V2 -> SonyEqualizerFeature.parse(message)
             null -> null
@@ -657,7 +661,12 @@ class SonySession(
 
     private fun applyEqualizerState(state: SonyEqualizerState, source: ValueSource) {
         equalizerState = state
-        applyReport(DeviceReport.Equalizer(state.preset), source)
+        val curve = if (protocolInfo?.generation == SonyProtocolGeneration.V1) {
+            v1EqualizerCapability?.let { SonyV1EqualizerFeature.toDomainCurve(state, it) }
+        } else {
+            null
+        }
+        applyReport(DeviceReport.Equalizer(state.preset, curve), source)
     }
 
     private fun applyReport(report: DeviceReport, source: ValueSource) {
@@ -965,6 +974,80 @@ class SonySession(
         }
     }
 
+    private suspend fun executeEqualizerCurve(
+        requestId: RequestId,
+        command: FeatureCommand.SetEqualizerCurve,
+    ): OperationResult = operationMutex.withLock {
+        val original = equalizerState
+            ?: return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.NOT_WRITABLE,
+                "Sony equalizer state is not confirmed",
+            )
+        val payload = encodeEqualizerCurveSet(command.curve, original.preset)
+            ?: return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.VALUE_OUT_OF_RANGE,
+                "Sony EQ curve does not match the active writable slot or capability",
+            )
+
+        apply(StateUpdate.LocalPending(command, clock()))
+        emit(requestId, command, OperationPhase.QUEUED)
+        emit(requestId, command, OperationPhase.SENT)
+        val setResult = exchangeDetailed(
+            payload,
+            SonyCommand.EQEBB_NTFY_PARAM,
+            responsePredicate = ::equalizerMatches,
+            responseWaitMillis = NOTIFICATION_GRACE_MS,
+            onTransportAcknowledged = {
+                emit(requestId, command, OperationPhase.TRANSPORT_ACKNOWLEDGED)
+            },
+        )
+        if (setResult == null) {
+            abandon(command.featureId)
+            return@withLock terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony EQ curve SET transport acknowledgement timed out",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+        val notified = setResult.response?.let(::parseEqualizer)
+        if (notified.toDomainCurve() == command.curve) {
+            emit(requestId, command, OperationPhase.STATE_CONFIRMED)
+        }
+
+        val readback = exchange(
+            equalizerQuery(),
+            SonyCommand.EQEBB_RET_PARAM,
+            responsePredicate = ::equalizerMatches,
+        )?.let(::parseEqualizer)
+        if (readback.toDomainCurve() == command.curve) {
+            applyEqualizerState(requireNotNull(readback), ValueSource.READ_BACK)
+            emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
+            OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+        } else {
+            abandon(command.featureId)
+            terminalFailure(
+                requestId,
+                command,
+                FailureReason.TIMEOUT,
+                "Sony EQ curve write was not confirmed by explicit GET readback",
+                OperationPhase.TIMED_OUT,
+            )
+        }
+    }
+
+    private fun SonyEqualizerState?.toDomainCurve(): EqualizerCurve? =
+        this?.let { state ->
+            v1EqualizerCapability?.let { capability ->
+                SonyV1EqualizerFeature.toDomainCurve(state, capability)
+            }
+        }
+
     private fun SonyNoiseControlState?.matchesAmbientLevel(
         level: Int,
         expectedAmbientSoundMode: SonyAmbientSoundMode,
@@ -1045,6 +1128,16 @@ class SonySession(
         null -> null
     }
 
+    private fun encodeEqualizerCurveSet(
+        curve: EqualizerCurve,
+        activePreset: moe.chenxy.headphones.core.feature.EqualizerPreset,
+    ): ByteArray? = when (protocolInfo?.generation) {
+        SonyProtocolGeneration.V1 -> v1EqualizerCapability?.let {
+            SonyV1EqualizerFeature.setCurve(curve, activePreset, it)
+        }
+        else -> null
+    }
+
     private fun equalizerQuery(): ByteArray = when (protocolInfo?.generation) {
         SonyProtocolGeneration.V1 -> SonyV1EqualizerFeature.query()
         else -> SonyEqualizerFeature.query()
@@ -1053,7 +1146,7 @@ class SonySession(
     private fun parseEqualizer(message: SonyMdrMessage): SonyEqualizerState? =
         when (protocolInfo?.generation) {
             SonyProtocolGeneration.V1 -> v1EqualizerCapability?.let {
-                SonyV1EqualizerFeature.parse(message, it)
+                SonyV1EqualizerFeature.parse(message, it, equalizerState?.preset)
             }
             SonyProtocolGeneration.V2 -> SonyEqualizerFeature.parse(message)
             null -> null

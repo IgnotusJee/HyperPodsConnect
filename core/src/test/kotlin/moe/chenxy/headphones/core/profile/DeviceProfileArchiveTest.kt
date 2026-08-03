@@ -8,6 +8,9 @@ import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.DeviceProfile
 import moe.chenxy.headphones.core.feature.DeviceTopology
 import moe.chenxy.headphones.core.feature.EvidenceLevel
+import moe.chenxy.headphones.core.feature.EqualizerBandKind
+import moe.chenxy.headphones.core.feature.EqualizerBandSpec
+import moe.chenxy.headphones.core.feature.EqualizerCurveSpec
 import moe.chenxy.headphones.core.feature.FeatureCapability
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.ProtocolDescriptor
@@ -61,6 +64,53 @@ class DeviceProfileArchiveTest {
         assertEquals(0, imported.migratedFromSchemaVersion)
         assertNotEquals("", imported.archive.profiles.single().compatibilityFingerprint)
         assertEquals(profile(), imported.archive.profiles.single().toDeviceProfile())
+    }
+
+    @Test
+    fun `schema v1 round trip preserves structured equalizer capability`() {
+        val curveSpec = EqualizerCurveSpec(
+            bands = listOf(
+                EqualizerBandSpec(
+                    id = "sony:eq:band:0",
+                    displayName = "Band 1",
+                    minGain = -10,
+                    maxGain = 10,
+                    centerFrequencyHz = 400,
+                ),
+                EqualizerBandSpec(
+                    id = "sony:eq:clear-bass",
+                    displayName = "Clear Bass",
+                    minGain = -10,
+                    maxGain = 10,
+                    kind = EqualizerBandKind.CLEAR_BASS,
+                ),
+            ),
+            writableSlotIds = setOf("sony:eq:custom-1", "sony:eq:custom-2"),
+        )
+        val source = profile().copy(
+            features = profile().features + (
+                FeatureId.EQUALIZER to FeatureCapability(
+                    featureId = FeatureId.EQUALIZER,
+                    canRead = true,
+                    canWrite = true,
+                    evidence = EvidenceLevel.VERIFIED,
+                    availableOnTransports = setOf(TransportKind.CLASSIC_SPP),
+                    equalizerCurveSpec = curveSpec,
+                )
+                ),
+        )
+        val encoded = DeviceProfileArchiveCodec.encode(
+            DeviceProfileArchive(
+                exportedAtEpochMillis = 456,
+                profiles = listOf(ArchivedDeviceProfile.from(source, 123)),
+            ),
+        )
+
+        val decoded = DeviceProfileArchiveCodec.decode(encoded)
+            .archive.profiles.single().toDeviceProfile()
+
+        assertEquals(curveSpec, decoded.features[FeatureId.EQUALIZER]?.equalizerCurveSpec)
+        assertEquals(source.compatibilityLevel, decoded.compatibilityLevel)
     }
 
     @Test(expected = IllegalArgumentException::class)

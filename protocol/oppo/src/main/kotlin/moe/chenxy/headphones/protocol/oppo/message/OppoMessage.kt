@@ -13,6 +13,7 @@ object OppoCommand {
     const val QUERY_ANC = 0x010C
     const val QUERY_BATCH_STATUS = 0x010D
     const val QUERY_EQ = 0x010F
+    const val QUERY_CUSTOM_EQ = 0x0122
 
     const val QUERY_NOTIFICATION_SUPPORT = 0x0200
     const val SUBSCRIBE_NOTIFICATION_SINGLE = 0x0201
@@ -23,6 +24,7 @@ object OppoCommand {
     const val SET_SWITCH_FEATURE = 0x0403
     const val SET_ANC = 0x0404
     const val SET_EQ = 0x0406
+    const val SET_CUSTOM_EQ = 0x0418
     const val SET_SPATIAL_AUDIO = 0x0422
     const val EQ_PRESET_NOTIFICATION = 0x0504
     const val SPATIAL_AUDIO_NOTIFICATION = 0x0510

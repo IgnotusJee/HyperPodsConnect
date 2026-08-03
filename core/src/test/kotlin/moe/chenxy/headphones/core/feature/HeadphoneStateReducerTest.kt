@@ -151,6 +151,54 @@ class HeadphoneStateReducerTest {
     }
 
     @Test
+    fun `equalizer curve remains pending until an exact complete readback`() {
+        val original = EqualizerCurve("sony:eq:custom-2", listOf(0, 9, 7, 9, 8, 7))
+        val requested = original.copy(gains = listOf(1, 9, 7, 9, 8, 7))
+        val pending = reduce(
+            StateUpdate.DeviceReported(
+                DeviceReport.Equalizer(
+                    EqualizerPreset("sony:eq:custom-2"),
+                    original,
+                ),
+                ValueSource.QUERY_RESPONSE,
+                1,
+            ),
+            StateUpdate.LocalPending(FeatureCommand.SetEqualizerCurve(requested), 2),
+            StateUpdate.WriteAcknowledged(FeatureId.EQUALIZER, accepted = true, atMillis = 3),
+        )
+
+        assertEquals(original, pending.equalizerCurve.confirmed)
+        assertEquals(requested, pending.equalizerCurve.pending)
+
+        val mismatched = HeadphoneStateReducer.reduce(
+            pending,
+            StateUpdate.DeviceReported(
+                DeviceReport.Equalizer(
+                    EqualizerPreset("sony:eq:custom-2"),
+                    original,
+                ),
+                ValueSource.READ_BACK,
+                4,
+            ),
+        )
+        assertEquals(requested, mismatched.equalizerCurve.pending)
+
+        val confirmed = HeadphoneStateReducer.reduce(
+            mismatched,
+            StateUpdate.DeviceReported(
+                DeviceReport.Equalizer(
+                    EqualizerPreset("sony:eq:custom-2"),
+                    requested,
+                ),
+                ValueSource.READ_BACK,
+                5,
+            ),
+        )
+        assertEquals(requested, confirmed.equalizerCurve.confirmed)
+        assertNull(confirmed.equalizerCurve.pending)
+    }
+
+    @Test
     fun `battery components are replaced so a vanished case cannot linger`() {
         val withCase = HeadphoneStateReducer.reduce(
             empty,
@@ -184,6 +232,34 @@ class HeadphoneStateReducerTest {
         )
 
         assertEquals(setOf(BatteryComponent.LEFT, BatteryComponent.RIGHT), withoutCase.batteries.keys)
+    }
+
+    @Test
+    fun `explicit unavailable report clears stale equalizer curve but preserves preset`() {
+        val preset = EqualizerPreset("oppo:eq:custom:4")
+        val curve = EqualizerCurve(preset.id, listOf(1, 0, 0, 0, 0, 0))
+        val withCurve = HeadphoneStateReducer.reduce(
+            empty,
+            StateUpdate.DeviceReported(
+                DeviceReport.Equalizer(preset, curve),
+                ValueSource.READ_BACK,
+                1,
+            ),
+        )
+
+        val cleared = HeadphoneStateReducer.reduce(
+            withCurve,
+            StateUpdate.DeviceReported(
+                DeviceReport.EqualizerCurveUnavailable,
+                ValueSource.QUERY_RESPONSE,
+                2,
+            ),
+        )
+
+        assertEquals(preset, cleared.equalizer.confirmed)
+        assertNull(cleared.equalizerCurve.confirmed)
+        assertNull(cleared.equalizerCurve.pending)
+        assertEquals(ValueSource.QUERY_RESPONSE, cleared.equalizerCurve.source)
     }
 
     @Test

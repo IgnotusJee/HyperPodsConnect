@@ -15,6 +15,9 @@ import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.DeviceProfile
 import moe.chenxy.headphones.core.feature.DeviceTopology
 import moe.chenxy.headphones.core.feature.EvidenceLevel
+import moe.chenxy.headphones.core.feature.EqualizerBandKind
+import moe.chenxy.headphones.core.feature.EqualizerBandSpec
+import moe.chenxy.headphones.core.feature.EqualizerCurveSpec
 import moe.chenxy.headphones.core.feature.FeatureCapability
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.ProtocolDescriptor
@@ -81,6 +84,7 @@ data class ArchivedDeviceProfile(
                 requiresReadback = archived.requiresReadback,
                 allowedValues = archived.allowedValues,
                 valueLabels = archived.valueLabels,
+                equalizerCurveSpec = archived.equalizerCurveSpec?.toDomain(),
                 source = archived.source,
             )
         }
@@ -143,6 +147,7 @@ data class ArchivedFeatureCapability(
     val requiresReadback: Boolean,
     val allowedValues: Set<String> = emptySet(),
     val valueLabels: Map<String, String> = emptyMap(),
+    val equalizerCurveSpec: ArchivedEqualizerCurveSpec? = null,
     val source: String? = null,
 ) {
     companion object {
@@ -155,7 +160,61 @@ data class ArchivedFeatureCapability(
             requiresReadback = capability.requiresReadback,
             allowedValues = capability.allowedValues,
             valueLabels = capability.valueLabels.toSortedMap(),
+            equalizerCurveSpec = capability.equalizerCurveSpec?.let(
+                ArchivedEqualizerCurveSpec::from,
+            ),
             source = capability.source,
+        )
+    }
+}
+
+@Serializable
+data class ArchivedEqualizerBandSpec(
+    val id: String,
+    val displayName: String,
+    val minGain: Int,
+    val maxGain: Int,
+    val step: Int = 1,
+    val centerFrequencyHz: Int? = null,
+    val kind: String = EqualizerBandKind.STANDARD.name,
+) {
+    fun toDomain() = EqualizerBandSpec(
+        id = id,
+        displayName = displayName,
+        minGain = minGain,
+        maxGain = maxGain,
+        step = step,
+        centerFrequencyHz = centerFrequencyHz,
+        kind = EqualizerBandKind.valueOf(kind),
+    )
+
+    companion object {
+        fun from(spec: EqualizerBandSpec) = ArchivedEqualizerBandSpec(
+            id = spec.id,
+            displayName = spec.displayName,
+            minGain = spec.minGain,
+            maxGain = spec.maxGain,
+            step = spec.step,
+            centerFrequencyHz = spec.centerFrequencyHz,
+            kind = spec.kind.name,
+        )
+    }
+}
+
+@Serializable
+data class ArchivedEqualizerCurveSpec(
+    val bands: List<ArchivedEqualizerBandSpec>,
+    val writableSlotIds: Set<String>,
+) {
+    fun toDomain() = EqualizerCurveSpec(
+        bands = bands.map(ArchivedEqualizerBandSpec::toDomain),
+        writableSlotIds = writableSlotIds,
+    )
+
+    companion object {
+        fun from(spec: EqualizerCurveSpec) = ArchivedEqualizerCurveSpec(
+            bands = spec.bands.map(ArchivedEqualizerBandSpec::from),
+            writableSlotIds = spec.writableSlotIds,
         )
     }
 }
@@ -227,15 +286,17 @@ object DeviceProfileArchiveCodec {
             features = repaired.features.associate { archived ->
                 val id = FeatureId.valueOf(archived.featureId)
                 id to FeatureCapability(
-                    id,
-                    archived.canRead,
-                    archived.canWrite,
-                    EvidenceLevel.valueOf(archived.evidence),
-                    archived.availableOnTransports.mapTo(linkedSetOf(), TransportKind::valueOf),
-                    archived.requiresReadback,
-                    archived.allowedValues,
-                    archived.valueLabels,
-                    archived.source,
+                    featureId = id,
+                    canRead = archived.canRead,
+                    canWrite = archived.canWrite,
+                    evidence = EvidenceLevel.valueOf(archived.evidence),
+                    availableOnTransports = archived.availableOnTransports
+                        .mapTo(linkedSetOf(), TransportKind::valueOf),
+                    requiresReadback = archived.requiresReadback,
+                    allowedValues = archived.allowedValues,
+                    valueLabels = archived.valueLabels,
+                    equalizerCurveSpec = archived.equalizerCurveSpec?.toDomain(),
+                    source = archived.source,
                 )
             },
             compatibilityLevel = CompatibilityLevel.valueOf(repaired.compatibilityLevel),
@@ -268,6 +329,18 @@ fun DeviceProfile.compatibilityFingerprint(): String {
             append(':').append(capability.availableOnTransports.map { it.name }.sorted().joinToString(","))
             append(':').append(capability.requiresReadback)
             append(':').append(capability.allowedValues.sorted().joinToString(","))
+            capability.equalizerCurveSpec?.let { spec ->
+                append(":curve=")
+                append(spec.writableSlotIds.sorted().joinToString(","))
+                spec.bands.forEach { band ->
+                    append(':').append(band.id)
+                    append(',').append(band.minGain)
+                    append(',').append(band.maxGain)
+                    append(',').append(band.step)
+                    append(',').append(band.centerFrequencyHz ?: "")
+                    append(',').append(band.kind.name)
+                }
+            }
         }
     }
     return MessageDigest.getInstance("SHA-256")

@@ -80,4 +80,21 @@ class CapabilityTest {
     fun `writable capabilities require readback by default`() {
         assertTrue(capability(evidence = EvidenceLevel.VERIFIED).requiresReadback)
     }
+
+    @Test
+    fun `equalizer curve spec rejects wrong slot shape range and step`() {
+        val spec = EqualizerCurveSpec(
+            bands = listOf(
+                EqualizerBandSpec("low", "Low", minGain = -10, maxGain = 10),
+                EqualizerBandSpec("high", "High", minGain = -6, maxGain = 6, step = 2),
+            ),
+            writableSlotIds = setOf("sony:eq:custom-2"),
+        )
+
+        assertTrue(spec.accepts(EqualizerCurve("sony:eq:custom-2", listOf(1, 4))))
+        assertFalse(spec.accepts(EqualizerCurve("sony:eq:custom-1", listOf(1, 4))))
+        assertFalse(spec.accepts(EqualizerCurve("sony:eq:custom-2", listOf(1))))
+        assertFalse(spec.accepts(EqualizerCurve("sony:eq:custom-2", listOf(11, 4))))
+        assertFalse(spec.accepts(EqualizerCurve("sony:eq:custom-2", listOf(1, 3))))
+    }
 }

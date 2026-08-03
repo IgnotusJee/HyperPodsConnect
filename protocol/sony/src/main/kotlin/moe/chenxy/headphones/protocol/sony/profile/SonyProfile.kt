@@ -7,6 +7,7 @@ import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.DeviceProfile
 import moe.chenxy.headphones.core.feature.DeviceTopology
 import moe.chenxy.headphones.core.feature.EvidenceLevel
+import moe.chenxy.headphones.core.feature.EqualizerCurveSpec
 import moe.chenxy.headphones.core.feature.FeatureCapability
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.ProtocolDescriptor
@@ -73,6 +74,7 @@ object SonyProfile {
         noiseControlReadVerified: Boolean,
         equalizerReadVerified: Boolean,
         equalizerPresetIds: Set<String> = SonyEqualizerFeature.allowedPresetIds,
+        equalizerCurveSpec: EqualizerCurveSpec? = null,
     ): DeviceProfile {
         val noiseControlWritable = noiseControlReadVerified &&
             isNoiseControlWriteWhitelisted(
@@ -159,6 +161,7 @@ object SonyProfile {
                 requiresReadback = true,
                 allowedValues = equalizerPresetIds,
                 valueLabels = SonyEqualizerFeature.valueLabels.filterKeys(equalizerPresetIds::contains),
+                equalizerCurveSpec = equalizerCurveSpec,
                 source = if (equalizerWritable) {
                     if (protocolInfo.generation == SonyProtocolGeneration.V1) {
                         "WH-1000XM4 2.5.1 / SPP / table1 preset capability evidence"

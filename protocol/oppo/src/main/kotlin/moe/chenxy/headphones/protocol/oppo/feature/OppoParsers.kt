@@ -309,6 +309,13 @@ object OppoCapabilityParser {
         if (!message.isSuccess || message.payload.size < 2) return null
         return message.payload.copyOfRange(1, message.payload.size)
     }
+
+    fun supports(bitmap: ByteArray, bitIndex: Int): Boolean {
+        if (bitIndex < 0) return false
+        val byteIndex = bitIndex / 8
+        if (byteIndex !in bitmap.indices) return false
+        return (bitmap[byteIndex].toInt() and (1 shl (bitIndex % 8))) != 0
+    }
 }
 
 /** Feature ids the batch query may carry, kept next to the parser that reads them. */

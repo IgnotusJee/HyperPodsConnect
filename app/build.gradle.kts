@@ -28,6 +28,7 @@ android {
         // FOTA, power-off, factory reset, pairing management and find-device
         // are never compiled as enabled operations in a shipping variant.
         buildConfigField("boolean", "ALLOW_DANGEROUS_PROTOCOL_OPERATIONS", "false")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -121,6 +122,10 @@ dependencies {
     implementation(libs.focus.api)
 
     testImplementation(libs.junit)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 }
 
 // Protocol fixtures are shared with :protocol:oppo; keeping one copy stops the

@@ -424,3 +424,36 @@ OTA、诊断、内容传输、听力检测和账号相关功能应后置，因�
 - DEX-only 样本本身没有明文白名单；后续已从完整 APK 中确认并解密内置 fallback 白名单（81 个产品）。服务器最新白名单仍需从运行中的 App 私有缓存或进程内 provider 获取。
 - 固件升级和诊断路径虽然可见，但在没有真机、固件格式和失败恢复验证前不应照搬。
 - 本报告是静态分析结果；协议写操作仍应以真机响应和脱敏抓包作为最终证据。
+
+## 16. HeyMelody 16.7.1 自定义 EQ 精确链路
+
+完整 APK 的 JADX 输出补足了早期 DEX dump 只能确认 UI 存在、无法确认 wire contract 的缺口：
+
+| 环节 | 官方代码证据 | 结论 |
+| --- | --- | --- |
+| UI 入口 | `com/oplus/melody/ui/component/detail/equalizer/CustomEqActivity.java`、`p224qa/j.java` | 默认六频段为 62、250、1000、4000、8000、16000 Hz；白名单可覆盖 |
+| 数据对象 | `p132j9/b.java`、SDK `EqInfo` | selected、signed min/max、eqId、UTF-8 name、frequency[]、dbValue[] |
+| UI 到服务 | `p224qa/j.java` → `p132j9/c.e().i(...)` → `p132j9/e.java` | action 1/2/3 为新增、更新或选择、删除；service action 1018 为 SET |
+| SET | `HeadsetCoreService.G0()` | request `0x0418`，response `0x8418` |
+| GET | service action 1017 → `HeadsetCoreService.C()` | request `0x0122`，response `0x8122` |
+| parser | `com/oplus/melody/btsdk/protocol/commands/c.java` | 逐槽解析选择状态、范围、名称及 LE16 frequency + signed gain |
+| capability | `p008a8/a.java` | bit index 34 同时映射 GET `0x0122` 与 SET `0x0418` |
+
+SET payload 的精确顺序是：
+
+```text
+action, min(int8), max(int8), eqId(uint8), nameLen(uint8), name(UTF-8),
+bandCount(uint8), repeated(frequency(uint16 LE), gain(int8))
+```
+
+GET response 在首部增加 `status, slotCount`，随后重复同一槽位结构，并在每个槽位前增加
+`selected`。Enco Air5s 的 bitmap `FF 75 52 EA A4 0E 07 0F` 已置位 bit 34。2026-08-03 的补充
+真机测试进一步确认：初始 `0x8122` 为成功且零槽位；action 1 创建后耳机分配 ID 4；action 2 将
+62 Hz 从 0 改为 +1 并由 `0x8122` 完整读回；随后恢复、action 3 删除，并在蓝牙作用域重启后确认
+`ids=[]、curve=null`。因此该精确型号/固件已完成动态写入闭环，但不能外推到其他 OPPO 型号。
+
+项目中的 `testdata/fixtures/oppo/official-source/custom-eq-*.hex` 只用于验证本地 codec 与上述官方
+静态布局一致。它们不是蓝牙抓包，不进入真机兼容性证据计数。
+
+Air5s 动态证据单独保存在
+`testdata/fixtures/oppo/device-capture/enco-air5s-163.163.102/`，与官方静态向量明确分开。

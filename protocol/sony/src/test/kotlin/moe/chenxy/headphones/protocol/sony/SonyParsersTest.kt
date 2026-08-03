@@ -2,6 +2,7 @@ package moe.chenxy.headphones.protocol.sony
 
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.EqualizerPreset
+import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.protocol.sony.feature.SonyHandshake
 import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolGeneration
@@ -180,6 +181,48 @@ class SonyParsersTest {
         assertEquals(3, capability.presetIds.size)
         assertEquals(byteArrayOf(0x50, 0x01, 0x00).toList(), SonyV1EqualizerFeature.queryCapability().toList())
         assertEquals(byteArrayOf(0x56, 0x01).toList(), SonyV1EqualizerFeature.query().toList())
+        val custom1 = EqualizerPreset(SonyEqualizerFeature.CUSTOM_1_ID)
+        val curve = EqualizerCurve(
+            slotId = SonyEqualizerFeature.CUSTOM_1_ID,
+            gains = listOf(0, 1, -1, 0, 0, 0),
+        )
+        assertEquals(
+            byteArrayOf(
+                0x58, 0x01, 0xFF.toByte(), 0x06,
+                0x0A, 0x0B, 0x09, 0x0A, 0x0A, 0x0A,
+            ).toList(),
+            SonyV1EqualizerFeature.setCurve(curve, custom1, capability)?.toList(),
+        )
+        assertEquals(
+            curve,
+            SonyV1EqualizerFeature.toDomainCurve(
+                SonyV1EqualizerFeature.parse(
+                    message(
+                        byteArrayOf(
+                            0x59, 0x01, 0xFF.toByte(), 0x06,
+                            0x0A, 0x0B, 0x09, 0x0A, 0x0A, 0x0A,
+                        ),
+                    ),
+                    capability,
+                    fallbackPreset = custom1,
+                )!!,
+                capability,
+            ),
+        )
+        assertNull(
+            SonyV1EqualizerFeature.setCurve(
+                curve.copy(slotId = SonyEqualizerFeature.CUSTOM_2_ID),
+                custom1,
+                capability,
+            ),
+        )
+        assertNull(
+            SonyV1EqualizerFeature.setCurve(
+                curve.copy(gains = listOf(11, 0, 0, 0, 0, 0)),
+                custom1,
+                capability,
+            ),
+        )
         assertEquals(
             byteArrayOf(0x58, 0x01, 0x00, 0x00).toList(),
             SonyV1EqualizerFeature.set(
@@ -463,6 +506,56 @@ class SonyParsersTest {
                 SonyEqualizerFeature.CUSTOM_2_ID,
             ),
             equalizerStates.map { it.preset.id },
+        )
+    }
+
+    @Test
+    fun `sanitized WH custom EQ fixture proves unspecified write readback and restoration`() {
+        val frames = requireNotNull(
+            javaClass.getResourceAsStream(
+                "/fixtures/sony/device-capture/wh-1000xm4-2.5.1/" +
+                    "wh-1000xm4-v1-custom-eq.hex",
+            ),
+        ).bufferedReader().readLines()
+            .map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .map(::hex)
+        val decoded = frames.map { frame ->
+            val result = TandemStreamDecoder().feed(frame).singleOrNull()
+            assertTrue("${frame.toList()} -> $result", result is TandemDecodeResult.Frame)
+            (result as TandemDecodeResult.Frame).value
+        }
+        val messages = decoded.mapNotNull(SonyMdrMessage::from)
+        val capability = SonyV1EqualizerCapability(
+            bandCount = 6,
+            levelCount = 21,
+            presetIds = setOf(SonyEqualizerFeature.CUSTOM_2_ID),
+        )
+        val setPayloads = messages
+            .filter { it.command == SonyCommand.EQEBB_SET_PARAM }
+            .map { it.payload.toList() }
+        val curves = messages.mapNotNull { SonyV1EqualizerFeature.parse(it, capability) }
+            .mapNotNull { SonyV1EqualizerFeature.toDomainCurve(it, capability) }
+
+        assertEquals(8, frames.size)
+        assertEquals(2, decoded.count { it.dataType == SonyDataType.ACK.code })
+        assertEquals(2, messages.count { it.command == SonyCommand.EQEBB_SET_PARAM })
+        assertEquals(2, messages.count { it.command == SonyCommand.EQEBB_GET_PARAM })
+        assertEquals(2, messages.count { it.command == SonyCommand.EQEBB_RET_PARAM })
+        assertEquals(0, messages.count { it.command == SonyCommand.EQEBB_NTFY_PARAM })
+        assertEquals(
+            listOf(
+                listOf(0x58, 0x01, 0xFF, 0x06, 0x0B, 0x13, 0x11, 0x13, 0x12, 0x11),
+                listOf(0x58, 0x01, 0xFF, 0x06, 0x0A, 0x13, 0x11, 0x13, 0x12, 0x11),
+            ).map { values -> values.map(Int::toByte) },
+            setPayloads,
+        )
+        assertEquals(
+            listOf(
+                EqualizerCurve(SonyEqualizerFeature.CUSTOM_2_ID, listOf(1, 9, 7, 9, 8, 7)),
+                EqualizerCurve(SonyEqualizerFeature.CUSTOM_2_ID, listOf(0, 9, 7, 9, 8, 7)),
+            ),
+            curves,
         )
     }
 

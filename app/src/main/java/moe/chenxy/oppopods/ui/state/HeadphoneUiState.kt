@@ -9,6 +9,8 @@ import moe.chenxy.oppopods.ipc.FeatureValuePayload
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotPayload
 import moe.chenxy.oppopods.ipc.IpcConnectionState
 import moe.chenxy.oppopods.ipc.OperationPayload
+import moe.chenxy.headphones.core.feature.EqualizerCurve
+import moe.chenxy.headphones.core.feature.EqualizerCurveSpec
 
 enum class UiConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
@@ -43,6 +45,16 @@ data class UiFeatureState(
     val readOnly: Boolean get() = visible && !writable
 }
 
+data class UiEqualizerCurveState(
+    val confirmed: EqualizerCurve?,
+    val pending: EqualizerCurve?,
+    val spec: EqualizerCurveSpec,
+    val stale: Boolean,
+) {
+    val displayed: EqualizerCurve? get() = pending ?: confirmed
+    val writable: Boolean get() = spec.writableSlotIds.isNotEmpty()
+}
+
 data class HeadphoneUiState(
     val hostInstanceId: String? = null,
     val deviceId: String? = null,
@@ -59,6 +71,7 @@ data class HeadphoneUiState(
     val wearing: Map<String, String> = emptyMap(),
     val noiseControlActiveMode: String? = null,
     val features: Map<String, UiFeatureState> = emptyMap(),
+    val equalizerCurve: UiEqualizerCurveState? = null,
     val lastOperation: UiOperation? = null,
 ) {
     val connected: Boolean get() = connection == UiConnectionState.CONNECTED
@@ -88,6 +101,7 @@ class HeadphoneUiStateStore {
 
         val operation = snapshot.operation?.toUiOperation()
         val capabilities = snapshot.capabilities.associateBy(CapabilityPayload::featureId)
+        val equalizerCurveSpec = capabilities["EQUALIZER"]?.equalizerCurveSpec?.toDomain()
         val features = capabilities.mapValues { (id, capability) ->
             val value = snapshot.features[id] ?: FeatureValuePayload(
                 confirmed = null,
@@ -116,6 +130,14 @@ class HeadphoneUiStateStore {
             wearing = snapshot.wearing,
             noiseControlActiveMode = snapshot.noiseControlActiveMode,
             features = features,
+            equalizerCurve = equalizerCurveSpec?.let { spec ->
+                UiEqualizerCurveState(
+                    confirmed = snapshot.equalizerCurve?.confirmed?.toDomain(),
+                    pending = snapshot.equalizerCurve?.pending?.toDomain(),
+                    spec = spec,
+                    stale = snapshot.equalizerCurve?.stale ?: false,
+                )
+            },
             lastOperation = operation,
         )
         return true

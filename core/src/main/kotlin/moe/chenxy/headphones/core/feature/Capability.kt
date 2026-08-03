@@ -62,6 +62,8 @@ data class FeatureCapability(
     val allowedValues: Set<String> = emptySet(),
     /** Driver-provided, presentation-safe labels keyed by opaque domain value. */
     val valueLabels: Map<String, String> = emptyMap(),
+    /** Structured curve layout for EQ features; absent for preset-only devices. */
+    val equalizerCurveSpec: EqualizerCurveSpec? = null,
     val source: String? = null,
 ) {
     /**

@@ -55,6 +55,7 @@ import moe.chenxy.oppopods.ipc.IpcSenderPolicy
 import moe.chenxy.oppopods.ipc.isSentFrom
 import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import moe.chenxy.headphones.core.feature.EqualizerPreset
+import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.SpatialAudioMode
 import moe.chenxy.headphones.core.operation.FeatureCommand
@@ -441,6 +442,13 @@ fun MainUI(
         )
     }
 
+    fun setEqCurve(curve: EqualizerCurve) {
+        HeadphoneCommandClient.execute(
+            context,
+            FeatureCommand.SetEqualizerCurve(curve),
+        )
+    }
+
     fun setDualDeviceConnection(enabled: Boolean) {
         HeadphoneCommandClient.execute(
             context,
@@ -599,6 +607,8 @@ fun MainUI(
                 onSpatialSoundSwitchChange = { setSpatialSoundSwitch(it) },
                 eqPresetId = eqPresetId.value,
                 onEqPresetChange = { setEqPreset(it) },
+                equalizerCurve = headphoneUiState.equalizerCurve,
+                onEqualizerCurveChange = { setEqCurve(it) },
                 displayDualDeviceConnection = displayDualDeviceConnection,
                 onDualDeviceConnectionChange = { setDualDeviceConnection(it) },
                 features = displayFeatures,

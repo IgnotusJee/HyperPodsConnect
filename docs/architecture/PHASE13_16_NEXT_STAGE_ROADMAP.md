@@ -45,19 +45,26 @@ capability-gated NC/ASM 与 preset EQ 可逆真机闭环；WH-1000XM4 / 2.5.1 / 
 
 ## 3. Phase 14：多厂商自定义 EQ
 
-### 当前缺口
+执行记录见 [`PHASE14_CUSTOM_EQ.md`](PHASE14_CUSTOM_EQ.md)。14A 已完成通用曲线模型、结构化
+capability、兼容 IPC/profile archive、capability 驱动 UI，以及 WH-1000XM4 2.5.1 的 Sony V1
+整曲线写入、强制读回和原值恢复。官方静态链路和真机均确认 SET 为
+`58 01 FF <band-count> <all bands>`。
 
-领域层只有 `EqualizerPreset` 和 `SetEqualizerPreset`，无法表达频点、增益范围、步进、Clear Bass、
-自定义槽位或整条曲线的原子确认。Sony parser 已保留 6 个编码 band 值，但当前刻意禁止 band 写入；
-OPPO 官方 App 16.7.1 已确认存在 `supportCustomEq`、`CustomEqActivity`、`FrequencyView` 与自定义 EQ
-列表，但项目尚未恢复并真机验证其 wire command。
+### 完成结果
+
+OPPO 官方 App 16.7.1 的自定义 EQ 调用链与 wire contract 已恢复：capability bit 34、GET `0x0122`、
+SET `0x0418`，以及槽位、UTF-8 名称、LE16 频率和 signed gain 的精确布局均已有静态向量测试。
+session 仅在运行时能力位与有效 GET 同时成立后开放对应槽位，并强制写后读回。Enco Air5s
+163.163.102 已完成临时槽位创建、62 Hz +1 dB、强制读回、原值恢复、删除及作用域重启后的零残留
+验证。Sony capability 尚未提供频率文字，WH-1000XM4 UI 暂以 `Band 1..6` 展示，不能从其他型号
+猜频点。Phase 14 已闭环，后续型号按 14C 的逐型号证据门禁继续扩展。
 
 ### 目标
 
-- 在 `:core` 新增厂商无关的 `EqualizerBandSpec`、`EqualizerCurve`、自定义槽位和
-  `SetEqualizerCurve`，保留 preset 与 curve 的明确区别；
-- capability 描述每个型号的 band 数、频率标签、编码/显示范围、步进、特殊低频项和可写槽位；
-- Sony 先基于 `EQEBB_RET/NTFY_PARAM` 的现有 band readback 恢复精确写 payload；
+- `:core` 的厂商无关 `EqualizerBandSpec`、`EqualizerCurve`、自定义槽位和
+  `SetEqualizerCurve` 保留 preset 与 curve 的明确区别；
+- capability 持续补齐每个型号的 band 数、频率标签、编码/显示范围、步进、特殊低频项和可写槽位；
+- Sony V1 已基于官方静态链路与 `EQEBB_RET_PARAM` 真机 readback 恢复精确整曲线 payload；
 - OPPO 先完成官方 App 静态调用链与真机 command/notification/readback 取证，再增加协议实现；
 - UI 只渲染 capability 提供的频段，不假定所有厂商都是五段、六段或相同增益范围；
 - 写入按整条曲线关联一次 operation，只有完整 readback 匹配才进入 confirmed。

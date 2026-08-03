@@ -51,6 +51,7 @@ import moe.chenxy.headphones.protocol.oppo.compatibility.OppoCompatibilityOverri
 import moe.chenxy.headphones.protocol.oppo.compatibility.OppoCompatibilityProfile
 import moe.chenxy.headphones.protocol.oppo.compatibility.OppoCompatibilityRegistry
 import moe.chenxy.headphones.protocol.oppo.feature.OppoBatchStatusParser
+import moe.chenxy.headphones.protocol.oppo.feature.OppoCapabilityParser
 import moe.chenxy.headphones.protocol.oppo.feature.OppoComponent
 import moe.chenxy.headphones.protocol.oppo.feature.OppoFirmwareParser
 import moe.chenxy.headphones.protocol.oppo.feature.OppoNotificationSupportParser
@@ -58,6 +59,8 @@ import moe.chenxy.headphones.protocol.oppo.feature.OppoWearParser
 import moe.chenxy.headphones.protocol.oppo.feature.OppoWearState
 import moe.chenxy.headphones.protocol.oppo.feature.battery.OppoBatteryFeature
 import moe.chenxy.headphones.protocol.oppo.feature.dualdevice.OppoDualDeviceFeature
+import moe.chenxy.headphones.protocol.oppo.feature.equalizer.OppoCustomEqualizerFeature
+import moe.chenxy.headphones.protocol.oppo.feature.equalizer.OppoCustomEqualizerSlot
 import moe.chenxy.headphones.protocol.oppo.feature.equalizer.OppoEqualizerFeature
 import moe.chenxy.headphones.protocol.oppo.feature.latency.OppoLatencyFeature
 import moe.chenxy.headphones.protocol.oppo.feature.noisecontrol.OppoNoiseControlFeature
@@ -70,6 +73,7 @@ import moe.chenxy.headphones.protocol.oppo.message.OppoMessage
 import moe.chenxy.headphones.protocol.oppo.message.OppoMessageCodec
 
 sealed interface OppoSessionEvent {
+    data class TxFrame(val bytes: ByteArray) : OppoSessionEvent
     data class RawChunk(val bytes: ByteArray) : OppoSessionEvent
     data class Message(val message: OppoMessage) : OppoSessionEvent
     data class WearReport(val values: Map<OppoComponent, OppoWearState>) : OppoSessionEvent
@@ -136,6 +140,9 @@ class OppoSession(
 
     @Volatile
     private var readbackFeature: FeatureId? = null
+
+    private var customEqualizerCommandSupported = false
+    private var customEqualizerSlots: List<OppoCustomEqualizerSlot> = emptyList()
 
     private var incomingJob: Job? = null
     private var transportStateJob: Job? = null
@@ -311,7 +318,7 @@ class OppoSession(
                 return@withLock OperationResult(requestId, OperationPhase.STATE_CONFIRMED)
             }
 
-            val readback = readbackPacket(command.featureId)
+            val readback = readbackPacket(command)
             if (readback != null) {
                 readbackFeature = command.featureId
                 try {
@@ -385,6 +392,15 @@ class OppoSession(
         verified: MutableSet<FeatureId>,
         refuted: MutableSet<FeatureId>,
     ) {
+        val capabilityReply = sendAndAwait(
+            OppoMessageCodec.encode(OppoCommand.QUERY_CAPABILITY),
+            OppoCommand.responseOf(OppoCommand.QUERY_CAPABILITY),
+        )
+        val capabilityBitmap = capabilityReply?.let(OppoCapabilityParser::parse)
+        customEqualizerCommandSupported = capabilityBitmap?.let {
+            OppoCapabilityParser.supports(it, OppoCustomEqualizerFeature.CAPABILITY_BIT)
+        } == true
+
         val battery = sendAndAwait(
             OppoBatteryFeature.query(),
             OppoCommand.responseOf(OppoCommand.QUERY_BATTERY),
@@ -407,6 +423,16 @@ class OppoSession(
             OppoCommand.responseOf(OppoCommand.QUERY_EQ),
         )
         if (eq != null && OppoEqualizerFeature.parse(eq) != null) verified += FeatureId.EQUALIZER
+
+        if (customEqualizerCommandSupported) {
+            val customEq = sendAndAwait(
+                OppoCustomEqualizerFeature.query(),
+                OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ),
+            )
+            if (customEq != null && OppoCustomEqualizerFeature.parse(customEq) != null) {
+                verified += FeatureId.EQUALIZER
+            }
+        }
 
         val batch = sendAndAwait(batchQuery(), OppoCommand.responseOf(OppoCommand.QUERY_BATCH_STATUS))
         val values = batch?.let(OppoBatchStatusParser::parse)
@@ -456,6 +482,38 @@ class OppoSession(
     private fun handleMessage(message: OppoMessage) {
         _events.tryEmit(OppoSessionEvent.Message(message))
         var recognized = false
+
+        OppoCustomEqualizerFeature.parse(message)?.let { slots ->
+            recognized = true
+            customEqualizerSlots = slots
+            updateCustomEqualizerProfile(slots)
+            val selected = slots.singleOrNull { it.selected }
+            if (selected != null) {
+                apply(
+                    StateUpdate.DeviceReported(
+                        OppoCustomEqualizerFeature.toReport(selected),
+                        if (readbackFeature == FeatureId.EQUALIZER) {
+                            ValueSource.READ_BACK
+                        } else {
+                            ValueSource.QUERY_RESPONSE
+                        },
+                        clock(),
+                    ),
+                )
+            } else {
+                apply(
+                    StateUpdate.DeviceReported(
+                        DeviceReport.EqualizerCurveUnavailable,
+                        if (readbackFeature == FeatureId.EQUALIZER) {
+                            ValueSource.READ_BACK
+                        } else {
+                            ValueSource.QUERY_RESPONSE
+                        },
+                        clock(),
+                    ),
+                )
+            }
+        }
 
         val reports = buildList {
             OppoBatteryFeature.parse(message)?.let(::add)
@@ -509,10 +567,12 @@ class OppoSession(
         }
         if (
             message.command == OppoCommand.responseOf(OppoCommand.QUERY_NOTIFICATION_SUPPORT) ||
+            message.command == OppoCommand.responseOf(OppoCommand.QUERY_CAPABILITY) ||
             message.command == OppoCommand.responseOf(OppoCommand.SUBSCRIBE_NOTIFICATION_BATCH) ||
             message.command == OppoCommand.responseOf(OppoCommand.SET_SWITCH_FEATURE) ||
             message.command == OppoCommand.responseOf(OppoCommand.SET_ANC) ||
             message.command == OppoCommand.responseOf(OppoCommand.SET_EQ) ||
+            message.command == OppoCommand.responseOf(OppoCommand.SET_CUSTOM_EQ) ||
             message.command == OppoCommand.responseOf(OppoCommand.SET_SPATIAL_AUDIO)
         ) {
             recognized = true
@@ -535,6 +595,7 @@ class OppoSession(
         check(responseWaiter == null) { "only one OPPO request may await a response" }
         responseWaiter = waiter
         return try {
+            _events.emit(OppoSessionEvent.TxFrame(packet.copyOf()))
             when (active.write(packet)) {
                 TransportWriteResult.Written -> onWritten()
                 is TransportWriteResult.Rejected -> return null
@@ -545,8 +606,11 @@ class OppoSession(
         }
     }
 
-    private suspend fun writeOnly(packet: ByteArray): Boolean =
-        transport?.write(packet) is TransportWriteResult.Written
+    private suspend fun writeOnly(packet: ByteArray): Boolean {
+        val active = transport ?: return false
+        _events.emit(OppoSessionEvent.TxFrame(packet.copyOf()))
+        return active.write(packet) is TransportWriteResult.Written
+    }
 
     private fun queryPackets(features: Set<FeatureId>): List<Pair<ByteArray, Int>> {
         val result = mutableListOf<Pair<ByteArray, Int>>()
@@ -561,6 +625,10 @@ class OppoSession(
         }
         if (FeatureId.EQUALIZER in features) {
             result += OppoEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_EQ)
+            if (customEqualizerCommandSupported) {
+                result += OppoCustomEqualizerFeature.query() to
+                    OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ)
+            }
         }
         if (
             FeatureId.LOW_LATENCY in features ||
@@ -582,8 +650,23 @@ class OppoSession(
         is FeatureCommand.SetAmbientSoundLevel -> null
         is FeatureCommand.SetTransparencyVocalEnhancement ->
             listOf(OppoNoiseControlFeature.setTransparencyVocalEnhancement(command.enabled))
-        is FeatureCommand.SetEqualizerPreset ->
-            OppoEqualizerFeature.set(command.preset)?.let(::listOf)
+        is FeatureCommand.SetEqualizerPreset -> {
+            val customEqId = OppoCustomEqualizerFeature.eqId(command.preset.id)
+            if (customEqId == null) {
+                OppoEqualizerFeature.set(command.preset)?.let(::listOf)
+            } else {
+                customEqualizerSlots.singleOrNull { it.eqId == customEqId }
+                    ?.let(OppoCustomEqualizerFeature::select)
+                    ?.let(::listOf)
+            }
+        }
+        is FeatureCommand.SetEqualizerCurve -> {
+            val activeSlot = customEqualizerSlots.singleOrNull { it.selected }
+            val spec = _profile.value?.capability(FeatureId.EQUALIZER)?.equalizerCurveSpec
+            if (activeSlot == null || spec == null) null else {
+                OppoCustomEqualizerFeature.setCurve(command.curve, activeSlot, spec)?.let(::listOf)
+            }
+        }
         is FeatureCommand.SetLowLatency ->
             OppoLatencyFeature.set(command.enabled, compatibility.lowLatencyStrategy)
         is FeatureCommand.SetSpatialAudio ->
@@ -600,16 +683,50 @@ class OppoSession(
         is FeatureCommand.Refresh, FeatureCommand.RefreshAll -> null
     }
 
-    private fun readbackPacket(featureId: FeatureId): Pair<ByteArray, Int>? = when (featureId) {
-        FeatureId.NOISE_CONTROL ->
+    private fun readbackPacket(command: FeatureCommand): Pair<ByteArray, Int>? = when (command) {
+        is FeatureCommand.SetEqualizerCurve ->
+            OppoCustomEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ)
+        is FeatureCommand.SetEqualizerPreset -> {
+            if (OppoCustomEqualizerFeature.eqId(command.preset.id) != null) {
+                OppoCustomEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ)
+            } else {
+                OppoEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_EQ)
+            }
+        }
+        is FeatureCommand.SetNoiseControl ->
             OppoNoiseControlFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_ANC)
-        FeatureId.EQUALIZER ->
-            OppoEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_EQ)
-        FeatureId.LOW_LATENCY,
-        FeatureId.SPATIAL_SOUND_SWITCH,
-        FeatureId.DUAL_DEVICE_CONNECTION,
+        is FeatureCommand.SetTransparencyVocalEnhancement ->
+            OppoNoiseControlFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_ANC)
+        is FeatureCommand.SetLowLatency,
+        is FeatureCommand.SetSpatialSoundSwitch,
+        is FeatureCommand.SetDualDeviceConnection,
         -> batchQuery() to OppoCommand.responseOf(OppoCommand.QUERY_BATCH_STATUS)
         else -> null
+    }
+
+    private fun updateCustomEqualizerProfile(slots: List<OppoCustomEqualizerSlot>) {
+        val profile = _profile.value ?: return
+        val capability = profile.capability(FeatureId.EQUALIZER) ?: return
+        val builtInValues = capability.allowedValues.filterTo(linkedSetOf()) {
+            OppoCustomEqualizerFeature.eqId(it) == null
+        }
+        val builtInLabels = capability.valueLabels.filterKeys {
+            OppoCustomEqualizerFeature.eqId(it) == null
+        }
+        val customValues = slots.mapTo(linkedSetOf()) { it.slotId }
+        val customLabels = slots.associate { slot ->
+            slot.slotId to slot.name.ifBlank { "Custom ${slot.eqId}" }
+        }
+        val selected = slots.singleOrNull { it.selected }
+        val updatedCapability = capability.copy(
+            allowedValues = builtInValues + customValues,
+            valueLabels = builtInLabels + customLabels,
+            equalizerCurveSpec = selected?.let(OppoCustomEqualizerFeature::curveSpec),
+            source = "device-response:custom-eq",
+        )
+        _profile.value = profile.copy(
+            features = profile.features + (FeatureId.EQUALIZER to updatedCapability),
+        )
     }
 
     private fun batchQuery(): ByteArray = OppoMessageCodec.encode(
@@ -626,6 +743,16 @@ class OppoSession(
         is FeatureCommand.SetSpatialAudio ->
             compatibility.spatialAudioSupported || compatibility.spatialSoundSwitchSupported
         is FeatureCommand.SetSpatialSoundSwitch -> compatibility.spatialSoundSwitchSupported
+        is FeatureCommand.SetEqualizerPreset -> {
+            val capability = _profile.value?.capability(FeatureId.EQUALIZER)
+            command.preset.id in capability?.allowedValues.orEmpty() &&
+                (OppoCustomEqualizerFeature.eqId(command.preset.id) == null ||
+                    customEqualizerCommandSupported)
+        }
+        is FeatureCommand.SetEqualizerCurve ->
+            customEqualizerCommandSupported &&
+                _profile.value?.capability(FeatureId.EQUALIZER)
+                    ?.equalizerCurveSpec?.accepts(command.curve) == true
         else -> true
     }
 
@@ -640,6 +767,9 @@ class OppoSession(
             }
         is FeatureCommand.SetEqualizerPreset -> _state.value.equalizer.let {
             it.pending == null && it.confirmed == command.preset
+        }
+        is FeatureCommand.SetEqualizerCurve -> _state.value.equalizerCurve.let {
+            it.pending == null && it.confirmed == command.curve
         }
         is FeatureCommand.SetLowLatency -> _state.value.lowLatency.let {
             it.pending == null && it.confirmed == command.enabled
@@ -663,6 +793,7 @@ class OppoSession(
         is DeviceReport.AmbientSoundLevel -> FeatureId.AMBIENT_SOUND_LEVEL
         is DeviceReport.TransparencyVocalEnhancement -> FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT
         is DeviceReport.Equalizer -> FeatureId.EQUALIZER
+        DeviceReport.EqualizerCurveUnavailable -> FeatureId.EQUALIZER
         is DeviceReport.LowLatency -> FeatureId.LOW_LATENCY
         is DeviceReport.SpatialAudio -> FeatureId.SPATIAL_AUDIO
         is DeviceReport.SpatialSoundSwitch -> FeatureId.SPATIAL_SOUND_SWITCH

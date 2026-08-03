@@ -1,0 +1,15 @@
+# Sanitized HyperPodsConnect / WH-1000XM4 2.5.1 Classic SPP custom-EQ capture.
+# Identifiers and unrelated traffic are omitted. This firmware did not emit an
+# EQ NTFY for these curve edits, so each SET is proven by ACK plus explicit GET/RET.
+
+# Custom 2 first band 0 -> +1; remaining bands preserved
+3E0C000000000A5801FF060B1311131211D93C
+3E010100000000023C
+3E0C01000000025601663C
+3E0C010000000A5701A2060B13111312117C3C
+
+# Restore Custom 2 first band +1 -> 0
+3E0C000000000A5801FF060A1311131211D83C
+3E010100000000023C
+3E0C01000000025601663C
+3E0C000000000A5701A2060A13111312117A3C

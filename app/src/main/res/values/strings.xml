@@ -20,6 +20,8 @@
     <string name="spatial_audio_head_tracking">Head Tracking</string>
     <string name="eq_preset_title">Master Tuning</string>
     <string name="eq_preset_summary">Choose the master EQ preset</string>
+    <string name="eq_custom_title">Custom equalizer</string>
+    <string name="eq_custom_summary">Drag a band; the complete curve is sent after release</string>
     <string name="eq_preset_authentic">Authentic</string>
     <string name="eq_preset_detail">Detail</string>
     <string name="eq_preset_vocal">Vocal</string>

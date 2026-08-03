@@ -10,6 +10,9 @@ import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.DeviceProfile
 import moe.chenxy.headphones.core.feature.DeviceTopology
 import moe.chenxy.headphones.core.feature.EqualizerPreset
+import moe.chenxy.headphones.core.feature.EqualizerBandSpec
+import moe.chenxy.headphones.core.feature.EqualizerCurve
+import moe.chenxy.headphones.core.feature.EqualizerCurveSpec
 import moe.chenxy.headphones.core.feature.EvidenceLevel
 import moe.chenxy.headphones.core.feature.FeatureCapability
 import moe.chenxy.headphones.core.feature.FeatureId
@@ -79,6 +82,9 @@ class HeadphoneIpcCodecTest {
             FeatureCommand.SetAmbientSoundLevel(17),
             FeatureCommand.SetTransparencyVocalEnhancement(true),
             FeatureCommand.SetEqualizerPreset(EqualizerPreset("oppo:2")),
+            FeatureCommand.SetEqualizerCurve(
+                EqualizerCurve("sony:eq:a2", listOf(0, 1, -1)),
+            ),
             FeatureCommand.SetLowLatency(true),
             FeatureCommand.SetSpatialAudio(SpatialAudioMode.HEAD_TRACKING),
             FeatureCommand.SetSpatialSoundSwitch(false),
@@ -179,6 +185,71 @@ class HeadphoneIpcCodecTest {
             mapOf("false" to "Standard", "true" to "Low latency"),
             decoded.capabilities.single().valueLabels,
         )
+    }
+
+    @Test
+    fun `snapshot carries structured EQ curve while legacy payload remains readable`() {
+        val identity = DeviceIdentity(
+            DeviceId("device:sony-eq"),
+            VendorId.SONY,
+            "11:22:33:44:55:66",
+        )
+        val curve = EqualizerCurve("sony:eq:a2", listOf(0, 1, -1))
+        val curveSpec = EqualizerCurveSpec(
+            bands = listOf(
+                EqualizerBandSpec("band:0", "Low", -10, 10),
+                EqualizerBandSpec("band:1", "Mid", -10, 10),
+                EqualizerBandSpec("band:2", "High", -10, 10),
+            ),
+            writableSlotIds = setOf("sony:eq:a2"),
+        )
+        val capability = FeatureCapability(
+            featureId = FeatureId.EQUALIZER,
+            canRead = true,
+            canWrite = true,
+            evidence = EvidenceLevel.VERIFIED,
+            availableOnTransports = setOf(TransportKind.CLASSIC_SPP),
+            allowedValues = setOf("sony:eq:a2"),
+            equalizerCurveSpec = curveSpec,
+        )
+        val profile = DeviceProfile(
+            identity = identity,
+            vendorId = VendorId.SONY,
+            model = "WH-1000XM4",
+            firmware = "2.5.1",
+            topology = DeviceTopology.HEADBAND,
+            transport = TransportKind.CLASSIC_SPP,
+            protocol = ProtocolDescriptor("Sony Tandem"),
+            features = mapOf(FeatureId.EQUALIZER to capability),
+            compatibilityLevel = CompatibilityLevel.STABLE,
+        )
+        val state = HeadphoneState(
+            equalizer = moe.chenxy.headphones.core.feature.FeatureValue<EqualizerPreset>()
+                .withConfirmed(EqualizerPreset("sony:eq:a2"), ValueSource.READ_BACK, 1),
+            equalizerCurve = moe.chenxy.headphones.core.feature.FeatureValue<EqualizerCurve>()
+                .withConfirmed(curve, ValueSource.READ_BACK, 1),
+        )
+        val payload = HeadphoneSnapshotPayload.from(
+            HeadphoneSnapshot(
+                identity.id,
+                1,
+                SessionState.Ready(identity.id, 1, TransportKind.CLASSIC_SPP),
+                profile,
+                state,
+                emittedAtMillis = 2,
+            ),
+            "host-eq",
+        )
+        val decoded = requireNotNull(
+            HeadphoneIpcCodec.decodeSnapshot(HeadphoneIpcCodec.encodeSnapshot(payload)),
+        )
+
+        assertEquals(curve, decoded.equalizerCurve?.confirmed?.toDomain())
+        assertEquals(curveSpec, decoded.capabilities.single().equalizerCurveSpec?.toDomain())
+
+        val legacyJson = HeadphoneIpcCodec.encodeSnapshot(payload)
+            .replace(Regex(",\"equalizerCurve\":\\{.*?\\}(?=,\"operation\")"), "")
+        assertTrue(HeadphoneIpcCodec.decodeSnapshot(legacyJson) != null)
     }
 
     @Test
