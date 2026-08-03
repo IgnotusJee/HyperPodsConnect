@@ -50,8 +50,11 @@ IPC 以可选字段增加曲线值与结构化 capability，旧 payload 仍可�
 新增字段也为可选项，旧档案和既有 fingerprint 不受影响。UI 只在当前 preset 是可写槽位时渲染
 capability 提供的滑块，拖动期间只更新本地值，松手后一次发送完整曲线，避免写入风暴。
 
-WH-1000XM4 的 capability 只返回 band 数和 level 数，没有频率文字。本阶段因此诚实显示
-`Band 1..6`，不从其他型号或官方 UI 图片猜频点。后续只有取得型号级证据才补频率标签。
+WH-1000XM4 的 capability 只返回 band 数和 level 数，没有频率文字。初版因此显示
+`Band 1..6`。2026-08-03 通过 Sound Connect 13.2.1 实机编辑页、反编译资源和 Bass Boost
+`+7, 0, 0, 0, 0, 0` 读回完成交叉确认后，六值布局已修正为 wire 顺序：
+`CLEAR BASS / 400 / 1k / 2.5k / 6.3k / 16k`。界面把五个标准频段并排显示，并将 Clear Bass
+作为独立横向控件；非六值 Sony V1 capability 仍回退到 `Band N`，不会套用未验证频点。
 
 ## 4. WH-1000XM4 真机闭环
 
@@ -59,7 +62,7 @@ WH-1000XM4 的 capability 只返回 band 数和 level 数，没有频率文字�
 WH-1000XM4 2.5.1 通过 Classic SPP 保持 Ready。活动槽位为 `Custom 2`，初始 wire 曲线为：
 
 ```text
-0A 13 11 13 12 11  ->  显示值 0, +9, +7, +9, +8, +7
+0A 13 11 13 12 11  ->  Clear Bass 0；400 +9；1k +7；2.5k +9；6.3k +8；16k +7
 ```
 
 只把第一频段从 `0` 调到 `+1`：
@@ -121,6 +124,11 @@ bandCount, repeated(frequency LE16, gain int8)
 `0x0122`，只有选中槽位和完整曲线精确匹配才确认。静态向量位于
 `testdata/fixtures/oppo/official-source/`，明确不是设备捕获。
 
+自定义槽位生命周期也沿用官方动作：重命名使用 action 2，并原样携带设备刚读回的频点与增益；删除使用
+action 3。两者只接受 `0x8122` 中真实存在的自定义 `eqId`，固定预设不会暴露编辑入口。重命名以同一槽位
+的新名称读回为成功条件；删除则要求槽位从 `0x8122` 消失，并追加内置 EQ 查询以清除已删除槽位的旧选中
+状态。名称按官方字段限制为非空且最多 128 个 UTF-8 字节。
+
 ## 7. OPPO Enco Air5s 真机闭环
 
 2026-08-03 在 Xiaomi 13 Pro / Android 16 上，以完整模块 APK 安装并重启全部 LSPosed 作用域后，
@@ -142,6 +150,18 @@ RX AA0900002281F002000000
 旧曲线。真机证据位于
 `testdata/fixtures/oppo/device-capture/enco-air5s-163.163.102/`；文件只记录实际观察或发送的帧，未伪造
 未捕获的 RX 字节。
+
+同日后续用 HeyMelody 16.7.1 真机界面复核发现，上述六频段是早期测试主动构造并被耳机接受的可变布局；
+Air5s 白名单 `customEqUiVersion=2` 的官方“添加均衡器”模板实际为十频段：
+`31 / 62 / 125 / 250 / 500 / 1000 / 2000 / 4000 / 8000 / 16000 Hz`。点击添加会先创建并选中
+“自定义1”，再打开十频段编辑底板。协议解析仍保留对设备返回可变频段布局的支持，产品新建模板则改为
+官方十频段。界面层级和截图证据记录在
+`docs/reverse-engineering/OFFICIAL_EQ_UI_ANALYSIS.md`。
+
+追加生命周期实测时，耳机已有用户槽位“自定义1”。测试另建的 `HyperPods Custom` 先通过产品界面改名为
+`CodexTmp`，`0x8122` 读回后列表立即显示新名称；随后经二次确认使用 action 3 删除，列表只剩“自定义1”。
+最后重新选中该用户槽位，十段曲线 `[-6, +6, -6, +6, -4, +2, +5, +6, -5, +5]` 原样读回，证明测试
+没有改写或删除既有用户数据。
 
 真机测试还发现 HyperOS 可能在 instrumentation 活跃时把测试目标进程标记为 frozen，并以
 `Skip broadcast to frozen process` 丢弃读回事件；硬件测试执行器因此需要在运行期间解除测试进程冻结。

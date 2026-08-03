@@ -100,7 +100,28 @@ class OppoCustomEqualizerFeatureTest {
     }
 
     @Test
-    fun `Air5s creation draft uses official six-band layout`() {
+    fun `rename uses update action while preserving the exact curve`() {
+        val slot = parsedSlot()
+
+        val rename = requireNotNull(OppoCustomEqualizerFeature.rename(slot, "Studio"))
+        val payload = requireNotNull(OppoMessageCodec.decode(rename)).payload
+        val nameLength = payload[4].toInt() and 0xFF
+        val name = payload.copyOfRange(5, 5 + nameLength).toString(Charsets.UTF_8)
+        val bandOffset = 5 + nameLength
+        val bandCount = payload[bandOffset].toInt() and 0xFF
+        val gains = List(bandCount) { index ->
+            payload[bandOffset + 1 + index * 3 + 2].toInt()
+        }
+
+        assertEquals(OppoCustomEqualizerFeature.ACTION_UPDATE_OR_SELECT, payload[0].toInt())
+        assertEquals("Studio", name)
+        assertEquals(slot.gains, gains)
+        assertNull(OppoCustomEqualizerFeature.rename(slot, "  "))
+        assertNull(OppoCustomEqualizerFeature.rename(slot, "x".repeat(129)))
+    }
+
+    @Test
+    fun `Air5s creation draft uses official ten-band layout`() {
         val spec = OppoCustomEqualizerFeature.air5sCreationSpec()
         val curve = EqualizerCurve(
             OppoCustomEqualizerFeature.CREATION_SLOT_ID,
@@ -111,7 +132,10 @@ class OppoCustomEqualizerFeatureTest {
         val message = requireNotNull(OppoMessageCodec.decode(frame))
 
         assertEquals(OppoCustomEqualizerFeature.ACTION_ADD, message.payload[0].toInt())
-        assertEquals(listOf(62, 250, 1_000, 4_000, 8_000, 16_000), spec.bands.map { it.centerFrequencyHz })
+        assertEquals(
+            listOf(31, 62, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000),
+            spec.bands.map { it.centerFrequencyHz },
+        )
         assertEquals(setOf(OppoCustomEqualizerFeature.CREATION_SLOT_ID), spec.writableSlotIds)
     }
 }

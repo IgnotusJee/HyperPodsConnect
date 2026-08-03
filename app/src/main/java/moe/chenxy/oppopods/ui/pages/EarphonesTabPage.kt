@@ -13,10 +13,8 @@ import androidx.compose.ui.unit.Dp
 import moe.chenxy.oppopods.R
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.feature.SpatialAudioMode
-import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.oppopods.pods.WearStatus
 import moe.chenxy.oppopods.ui.state.UiFeatureState
-import moe.chenxy.oppopods.ui.state.UiEqualizerCurveState
 import moe.chenxy.oppopods.ui.state.UiOperation
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -41,9 +39,7 @@ internal fun EarphonesTabPage(
     spatialSoundSwitch: Boolean,
     onSpatialSoundSwitchChange: (Boolean) -> Unit,
     eqPresetId: String?,
-    onEqPresetChange: (String) -> Unit,
-    equalizerCurve: UiEqualizerCurveState?,
-    onEqualizerCurveChange: (EqualizerCurve) -> Unit,
+    onOpenEqualizer: () -> Unit,
     displayDualDeviceConnection: Boolean,
     onDualDeviceConnectionChange: (Boolean) -> Unit,
     features: Map<String, UiFeatureState>,
@@ -89,9 +85,7 @@ internal fun EarphonesTabPage(
                 spatialSoundSwitch = spatialSoundSwitch,
                 onSpatialSoundSwitchChange = onSpatialSoundSwitchChange,
                 eqPresetId = eqPresetId,
-                onEqPresetChange = onEqPresetChange,
-                equalizerCurve = equalizerCurve,
-                onEqualizerCurveChange = onEqualizerCurveChange,
+                onOpenEqualizer = onOpenEqualizer,
                 dualDeviceConnection = displayDualDeviceConnection,
                 onDualDeviceConnectionChange = onDualDeviceConnectionChange,
                 features = features,

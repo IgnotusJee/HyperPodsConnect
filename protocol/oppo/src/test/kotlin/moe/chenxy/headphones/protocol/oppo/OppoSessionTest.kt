@@ -23,6 +23,7 @@ import moe.chenxy.headphones.core.device.VendorId
 import moe.chenxy.headphones.core.driver.DriverSessionContext
 import moe.chenxy.headphones.core.feature.EvidenceLevel
 import moe.chenxy.headphones.core.feature.EqualizerCurve
+import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.feature.ValueSource
@@ -220,6 +221,7 @@ class OppoSessionTest {
             session.profile.value!!.capability(FeatureId.EQUALIZER)!!.equalizerCurveSpec,
         )
         assertTrue(original.slotId in spec.writableSlotIds)
+        assertTrue(OppoCustomEqualizerFeature.CREATION_SLOT_ID in spec.writableSlotIds)
 
         val changed = EqualizerCurve(original.slotId, original.gains.toMutableList().apply {
             this[0] += 1
@@ -277,6 +279,45 @@ class OppoSessionTest {
         session.disconnect()
     }
 
+    @Test
+    fun `custom EQ can be renamed and deleted with device readback confirmation`() = runBlocking {
+        val transport = FakeOppoTransport(customEqSupported = true)
+        val session = session(transport)
+        session.connect()
+        val slotId = "oppo:eq:custom:5"
+        val originalCurve = requireNotNull(session.state.value.equalizerCurve.confirmed)
+
+        val renamed = session.execute(
+            FeatureCommand.RenameEqualizerPreset(EqualizerPreset(slotId, "Studio")),
+        )
+
+        assertEquals(OperationPhase.READ_BACK_CONFIRMED, renamed.phase)
+        assertEquals(
+            "Studio",
+            session.profile.value!!.capability(FeatureId.EQUALIZER)!!.valueLabels[slotId],
+        )
+        assertEquals(originalCurve, session.state.value.equalizerCurve.confirmed)
+
+        val deleted = session.execute(FeatureCommand.DeleteEqualizerPreset(slotId))
+
+        assertEquals(OperationPhase.READ_BACK_CONFIRMED, deleted.phase)
+        assertTrue(
+            slotId !in session.profile.value!!.capability(FeatureId.EQUALIZER)!!.allowedValues,
+        )
+        assertEquals("oppo:0", session.state.value.equalizer.confirmed?.id)
+        assertNull(session.state.value.equalizerCurve.confirmed)
+        assertEquals(
+            listOf(
+                OppoCustomEqualizerFeature.ACTION_UPDATE_OR_SELECT,
+                OppoCustomEqualizerFeature.ACTION_DELETE,
+            ),
+            transport.requests
+                .filter { it.command == OppoCommand.SET_CUSTOM_EQ }
+                .map { it.payload[0].toInt() and 0xFF },
+        )
+        session.disconnect()
+    }
+
     private fun session(
         transport: FakeOppoTransport,
         model: String = "OPPO Enco Air5s",
@@ -322,7 +363,9 @@ private class FakeOppoTransport(
     override val maxWriteSize: StateFlow<Int> = MutableStateFlow(512).asStateFlow()
 
     private var ancValue = 0x01
+    private var customEqFrequencies = mutableListOf(62, 250, 1_000, 4_000, 8_000, 16_000)
     private var customEqGains = mutableListOf(0, 1, -1, 2, -2, 3)
+    private var customEqName = "Custom 1"
     private var customEqPresent = customEqInitiallyPresent
     val requests = CopyOnWriteArrayList<OppoMessage>()
 
@@ -404,9 +447,8 @@ private class FakeOppoTransport(
 
     private fun customEqResponse(): ByteArray {
         if (!customEqPresent) return byteArrayOf(0, 0)
-        val name = "Custom 1".toByteArray(Charsets.UTF_8)
-        val frequencies = listOf(62, 250, 1_000, 4_000, 8_000, 16_000)
-        return ByteArray(2 + 5 + name.size + 1 + frequencies.size * 3).also { payload ->
+        val name = customEqName.toByteArray(Charsets.UTF_8)
+        return ByteArray(2 + 5 + name.size + 1 + customEqFrequencies.size * 3).also { payload ->
             payload[0] = 0
             payload[1] = 1
             payload[2] = 1
@@ -416,9 +458,9 @@ private class FakeOppoTransport(
             payload[6] = name.size.toByte()
             name.copyInto(payload, 7)
             var offset = 7 + name.size
-            payload[offset++] = frequencies.size.toByte()
-            frequencies.indices.forEach { index ->
-                val frequency = frequencies[index]
+            payload[offset++] = customEqFrequencies.size.toByte()
+            customEqFrequencies.indices.forEach { index ->
+                val frequency = customEqFrequencies[index]
                 payload[offset++] = (frequency and 0xFF).toByte()
                 payload[offset++] = ((frequency shr 8) and 0xFF).toByte()
                 payload[offset++] = customEqGains[index].toByte()
@@ -429,6 +471,12 @@ private class FakeOppoTransport(
     private fun applyCustomEqUpdate(payload: ByteArray): Boolean {
         if (payload.size < 6) return false
         val action = payload[0].toInt() and 0xFF
+        val eqId = payload[3].toInt() and 0xFF
+        if (action == OppoCustomEqualizerFeature.ACTION_DELETE) {
+            if (!customEqPresent || eqId != 5) return false
+            customEqPresent = false
+            return true
+        }
         if (action !in setOf(
                 OppoCustomEqualizerFeature.ACTION_ADD,
                 OppoCustomEqualizerFeature.ACTION_UPDATE_OR_SELECT,
@@ -437,10 +485,17 @@ private class FakeOppoTransport(
         if (action == OppoCustomEqualizerFeature.ACTION_UPDATE_OR_SELECT && !customEqPresent) return false
         if (action == OppoCustomEqualizerFeature.ACTION_ADD && (payload[3].toInt() and 0xFF) != 0) return false
         val nameLength = payload[4].toInt() and 0xFF
+        if (5 + nameLength >= payload.size) return false
+        customEqName = payload.copyOfRange(5, 5 + nameLength).toString(Charsets.UTF_8)
         var offset = 5 + nameLength
         if (offset >= payload.size) return false
         val bandCount = payload[offset++].toInt() and 0xFF
-        if (bandCount != customEqGains.size || offset + bandCount * 3 != payload.size) return false
+        if (bandCount == 0 || offset + bandCount * 3 != payload.size) return false
+        customEqFrequencies = MutableList(bandCount) { index ->
+            val frequencyOffset = offset + index * 3
+            (payload[frequencyOffset].toInt() and 0xFF) or
+                ((payload[frequencyOffset + 1].toInt() and 0xFF) shl 8)
+        }
         customEqGains = MutableList(bandCount) { index ->
             payload[offset + index * 3 + 2].toInt()
         }

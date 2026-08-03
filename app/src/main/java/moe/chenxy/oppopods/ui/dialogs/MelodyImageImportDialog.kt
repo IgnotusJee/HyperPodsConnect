@@ -54,7 +54,7 @@ internal fun MelodyImageImportDialog(
     currentAddress: String,
     currentName: String,
     onDismissRequest: () -> Unit,
-    onImport: (String, String, Map<PodImageResource, ByteArray>) -> Unit,
+    onImport: (String, String, MelodyImageCandidate, Map<PodImageResource, ByteArray>) -> Unit,
 ) {
     var candidates by remember(show) { mutableStateOf<List<MelodyImageCandidate>>(emptyList()) }
     var selectedCandidate by remember(show) { mutableStateOf<MelodyImageCandidate?>(null) }
@@ -68,7 +68,9 @@ internal fun MelodyImageImportDialog(
         loading = true
         hasRootAccess = withContext(Dispatchers.IO) { RootManager.hasRootAccess() }
         candidates = if (hasRootAccess) {
-            withContext(Dispatchers.IO) { RootManager.scanMelodyImageCandidates() }
+            withContext(Dispatchers.IO) {
+                listOfNotNull(RootManager.resolveMelodyImageCandidate(currentName))
+            }
         } else {
             emptyList()
         }
@@ -146,20 +148,11 @@ internal fun MelodyImageImportDialog(
                     importing = true
                     scope.launch {
                         val images: Map<PodImageResource, ByteArray> = withContext(Dispatchers.IO) {
-                            val paths: Map<PodImageResource, String> = mapOf(
-                                PodImageResource.BOX to candidate.boxPath,
-                                PodImageResource.LEFT to candidate.rightPath,
-                                PodImageResource.RIGHT to candidate.leftPath,
-                            )
-                            paths.mapNotNull { (resource, path) ->
-                                RootManager.readMelodyImage(path)?.takeIf { it.isNotEmpty() }?.let { bytes ->
-                                    resource to bytes
-                                }
-                            }.toMap()
+                            RootManager.readMelodyImages(candidate).orEmpty()
                         }
                         importing = false
-                        if (images.size == PodImageResource.entries.size) {
-                            onImport(currentAddress, currentName, images)
+                        if (images.isNotEmpty()) {
+                            onImport(currentAddress, currentName, candidate, images)
                         }
                     }
                 },

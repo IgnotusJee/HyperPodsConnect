@@ -1,8 +1,9 @@
 package moe.chenxy.headphones.protocol.sony
 
 import moe.chenxy.headphones.core.feature.BatteryComponent
-import moe.chenxy.headphones.core.feature.EqualizerPreset
+import moe.chenxy.headphones.core.feature.EqualizerBandKind
 import moe.chenxy.headphones.core.feature.EqualizerCurve
+import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.protocol.sony.feature.SonyHandshake
 import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolGeneration
@@ -179,6 +180,26 @@ class SonyParsersTest {
 
         assertEquals(SonyEqualizerFeature.BASS_BOOST_ID, state.preset.id)
         assertEquals(3, capability.presetIds.size)
+        val curveSpec = SonyV1EqualizerFeature.curveSpec(capability)!!
+        assertEquals(
+            listOf("CLEAR BASS", "400", "1k", "2.5k", "6.3k", "16k"),
+            curveSpec.bands.map { it.displayName },
+        )
+        assertEquals(
+            listOf(null, 400, 1_000, 2_500, 6_300, 16_000),
+            curveSpec.bands.map { it.centerFrequencyHz },
+        )
+        assertEquals(
+            listOf(
+                EqualizerBandKind.CLEAR_BASS,
+                EqualizerBandKind.STANDARD,
+                EqualizerBandKind.STANDARD,
+                EqualizerBandKind.STANDARD,
+                EqualizerBandKind.STANDARD,
+                EqualizerBandKind.STANDARD,
+            ),
+            curveSpec.bands.map { it.kind },
+        )
         assertEquals(byteArrayOf(0x50, 0x01, 0x00).toList(), SonyV1EqualizerFeature.queryCapability().toList())
         assertEquals(byteArrayOf(0x56, 0x01).toList(), SonyV1EqualizerFeature.query().toList())
         val custom1 = EqualizerPreset(SonyEqualizerFeature.CUSTOM_1_ID)

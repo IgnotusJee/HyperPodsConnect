@@ -116,6 +116,10 @@ object HeadphoneStateReducer {
                     ),
                 )
 
+            is FeatureCommand.RenameEqualizerPreset,
+            is FeatureCommand.DeleteEqualizerPreset,
+            -> state
+
             is FeatureCommand.SetLowLatency ->
                 state.copy(lowLatency = state.lowLatency.withPending(command.enabled, update.atMillis))
 

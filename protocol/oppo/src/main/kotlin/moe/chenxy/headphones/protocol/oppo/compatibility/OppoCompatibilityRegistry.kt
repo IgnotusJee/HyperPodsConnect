@@ -34,6 +34,8 @@ data class OppoCompatibilityProfile(
     val ancEncoding: OppoAncEncoding,
     val lowLatencyStrategy: OppoLowLatencyStrategy,
     val customEqualizerCreationSupported: Boolean,
+    val customEqualizerMaxSlots: Int,
+    val equalizerValues: Map<String, String>,
     internal val forcedFeatures: Set<FeatureId>,
 )
 
@@ -47,6 +49,23 @@ data class OppoCompatibilityProfile(
  * device response.
  */
 object OppoCompatibilityRegistry {
+
+    private val genericEqualizerValues = linkedMapOf(
+        "oppo:0" to "Authentic",
+        "oppo:1" to "Detail",
+        "oppo:2" to "Vocal",
+        "oppo:3" to "Bass",
+        // The vendor table is intentionally non-contiguous: slots 4..6
+        // belong to other products, while Dynaudio is preset 7.
+        "oppo:7" to "Dynaudio",
+    )
+
+    /** HeyMelody whitelist 06C810: mode types 26, 28 and 29. */
+    private val air5sEqualizerValues = linkedMapOf(
+        "oppo:0" to "Ultimate sound",
+        "oppo:2" to "Pure vocals",
+        "oppo:1" to "Powerful bass",
+    )
 
     val compatibilityMatrix = CompatibilityMatrix(
         listOf(
@@ -102,6 +121,14 @@ object OppoCompatibilityRegistry {
                 },
             lowLatencyStrategy = overrides.lowLatencyStrategy,
             customEqualizerCreationSupported = matches(name, customEqualizerCreationModels),
+            // HeyMelody CustomEqFragment defaults to three when the Air5s
+            // whitelist does not provide an explicit customEqMax value.
+            customEqualizerMaxSlots = if (matches(name, customEqualizerCreationModels)) 3 else 0,
+            equalizerValues = if (matches(name, customEqualizerCreationModels)) {
+                air5sEqualizerValues
+            } else {
+                genericEqualizerValues
+            },
             forcedFeatures = forced,
         )
     }
@@ -171,15 +198,7 @@ object OppoCompatibilityRegistry {
                 FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
                 capability(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT, true, true),
             )
-            val equalizerValues = linkedMapOf(
-                "oppo:0" to "Authentic",
-                "oppo:1" to "Detail",
-                "oppo:2" to "Vocal",
-                "oppo:3" to "Bass",
-                // The vendor table is intentionally non-contiguous: slots 4..6
-                // belong to other products, while Dynaudio is preset 7.
-                "oppo:7" to "Dynaudio",
-            )
+            val equalizerValues = compatibility.equalizerValues
             put(
                 FeatureId.EQUALIZER,
                 capability(

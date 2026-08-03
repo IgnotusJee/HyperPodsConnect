@@ -76,18 +76,23 @@ internal fun PodImageConfigDialog(
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            PodImageResource.entries.forEach { resource ->
+            PodImageResource.userConfigurableEntries.forEach { resource ->
+                val selectedUri = selectedImages[resource]
+                val savedUserPath = target.userImagePath(resource)
+                val officialPath = target.officialImagePath(resource)
+                val effectiveSavedPath = if (resource in clearedImages) officialPath else target.imagePath(resource)
                 PodImageResourceRow(
                     resource = resource,
-                    selectedUri = selectedImages[resource],
-                    savedPath = target.imagePath(resource).takeUnless { resource in clearedImages },
+                    selectedUri = selectedUri,
+                    savedPath = effectiveSavedPath,
                     title = stringResource(resource.titleRes()),
-                    summary = if (resource !in clearedImages && (selectedImages[resource] != null || target.imagePath(resource) != null)) {
-                        stringResource(R.string.custom_image_selected)
-                    } else {
-                        stringResource(R.string.custom_image_default)
+                    summary = when {
+                        selectedUri != null || (resource !in clearedImages && savedUserPath != null) ->
+                            stringResource(R.string.custom_image_selected)
+                        officialPath != null -> stringResource(R.string.official_image_selected)
+                        else -> stringResource(R.string.custom_image_default)
                     },
-                    clearable = resource !in clearedImages && (selectedImages[resource] != null || target.imagePath(resource) != null),
+                    clearable = resource !in clearedImages && (selectedUri != null || savedUserPath != null),
                     onClick = {
                         selectedResource = resource
                         launcher.launch("image/*")
@@ -204,10 +209,16 @@ private fun PodImageResource.titleRes(): Int = when (this) {
     PodImageResource.BOX -> R.string.custom_image_box
     PodImageResource.LEFT -> R.string.custom_image_left
     PodImageResource.RIGHT -> R.string.custom_image_right
+    PodImageResource.DETAIL,
+    PodImageResource.HERO_ANIMATION,
+    PodImageResource.CAPSULE_ANIMATION -> error("Official-only artwork is not user configurable")
 }
 
 private fun PodImageResource.defaultImageRes(): Int = when (this) {
     PodImageResource.BOX -> R.drawable.img_box
     PodImageResource.LEFT -> R.drawable.img_left
     PodImageResource.RIGHT -> R.drawable.img_right
+    PodImageResource.DETAIL,
+    PodImageResource.HERO_ANIMATION,
+    PodImageResource.CAPSULE_ANIMATION -> R.drawable.img_box
 }

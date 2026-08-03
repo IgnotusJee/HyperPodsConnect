@@ -17,8 +17,11 @@ class PodImageProvider : ContentProvider() {
         val fileName = uri.lastPathSegment ?: return null
         val prefs = context.getSharedPreferences(ConfigManager.PREFS_NAME, Context.MODE_PRIVATE)
         val allowedNames = PodImagePrefs.load(prefs).flatMap { earphone ->
-            PodImageResource.entries.mapNotNull { resource ->
-                earphone.imagePath(resource)?.let { File(it).name }
+            PodImageResource.entries.flatMap { resource ->
+                listOfNotNull(
+                    earphone.userImagePath(resource),
+                    earphone.officialImagePath(resource),
+                ).map { File(it).name }
             }
         }.toSet()
         if (fileName !in allowedNames) return null
@@ -28,7 +31,16 @@ class PodImageProvider : ContentProvider() {
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
-    override fun getType(uri: Uri): String = "image/*"
+    override fun getType(uri: Uri): String {
+        val context = context ?: return "image/*"
+        val fileName = uri.lastPathSegment ?: return "image/*"
+        val prefs = context.getSharedPreferences(ConfigManager.PREFS_NAME, Context.MODE_PRIVATE)
+        return PodImagePrefs.load(prefs).firstNotNullOfOrNull { earphone ->
+            earphone.officialArtwork?.assets?.firstOrNull { asset ->
+                earphone.officialImagePath(asset.resource)?.let(::File)?.name == fileName
+            }?.mimeType
+        } ?: "image/*"
+    }
 
     override fun query(
         uri: Uri,

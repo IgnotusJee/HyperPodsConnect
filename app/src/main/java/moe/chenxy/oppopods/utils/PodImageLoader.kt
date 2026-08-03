@@ -4,10 +4,12 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.config.PodImagePrefs
 import moe.chenxy.oppopods.config.PodImageResource
 import moe.chenxy.oppopods.config.imageUri
+import java.io.File
 
 object PodImageLoader {
     private const val MODULE_PACKAGE = "moe.chenxy.oppopods"
@@ -62,6 +64,21 @@ object PodImageLoader {
         return loadBitmap(context, prefs, address, PodImageResource.BOX, R.drawable.img_box)
     }
 
+    /**
+     * MIUI Settings only exposes a static ImageView for the large headset artwork. Keep explicit
+     * user artwork ahead of the official detail render, then degrade through the topology assets.
+     */
+    fun loadSettingsHeroBitmap(
+        context: Context,
+        prefs: SharedPreferences,
+        address: String,
+    ): Bitmap? {
+        val earphone = runCatching { PodImagePrefs.findOrLatest(prefs, address) }.getOrNull()
+            ?: return null
+        return earphone.settingsHeroArtworkPaths().firstNotNullOfOrNull { path ->
+            runCatching { decodeUri(context, path.toImageUri()) }.getOrNull()
+        }
+    }
 
     fun loadIslandLeftBitmap(context: Context, prefs: SharedPreferences, address: String): Bitmap? {
         return loadBitmapWithCustomFallback(
@@ -92,4 +109,10 @@ object PodImageLoader {
             }
         }.getOrNull()
     }
+
+    private fun String.toImageUri(): Uri = Uri.Builder()
+        .scheme("content")
+        .authority(PodImagePrefs.AUTHORITY)
+        .appendPath(File(this).name)
+        .build()
 }

@@ -78,6 +78,10 @@ session 仅在运行时能力位与有效 GET 同时成立后开放对应槽位�
 
 ## 4. Phase 15：官方设备图片自动解析与缓存
 
+执行记录见 [`PHASE15_DEVICE_ARTWORK.md`](PHASE15_DEVICE_ARTWORK.md)。15A 已完成 Air5s 的
+HeyMelody `melody_equipment` 精确 tuple 取证、版本化 descriptor、安全原子缓存、连接后自动解析、
+详情页、通知和超级岛真机显示与跨进程 provider 读取。Sony 资源索引仍待完成，Phase 15 尚未闭环。
+
 ### 设计原则
 
 - 解析键使用厂商产品 ID、颜色/变体、型号与固件证据，不用模糊设备名直接匹配；
@@ -88,7 +92,7 @@ session 仅在运行时能力位与有效 GET 同时成立后开放对应槽位�
 
 ### 厂商落点
 
-- **OPPO**：把当前需要 root 手动选择 `melody-model-download/control_*/res/image/` 的导入路径升级为
+- **OPPO**：已把原先需要 root 手动选择 `melody-model-download/control_*/res/image/` 的导入路径升级为
   productId/colorId 精确匹配、自动复制和缓存失效管理；参考 HeyMelody 的
   `popup_<productId>_<colorId>`/`popup_<productId>_<colorId>_normal` 资源选择。
 - **Sony**：单独审计 Sound Connect 13.2.1 的设备资源索引与缓存路径；在确认 model/color 映射和

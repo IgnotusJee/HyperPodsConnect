@@ -15,6 +15,7 @@
 | Phase 13–16 下一阶段目标与验收顺序 | [architecture/PHASE13_16_NEXT_STAGE_ROADMAP.md](architecture/PHASE13_16_NEXT_STAGE_ROADMAP.md) |
 | Phase 13 Sony SPP 当前执行记录 | [architecture/PHASE13_SONY_SPP_CONTROLS.md](architecture/PHASE13_SONY_SPP_CONTROLS.md) |
 | Phase 14 多厂商自定义 EQ 执行记录 | [architecture/PHASE14_CUSTOM_EQ.md](architecture/PHASE14_CUSTOM_EQ.md) |
+| Phase 15 官方设备图片执行记录 | [architecture/PHASE15_DEVICE_ARTWORK.md](architecture/PHASE15_DEVICE_ARTWORK.md) |
 | 小米原生/OPPO 官方弹窗机制与 Hook 可行性 | [reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md](reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md) |
 | 新增厂商或型号需要满足哪些边界 | [architecture/VENDOR_EXTENSION_CHECKLIST.md](architecture/VENDOR_EXTENSION_CHECKLIST.md) |
 | 官方 App 协议是怎么逆出来的 | [reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md](reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md) |

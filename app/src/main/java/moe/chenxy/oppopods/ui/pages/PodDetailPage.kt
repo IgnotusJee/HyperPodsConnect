@@ -1,12 +1,14 @@
 package moe.chenxy.oppopods.ui.pages
 
 import android.content.res.Configuration
-import android.graphics.BitmapFactory
-import androidx.compose.foundation.Image
+import android.graphics.ImageDecoder
+import android.graphics.drawable.Animatable
+import android.widget.ImageView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,16 +17,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
@@ -32,22 +31,19 @@ import androidx.compose.ui.unit.sp
 import moe.chenxy.oppopods.R
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.feature.SpatialAudioMode
-import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.oppopods.pods.WearStatus
 import moe.chenxy.oppopods.ui.components.AncSwitch
 import moe.chenxy.oppopods.ui.components.PodStatus
 import moe.chenxy.oppopods.ui.state.UiFeatureState
-import moe.chenxy.oppopods.ui.state.UiEqualizerCurveState
 import moe.chenxy.oppopods.ui.state.UiOperation
 import moe.chenxy.oppopods.ui.state.UiOperationStatus
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.Slider
-import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import java.io.File
 
 @Composable
 fun PodDetailPage(
@@ -73,9 +69,7 @@ fun PodDetailPage(
     dualDeviceConnection: Boolean = false,
     onDualDeviceConnectionChange: (Boolean) -> Unit = {},
     eqPresetId: String? = null,
-    onEqPresetChange: (String) -> Unit = {},
-    equalizerCurve: UiEqualizerCurveState? = null,
-    onEqualizerCurveChange: (EqualizerCurve) -> Unit = {},
+    onOpenEqualizer: () -> Unit = {},
     features: Map<String, UiFeatureState> = emptyMap(),
     operation: UiOperation? = null,
     boxImagePath: String? = null,
@@ -96,13 +90,12 @@ fun PodDetailPage(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Image(
-                    painter = rememberPodImagePainter(boxImagePath),
-                    contentDescription = "Earphones",
+                PodHeroArtwork(
+                    path = boxImagePath,
                     modifier = Modifier
                         .fillMaxWidth(0.82f)
-                        .widthIn(max = 360.dp),
-                    contentScale = ContentScale.FillWidth
+                        .widthIn(max = 360.dp)
+                        .aspectRatio(1f),
                 )
                 Text(
                     text = podName,
@@ -139,9 +132,7 @@ fun PodDetailPage(
                     dualDeviceConnection = dualDeviceConnection,
                     onDualDeviceConnectionChange = onDualDeviceConnectionChange,
                     eqPresetId = eqPresetId,
-                    onEqPresetChange = onEqPresetChange,
-                    equalizerCurve = equalizerCurve,
-                    onEqualizerCurveChange = onEqualizerCurveChange,
+                    onOpenEqualizer = onOpenEqualizer,
                     features = features,
                     operation = operation,
                     bottomContentPadding = bottomContentPadding
@@ -157,13 +148,12 @@ fun PodDetailPage(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         item {
-            Image(
-                painter = rememberPodImagePainter(boxImagePath),
-                contentDescription = "Earphones",
+            PodHeroArtwork(
+                path = boxImagePath,
                 modifier = Modifier
                     .fillMaxWidth(0.7f)
+                    .aspectRatio(1f)
                     .padding(vertical = 16.dp),
-                contentScale = ContentScale.FillWidth
             )
         }
 
@@ -186,9 +176,7 @@ fun PodDetailPage(
             dualDeviceConnection = dualDeviceConnection,
             onDualDeviceConnectionChange = onDualDeviceConnectionChange,
             eqPresetId = eqPresetId,
-            onEqPresetChange = onEqPresetChange,
-            equalizerCurve = equalizerCurve,
-            onEqualizerCurveChange = onEqualizerCurveChange,
+            onOpenEqualizer = onOpenEqualizer,
             features = features,
             operation = operation,
             bottomContentPadding = bottomContentPadding
@@ -197,13 +185,40 @@ fun PodDetailPage(
 }
 
 @Composable
-private fun rememberPodImagePainter(path: String?) = remember(path) {
-    path?.let {
-        runCatching { BitmapFactory.decodeFile(it) }
-            .getOrNull()
-            ?.let { bitmap -> BitmapPainter(bitmap.asImageBitmap()) }
+private fun PodHeroArtwork(
+    path: String?,
+    modifier: Modifier = Modifier,
+) {
+    val drawable = remember(path) {
+        path?.let { filePath ->
+            runCatching {
+                ImageDecoder.decodeDrawable(ImageDecoder.createSource(File(filePath)))
+            }.getOrNull()
+        }
     }
-} ?: painterResource(R.drawable.img_box)
+    DisposableEffect(drawable) {
+        (drawable as? Animatable)?.start()
+        onDispose { (drawable as? Animatable)?.stop() }
+    }
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            ImageView(context).apply {
+                adjustViewBounds = true
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = "Earphones"
+            }
+        },
+        update = { imageView ->
+            if (drawable != null) {
+                if (imageView.drawable !== drawable) imageView.setImageDrawable(drawable)
+                (drawable as? Animatable)?.start()
+            } else {
+                imageView.setImageResource(R.drawable.img_box)
+            }
+        },
+    )
+}
 
 private fun LazyListScope.podControlItems(
     batteryParams: BatteryParams,
@@ -224,9 +239,7 @@ private fun LazyListScope.podControlItems(
     dualDeviceConnection: Boolean,
     onDualDeviceConnectionChange: (Boolean) -> Unit,
     eqPresetId: String?,
-    onEqPresetChange: (String) -> Unit,
-    equalizerCurve: UiEqualizerCurveState?,
-    onEqualizerCurveChange: (EqualizerCurve) -> Unit,
+    onOpenEqualizer: () -> Unit,
     features: Map<String, UiFeatureState>,
     operation: UiOperation?,
     bottomContentPadding: Dp
@@ -375,28 +388,17 @@ private fun LazyListScope.podControlItems(
                 )
             }
             if (equalizer?.visible == true && equalizer.options.isNotEmpty()) {
-                OverlayDropdownPreference(
+                val selectedLabel = equalizer.options.firstOrNull {
+                    it.value == eqPresetId
+                }?.label
+                BasicComponent(
                     title = stringResource(R.string.eq_preset_title),
                     summary = if (equalizer.readOnly) {
                         stringResource(R.string.feature_read_only)
                     } else {
-                        stringResource(R.string.eq_preset_summary)
+                        selectedLabel ?: stringResource(R.string.eq_preset_summary)
                     },
-                    items = equalizer.options.map { it.label },
-                    selectedIndex = equalizer.options.indexOfFirst {
-                        it.value == eqPresetId
-                    }.coerceAtLeast(0),
-                    onSelectedIndexChange = {
-                        onEqPresetChange(equalizer.options[it].value)
-                    },
-                    enabled = equalizer.writable,
-                )
-            }
-            if (equalizer?.visible == true && equalizerCurve != null) {
-                EqualizerCurveEditor(
-                    state = equalizerCurve,
-                    enabled = equalizer.writable && !equalizerCurve.stale,
-                    onCurveChange = onEqualizerCurveChange,
+                    onClick = onOpenEqualizer,
                 )
             }
             if (dualDevice?.visible == true) {
@@ -440,81 +442,5 @@ private fun LazyListScope.podControlItems(
     }
     item {
         androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(bottomContentPadding))
-    }
-}
-
-@Composable
-private fun EqualizerCurveEditor(
-    state: UiEqualizerCurveState,
-    enabled: Boolean,
-    onCurveChange: (EqualizerCurve) -> Unit,
-) {
-    val curve = state.displayed
-
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text(
-            text = stringResource(R.string.eq_custom_title),
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-        Text(
-            text = stringResource(R.string.eq_custom_summary),
-            fontSize = 13.sp,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-        if (curve == null) {
-            val creationSlot = state.spec.writableSlotIds.singleOrNull()
-            TextButton(
-                text = stringResource(R.string.eq_custom_create),
-                onClick = {
-                    if (creationSlot != null) {
-                        onCurveChange(
-                            EqualizerCurve(
-                                slotId = creationSlot,
-                                gains = state.spec.bands.map { band ->
-                                    0.coerceIn(band.minGain, band.maxGain)
-                                },
-                            ),
-                        )
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = enabled && creationSlot != null,
-            )
-            return@Column
-        }
-        if (curve.slotId !in state.spec.writableSlotIds) return@Column
-        if (curve.gains.size != state.spec.bands.size) return@Column
-        val gains = remember(curve) { curve.gains.toMutableStateList() }
-        state.spec.bands.forEachIndexed { index, band ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = band.displayName,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(text = if (gains[index] > 0) "+${gains[index]}" else gains[index].toString())
-            }
-            Slider(
-                value = gains[index].toFloat(),
-                onValueChange = { value ->
-                    val stepIndex = ((value - band.minGain) / band.step).roundToInt()
-                    gains[index] = (band.minGain + stepIndex * band.step)
-                        .coerceIn(band.minGain, band.maxGain)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = enabled,
-                valueRange = band.minGain.toFloat()..band.maxGain.toFloat(),
-                steps = ((band.maxGain - band.minGain) / band.step - 1).coerceAtLeast(0),
-                onValueChangeFinished = {
-                    val updated = curve.copy(gains = gains.toList())
-                    if (updated != curve) onCurveChange(updated)
-                },
-                showKeyPoints = true,
-                keyPoints = listOf(0f),
-            )
-        }
     }
 }

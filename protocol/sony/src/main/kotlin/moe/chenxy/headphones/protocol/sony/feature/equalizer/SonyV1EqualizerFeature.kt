@@ -1,9 +1,10 @@
 package moe.chenxy.headphones.protocol.sony.feature.equalizer
 
-import moe.chenxy.headphones.core.feature.EqualizerPreset
+import moe.chenxy.headphones.core.feature.EqualizerBandKind
 import moe.chenxy.headphones.core.feature.EqualizerBandSpec
 import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.headphones.core.feature.EqualizerCurveSpec
+import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.protocol.sony.message.SonyCommand
 import moe.chenxy.headphones.protocol.sony.message.SonyCommandTable
 import moe.chenxy.headphones.protocol.sony.message.SonyMdrMessage
@@ -24,6 +25,20 @@ object SonyV1EqualizerFeature {
         SonyEqualizerFeature.MANUAL_ID,
         SonyEqualizerFeature.CUSTOM_1_ID,
         SonyEqualizerFeature.CUSTOM_2_ID,
+    )
+
+    /**
+     * WH-1000XM4 and the other six-value MDR v1 profiles expose Clear Bass
+     * first on the wire, followed by the five frequency bands shown by Sound
+     * Connect. Keep the order identical to the SET/GET payload.
+     */
+    private val soundConnectSixBandLayout = listOf(
+        SonyBandMetadata("CLEAR BASS", kind = EqualizerBandKind.CLEAR_BASS),
+        SonyBandMetadata("400", centerFrequencyHz = 400),
+        SonyBandMetadata("1k", centerFrequencyHz = 1_000),
+        SonyBandMetadata("2.5k", centerFrequencyHz = 2_500),
+        SonyBandMetadata("6.3k", centerFrequencyHz = 6_300),
+        SonyBandMetadata("16k", centerFrequencyHz = 16_000),
     )
 
     fun queryCapability(): ByteArray = byteArrayOf(
@@ -77,11 +92,16 @@ object SonyV1EqualizerFeature {
         if (writableSlots.isEmpty()) return null
         return EqualizerCurveSpec(
             bands = List(capability.bandCount) { index ->
+                val metadata = soundConnectSixBandLayout
+                    .takeIf { capability.bandCount == it.size }
+                    ?.get(index)
                 EqualizerBandSpec(
                     id = "sony:eq:band:$index",
-                    displayName = "Band ${index + 1}",
+                    displayName = metadata?.displayName ?: "Band ${index + 1}",
                     minGain = -neutral,
                     maxGain = neutral,
+                    centerFrequencyHz = metadata?.centerFrequencyHz,
+                    kind = metadata?.kind ?: EqualizerBandKind.STANDARD,
                 )
             },
             writableSlotIds = writableSlots,
@@ -163,4 +183,10 @@ object SonyV1EqualizerFeature {
         capability.levelCount.takeIf { it > 0 && it % 2 == 1 }?.let { (it - 1) / 2 }
 
     private fun u8(value: Byte): Int = value.toInt() and 0xFF
+
+    private data class SonyBandMetadata(
+        val displayName: String,
+        val centerFrequencyHz: Int? = null,
+        val kind: EqualizerBandKind = EqualizerBandKind.STANDARD,
+    )
 }

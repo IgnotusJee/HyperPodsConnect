@@ -38,11 +38,7 @@ class OppoCustomEqDeviceTest {
             Context.RECEIVER_EXPORTED,
         )
         try {
-            val initial = request(
-                context,
-                snapshots,
-                IpcCommandPayload(HeadphoneIpcContract.TYPE_REQUEST_SNAPSHOT),
-            )
+            val initial = requestReady(context, snapshots)
             val refreshed = request(
                 context,
                 snapshots,
@@ -64,11 +60,14 @@ class OppoCustomEqDeviceTest {
         val snapshots = LinkedBlockingQueue<Pair<String?, HeadphoneSnapshotPayload>>()
         val snapshotReceiver = snapshotReceiver(snapshots)
         val sessionToken = "oppo-custom-eq-test-${UUID.randomUUID()}"
-        val frequencies = listOf(62, 250, 1_000, 4_000, 8_000, 16_000)
+        val frequencies = listOf(31, 62, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000)
         val neutralGains = List(frequencies.size) { 0 }
         var target: HeadphoneSnapshotPayload? = null
         var assignedSlot: OppoCustomEqualizerSlot? = null
         var rawUnlocked = false
+        var preservedCustomIds = emptySet<String>()
+        var originalPresetId: String? = null
+        var originalCurve: EqualizerCurvePayload? = null
 
         context.registerReceiver(
             snapshotReceiver,
@@ -77,37 +76,33 @@ class OppoCustomEqDeviceTest {
         )
         try {
             println("OPPO_CUSTOM_EQ_PHASE receivers-registered")
-            val initial = request(
-                context,
-                snapshots,
-                IpcCommandPayload(HeadphoneIpcContract.TYPE_REQUEST_SNAPSHOT),
-            )
+            val initial = requestReady(context, snapshots)
             assertEquals("oppo", initial.vendorId)
             assertTrue(initial.protocolReady)
             val initialCustomIds = customSlotIds(initial)
-            assertTrue(
-                "test only recovers its own single interrupted slot",
-                initialCustomIds.isEmpty() || (
-                        initialCustomIds.size == 1 &&
-                        initial.capabilities.single { it.featureId == "EQUALIZER" }
-                            .valueLabels[initialCustomIds.single()] in
-                            setOf("CodexTmp", "HyperPods Custom")
-                    ),
-            )
-            if (initialCustomIds.isEmpty()) {
-                println("OPPO_CUSTOM_EQ_PHASE initial-zero-confirmed")
-            } else {
-                target = initial
-                assignedSlot = slotFromSnapshot(initial, "CodexTmp")
-                println("OPPO_CUSTOM_EQ_PHASE interrupted-slot-recovered slot=${initialCustomIds.single()}")
+            val eqCapability = initial.capabilities.single { it.featureId == "EQUALIZER" }
+            originalPresetId = initial.features["EQUALIZER"]?.confirmed
+            originalCurve = initial.equalizerCurve?.confirmed
+            val interruptedId = initialCustomIds.singleOrNull { id ->
+                eqCapability.valueLabels[id] in setOf("CodexTmp", "HyperPods Custom")
             }
+            preservedCustomIds = initialCustomIds.filterNot { it == interruptedId }.toSet()
+            println(
+                "OPPO_CUSTOM_EQ_PHASE initial ids=$initialCustomIds " +
+                    "selected=$originalPresetId interrupted=$interruptedId",
+            )
             sendLegacy(context, LegacyPodsAction.ACTION_RFCOMM_DEBUG_UNLOCK) {
                 putExtra(LegacyPodsAction.EXTRA_RFCOMM_DEBUG_SESSION_TOKEN, sessionToken)
             }
             rawUnlocked = true
             println("OPPO_CUSTOM_EQ_PHASE raw-unlock-requested")
 
-            if (target == null) {
+            if (interruptedId == null) {
+                assertTrue(
+                    "Air5s must have one free custom slot for this reversible test",
+                    OppoCustomEqualizerFeature.CREATION_SLOT_ID in
+                        requireNotNull(eqCapability.equalizerCurveSpec).writableSlotIds,
+                )
                 target = request(
                     context,
                     snapshots,
@@ -121,10 +116,20 @@ class OppoCustomEqDeviceTest {
                     initial,
                 )
                 assertEquals("READ_BACK_CONFIRMED", target?.operation?.phase)
-                val createdId = customSlotIds(requireNotNull(target)).single()
+                val createdId = customSlotIds(requireNotNull(target))
+                    .single { it !in initialCustomIds }
                 println("OPPO_CUSTOM_EQ_PHASE production-add-read-back slot=$createdId")
+            } else {
+                target = request(
+                    context,
+                    snapshots,
+                    IpcCommandPayload(HeadphoneIpcContract.TYPE_SET_EQUALIZER, value = interruptedId),
+                    initial,
+                )
+                println("OPPO_CUSTOM_EQ_PHASE interrupted-slot-recovered slot=$interruptedId")
             }
-            val createdId = customSlotIds(requireNotNull(target)).single()
+            val createdId = customSlotIds(requireNotNull(target))
+                .single { it !in preservedCustomIds }
             if (target?.equalizerCurve?.confirmed?.slotId != createdId) {
                 target = request(
                     context,
@@ -177,8 +182,27 @@ class OppoCustomEqDeviceTest {
             )
             assertEquals(original, target?.equalizerCurve?.confirmed)
             assertEquals("READ_BACK", target?.equalizerCurve?.source)
-            assignedSlot = slotFromSnapshot(requireNotNull(target), "HyperPods Custom")
             println("OPPO_CUSTOM_EQ_RESTORED gains=${original.gains}")
+
+            target = request(
+                context,
+                snapshots,
+                IpcCommandPayload(
+                    type = HeadphoneIpcContract.TYPE_RENAME_EQUALIZER_PRESET,
+                    value = original.slotId,
+                    name = "CodexTmp",
+                ),
+                target,
+            )
+            assertEquals("READ_BACK_CONFIRMED", target?.operation?.phase)
+            assertEquals(
+                "CodexTmp",
+                requireNotNull(target).capabilities.single { it.featureId == "EQUALIZER" }
+                    .valueLabels[original.slotId],
+            )
+            assertEquals(original, target?.equalizerCurve?.confirmed)
+            assignedSlot = slotFromSnapshot(requireNotNull(target), "CodexTmp")
+            println("OPPO_CUSTOM_EQ_RENAMED slot=${original.slotId} name=CodexTmp")
         } finally {
             if (assignedSlot == null && target != null) {
                 assignedSlot = runCatching {
@@ -188,25 +212,57 @@ class OppoCustomEqDeviceTest {
             }
             assignedSlot?.let { slot ->
                 println("OPPO_CUSTOM_EQ_PHASE cleanup-delete-start slot=${slot.slotId}")
-                sendRawForReadback(
-                    context,
-                    sessionToken,
-                    requireNotNull(OppoCustomEqualizerFeature.delete(slot)),
-                )
-                // HeyMelody schedules its post-delete refresh after one second.
-                Thread.sleep(1_000)
-                val deleted = request(
-                    context,
-                    snapshots,
-                    IpcCommandPayload(HeadphoneIpcContract.TYPE_REFRESH_FEATURE, value = "EQUALIZER"),
-                    target,
-                )
+                val productionDelete = runCatching {
+                    request(
+                        context,
+                        snapshots,
+                        IpcCommandPayload(
+                            HeadphoneIpcContract.TYPE_DELETE_EQUALIZER_PRESET,
+                            value = slot.slotId,
+                        ),
+                        target,
+                    )
+                }
+                val deleted = productionDelete.getOrNull()
                 println(
-                    "OPPO_CUSTOM_EQ_DELETE_RESULT ids=${customSlotIds(deleted)} " +
-                        "curve=${deleted.equalizerCurve?.confirmed}",
+                    "OPPO_CUSTOM_EQ_DELETE_RESULT ids=${deleted?.let(::customSlotIds)} " +
+                        "curve=${deleted?.equalizerCurve?.confirmed} operation=${deleted?.operation}",
                 )
-                assertTrue(customSlotIds(deleted).isEmpty())
+                if (deleted?.operation?.phase != "READ_BACK_CONFIRMED" ||
+                    customSlotIds(deleted).toSet() != preservedCustomIds
+                ) {
+                    sendRawForReadback(
+                        context,
+                        sessionToken,
+                        requireNotNull(OppoCustomEqualizerFeature.delete(slot)),
+                    )
+                    Thread.sleep(1_000)
+                    request(
+                        context,
+                        snapshots,
+                        IpcCommandPayload(
+                            HeadphoneIpcContract.TYPE_REFRESH_FEATURE,
+                            value = "EQUALIZER",
+                        ),
+                        target,
+                    )
+                    error("production delete did not receive device readback confirmation")
+                }
                 println("OPPO_CUSTOM_EQ_DELETED slot=${slot.slotId}")
+                originalPresetId?.takeIf { it != slot.slotId }?.let { presetId ->
+                    val restoredSelection = request(
+                        context,
+                        snapshots,
+                        IpcCommandPayload(HeadphoneIpcContract.TYPE_SET_EQUALIZER, value = presetId),
+                        deleted,
+                    )
+                    assertEquals("READ_BACK_CONFIRMED", restoredSelection.operation?.phase)
+                    assertEquals(presetId, restoredSelection.features["EQUALIZER"]?.confirmed)
+                    originalCurve?.takeIf { it.slotId == presetId }?.let { curve ->
+                        assertEquals(curve, restoredSelection.equalizerCurve?.confirmed)
+                    }
+                    println("OPPO_CUSTOM_EQ_SELECTION_RESTORED preset=$presetId")
+                }
             }
             if (rawUnlocked) {
                 sendLegacy(context, LegacyPodsAction.ACTION_RFCOMM_DEBUG_LOCK) {
@@ -429,7 +485,9 @@ class OppoCustomEqDeviceTest {
             )
             if (event.first == requestId) {
                 val phase = event.second.operation?.phase
-                val isWrite = payload.type.startsWith("set_")
+                val isWrite = payload.type.startsWith("set_") ||
+                    payload.type == HeadphoneIpcContract.TYPE_RENAME_EQUALIZER_PRESET ||
+                    payload.type == HeadphoneIpcContract.TYPE_DELETE_EQUALIZER_PRESET
                 val curveReadBack = payload.curve != null &&
                     event.second.equalizerCurve?.confirmed == payload.curve &&
                     event.second.equalizerCurve?.source == "READ_BACK"
@@ -444,6 +502,23 @@ class OppoCustomEqDeviceTest {
             }
         }
         error("timed out waiting for snapshot requestId=$requestId")
+    }
+
+    private fun requestReady(
+        context: Context,
+        events: LinkedBlockingQueue<Pair<String?, HeadphoneSnapshotPayload>>,
+    ): HeadphoneSnapshotPayload {
+        var last: HeadphoneSnapshotPayload? = null
+        repeat(30) {
+            last = request(
+                context,
+                events,
+                IpcCommandPayload(HeadphoneIpcContract.TYPE_REQUEST_SNAPSHOT),
+            )
+            if (last?.protocolReady == true) return requireNotNull(last)
+            Thread.sleep(500)
+        }
+        error("OPPO protocol did not become ready; last connection=${last?.connection}")
     }
 
     private fun snapshotReceiver(

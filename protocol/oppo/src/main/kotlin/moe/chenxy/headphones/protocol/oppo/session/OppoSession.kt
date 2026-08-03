@@ -318,11 +318,13 @@ class OppoSession(
                 return@withLock OperationResult(requestId, OperationPhase.STATE_CONFIRMED)
             }
 
-            val readback = readbackPacket(command)
-            if (readback != null) {
+            val readbacks = readbackPackets(command)
+            if (readbacks.isNotEmpty()) {
                 readbackFeature = command.featureId
                 try {
-                    sendAndAwait(readback.first, readback.second)
+                    readbacks.forEach { (packet, expectedCommand) ->
+                        sendAndAwait(packet, expectedCommand)
+                    }
                 } finally {
                     readbackFeature = null
                 }
@@ -680,6 +682,23 @@ class OppoSession(
                 }
             }
         }
+        is FeatureCommand.RenameEqualizerPreset -> {
+            val customEqId = OppoCustomEqualizerFeature.eqId(command.preset.id)
+            val name = command.preset.displayName?.trim()
+            if (customEqId == null || name == null) null else {
+                customEqualizerSlots.singleOrNull { it.eqId == customEqId }
+                    ?.let { OppoCustomEqualizerFeature.rename(it, name) }
+                    ?.let(::listOf)
+            }
+        }
+        is FeatureCommand.DeleteEqualizerPreset -> {
+            val customEqId = OppoCustomEqualizerFeature.eqId(command.presetId)
+            if (customEqId == null) null else {
+                customEqualizerSlots.singleOrNull { it.eqId == customEqId }
+                    ?.let(OppoCustomEqualizerFeature::delete)
+                    ?.let(::listOf)
+            }
+        }
         is FeatureCommand.SetLowLatency ->
             OppoLatencyFeature.set(command.enabled, compatibility.lowLatencyStrategy)
         is FeatureCommand.SetSpatialAudio ->
@@ -696,25 +715,31 @@ class OppoSession(
         is FeatureCommand.Refresh, FeatureCommand.RefreshAll -> null
     }
 
-    private fun readbackPacket(command: FeatureCommand): Pair<ByteArray, Int>? = when (command) {
+    private fun readbackPackets(command: FeatureCommand): List<Pair<ByteArray, Int>> = when (command) {
         is FeatureCommand.SetEqualizerCurve ->
-            OppoCustomEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ)
+            listOf(OppoCustomEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ))
         is FeatureCommand.SetEqualizerPreset -> {
             if (OppoCustomEqualizerFeature.eqId(command.preset.id) != null) {
-                OppoCustomEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ)
+                listOf(OppoCustomEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ))
             } else {
-                OppoEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_EQ)
+                listOf(OppoEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_EQ))
             }
         }
+        is FeatureCommand.RenameEqualizerPreset ->
+            listOf(OppoCustomEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ))
+        is FeatureCommand.DeleteEqualizerPreset -> listOf(
+            OppoCustomEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_CUSTOM_EQ),
+            OppoEqualizerFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_EQ),
+        )
         is FeatureCommand.SetNoiseControl ->
-            OppoNoiseControlFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_ANC)
+            listOf(OppoNoiseControlFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_ANC))
         is FeatureCommand.SetTransparencyVocalEnhancement ->
-            OppoNoiseControlFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_ANC)
+            listOf(OppoNoiseControlFeature.query() to OppoCommand.responseOf(OppoCommand.QUERY_ANC))
         is FeatureCommand.SetLowLatency,
         is FeatureCommand.SetSpatialSoundSwitch,
         is FeatureCommand.SetDualDeviceConnection,
-        -> batchQuery() to OppoCommand.responseOf(OppoCommand.QUERY_BATCH_STATUS)
-        else -> null
+        -> listOf(batchQuery() to OppoCommand.responseOf(OppoCommand.QUERY_BATCH_STATUS))
+        else -> emptyList()
     }
 
     private fun updateCustomEqualizerProfile(slots: List<OppoCustomEqualizerSlot>) {
@@ -731,13 +756,21 @@ class OppoSession(
             slot.slotId to slot.name.ifBlank { "Custom ${slot.eqId}" }
         }
         val selected = slots.singleOrNull { it.selected }
+        val canCreate = compatibility.customEqualizerCreationSupported &&
+            slots.size < compatibility.customEqualizerMaxSlots
+        val editingSpec = selected?.let(OppoCustomEqualizerFeature::curveSpec)
+            ?: slots.firstOrNull()?.let(OppoCustomEqualizerFeature::curveSpec)
+            ?: OppoCustomEqualizerFeature.air5sCreationSpec().takeIf { canCreate }
+        val curveSpec = editingSpec?.copy(
+            writableSlotIds = buildSet {
+                selected?.slotId?.let(::add)
+                if (canCreate) add(OppoCustomEqualizerFeature.CREATION_SLOT_ID)
+            },
+        )
         val updatedCapability = capability.copy(
             allowedValues = builtInValues + customValues,
             valueLabels = builtInLabels + customLabels,
-            equalizerCurveSpec = selected?.let(OppoCustomEqualizerFeature::curveSpec)
-                ?: OppoCustomEqualizerFeature.air5sCreationSpec().takeIf {
-                    compatibility.customEqualizerCreationSupported && slots.isEmpty()
-                },
+            equalizerCurveSpec = curveSpec,
             source = "device-response:custom-eq",
         )
         _profile.value = profile.copy(
@@ -769,10 +802,23 @@ class OppoSession(
             customEqualizerCommandSupported &&
                 (
                     command.curve.slotId != OppoCustomEqualizerFeature.CREATION_SLOT_ID ||
-                        compatibility.customEqualizerCreationSupported && customEqualizerSlots.isEmpty()
+                        compatibility.customEqualizerCreationSupported &&
+                        customEqualizerSlots.size < compatibility.customEqualizerMaxSlots
                     ) &&
                 _profile.value?.capability(FeatureId.EQUALIZER)
                     ?.equalizerCurveSpec?.accepts(command.curve) == true
+        is FeatureCommand.RenameEqualizerPreset -> {
+            val customEqId = OppoCustomEqualizerFeature.eqId(command.preset.id)
+            val name = command.preset.displayName?.trim()
+            customEqualizerCommandSupported && customEqId != null && name != null &&
+                OppoCustomEqualizerFeature.isValidName(name) &&
+                customEqualizerSlots.any { it.eqId == customEqId }
+        }
+        is FeatureCommand.DeleteEqualizerPreset -> {
+            val customEqId = OppoCustomEqualizerFeature.eqId(command.presetId)
+            customEqualizerCommandSupported && customEqId != null &&
+                customEqualizerSlots.any { it.eqId == customEqId }
+        }
         else -> true
     }
 
@@ -786,7 +832,7 @@ class OppoSession(
                 it.pending == null && it.confirmed == command.enabled
             }
         is FeatureCommand.SetEqualizerPreset -> _state.value.equalizer.let {
-            it.pending == null && it.confirmed == command.preset
+            it.pending == null && it.confirmed?.id == command.preset.id
         }
         is FeatureCommand.SetEqualizerCurve -> _state.value.equalizerCurve.let {
             it.pending == null && if (
@@ -798,6 +844,14 @@ class OppoSession(
                 it.confirmed == command.curve
             }
         }
+        is FeatureCommand.RenameEqualizerPreset -> {
+            val name = command.preset.displayName?.trim()
+            name != null && customEqualizerSlots.any {
+                it.slotId == command.preset.id && it.name == name
+            }
+        }
+        is FeatureCommand.DeleteEqualizerPreset ->
+            customEqualizerSlots.none { it.slotId == command.presetId }
         is FeatureCommand.SetLowLatency -> _state.value.lowLatency.let {
             it.pending == null && it.confirmed == command.enabled
         }

@@ -85,6 +85,10 @@ class HeadphoneIpcCodecTest {
             FeatureCommand.SetEqualizerCurve(
                 EqualizerCurve("sony:eq:a2", listOf(0, 1, -1)),
             ),
+            FeatureCommand.RenameEqualizerPreset(
+                EqualizerPreset("oppo:eq:custom:5", "Studio"),
+            ),
+            FeatureCommand.DeleteEqualizerPreset("oppo:eq:custom:5"),
             FeatureCommand.SetLowLatency(true),
             FeatureCommand.SetSpatialAudio(SpatialAudioMode.HEAD_TRACKING),
             FeatureCommand.SetSpatialSoundSwitch(false),
@@ -106,6 +110,12 @@ class HeadphoneIpcCodecTest {
             IpcCommandPayload(
                 HeadphoneIpcContract.TYPE_SET_NOISE_CONTROL,
                 "vendor-wire-value",
+            ).toFeatureCommand(),
+        )
+        assertNull(
+            IpcCommandPayload(
+                HeadphoneIpcContract.TYPE_RENAME_EQUALIZER_PRESET,
+                "oppo:eq:custom:5",
             ).toFeatureCommand(),
         )
     }

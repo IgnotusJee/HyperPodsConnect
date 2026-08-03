@@ -36,8 +36,6 @@ import moe.chenxy.oppopods.pods.GameModeImplementation
 import moe.chenxy.headphones.core.feature.NoiseControlMode
 import moe.chenxy.headphones.core.feature.SpatialAudioMode
 import moe.chenxy.oppopods.ui.state.UiFeatureState
-import moe.chenxy.oppopods.ui.state.UiEqualizerCurveState
-import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.oppopods.ui.state.UiOperation
 import moe.chenxy.oppopods.pods.WearStatus
 import moe.chenxy.oppopods.ui.dialogs.RestartScope
@@ -47,6 +45,7 @@ import moe.chenxy.oppopods.ui.dialogs.PodImageConfigDialog
 import moe.chenxy.oppopods.ui.pages.EarphonesTabPage
 import moe.chenxy.oppopods.ui.pages.HomePage
 import moe.chenxy.oppopods.ui.pages.SettingsPage
+import moe.chenxy.oppopods.utils.MelodyImageCandidate
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -101,9 +100,7 @@ internal fun MainTabsScaffold(
     spatialSoundSwitch: Boolean,
     onSpatialSoundSwitchChange: (Boolean) -> Unit,
     eqPresetId: String?,
-    onEqPresetChange: (String) -> Unit,
-    equalizerCurve: UiEqualizerCurveState?,
-    onEqualizerCurveChange: (EqualizerCurve) -> Unit,
+    onOpenEqualizer: () -> Unit,
     displayDualDeviceConnection: Boolean,
     onDualDeviceConnectionChange: (Boolean) -> Unit,
     features: Map<String, UiFeatureState>,
@@ -151,7 +148,7 @@ internal fun MainTabsScaffold(
     onBackToDevicePicker: () -> Unit,
     onOpenSystemHeadsetSettings: () -> Unit,
     onSavePodImages: (String, String, Map<PodImageResource, Uri?>, Set<PodImageResource>) -> Unit,
-    onSavePodImageBytes: (String, String, Map<PodImageResource, ByteArray>) -> Unit,
+    onSavePodImageBytes: (String, String, MelodyImageCandidate, Map<PodImageResource, ByteArray>) -> Unit,
 ) {
     val pagerState = rememberPagerState(
         initialPage = selectedTab.ordinal,
@@ -252,14 +249,12 @@ internal fun MainTabsScaffold(
                         spatialSoundSwitch = spatialSoundSwitch,
                         onSpatialSoundSwitchChange = onSpatialSoundSwitchChange,
                         eqPresetId = eqPresetId,
-                        onEqPresetChange = onEqPresetChange,
-                        equalizerCurve = equalizerCurve,
-                        onEqualizerCurveChange = onEqualizerCurveChange,
+                        onOpenEqualizer = onOpenEqualizer,
                         displayDualDeviceConnection = displayDualDeviceConnection,
                         onDualDeviceConnectionChange = onDualDeviceConnectionChange,
                         features = features,
                         operation = operation,
-                        boxImagePath = currentEarphonePref?.boxImagePath,
+                        boxImagePath = currentEarphonePref?.heroArtworkPath(),
                         connectedDeviceAddress = connectedDeviceAddress,
                         connectingDeviceAddress = connectingDeviceAddress,
                         showConnectErrorDialog = showConnectErrorDialog,
@@ -340,8 +335,8 @@ internal fun MainTabsScaffold(
             currentAddress = connectedDeviceAddress,
             currentName = displayTitle,
             onDismissRequest = { showMelodyImportDialog = false },
-            onImport = { address, name, images ->
-                onSavePodImageBytes(address, name, images)
+            onImport = { address, name, candidate, images ->
+                onSavePodImageBytes(address, name, candidate, images)
                 showMelodyImportDialog = false
             },
         )
@@ -421,9 +416,7 @@ private fun EarphonesTabShell(
     spatialSoundSwitch: Boolean,
     onSpatialSoundSwitchChange: (Boolean) -> Unit,
     eqPresetId: String?,
-    onEqPresetChange: (String) -> Unit,
-    equalizerCurve: UiEqualizerCurveState?,
-    onEqualizerCurveChange: (EqualizerCurve) -> Unit,
+    onOpenEqualizer: () -> Unit,
     displayDualDeviceConnection: Boolean,
     onDualDeviceConnectionChange: (Boolean) -> Unit,
     features: Map<String, UiFeatureState>,
@@ -489,9 +482,7 @@ private fun EarphonesTabShell(
             spatialSoundSwitch = spatialSoundSwitch,
             onSpatialSoundSwitchChange = onSpatialSoundSwitchChange,
             eqPresetId = eqPresetId,
-            onEqPresetChange = onEqPresetChange,
-            equalizerCurve = equalizerCurve,
-            onEqualizerCurveChange = onEqualizerCurveChange,
+            onOpenEqualizer = onOpenEqualizer,
             displayDualDeviceConnection = displayDualDeviceConnection,
             onDualDeviceConnectionChange = onDualDeviceConnectionChange,
             features = features,

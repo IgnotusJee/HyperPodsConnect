@@ -47,6 +47,8 @@ object HeadphoneIpcContract {
         "set_transparency_vocal_enhancement"
     const val TYPE_SET_EQUALIZER = "set_equalizer"
     const val TYPE_SET_EQUALIZER_CURVE = "set_equalizer_curve"
+    const val TYPE_RENAME_EQUALIZER_PRESET = "rename_equalizer_preset"
+    const val TYPE_DELETE_EQUALIZER_PRESET = "delete_equalizer_preset"
     const val TYPE_SET_LOW_LATENCY = "set_low_latency"
     const val TYPE_SET_SPATIAL_AUDIO = "set_spatial_audio"
     const val TYPE_SET_SPATIAL_SOUND_SWITCH = "set_spatial_sound_switch"
@@ -162,6 +164,7 @@ data class IpcCommandPayload(
     val type: String,
     val value: String? = null,
     val curve: EqualizerCurvePayload? = null,
+    val name: String? = null,
 ) {
     fun toFeatureCommand(): FeatureCommand? = when (type) {
         HeadphoneIpcContract.TYPE_REFRESH_ALL -> FeatureCommand.RefreshAll
@@ -182,6 +185,14 @@ data class IpcCommandPayload(
                 ?.let(FeatureCommand::SetEqualizerPreset)
         HeadphoneIpcContract.TYPE_SET_EQUALIZER_CURVE ->
             curve?.toDomain()?.let(FeatureCommand::SetEqualizerCurve)
+        HeadphoneIpcContract.TYPE_RENAME_EQUALIZER_PRESET ->
+            value?.takeIf(String::isNotBlank)?.let { presetId ->
+                name?.trim()?.takeIf(String::isNotBlank)
+                    ?.let { displayName -> EqualizerPreset(presetId, displayName) }
+                    ?.let(FeatureCommand::RenameEqualizerPreset)
+            }
+        HeadphoneIpcContract.TYPE_DELETE_EQUALIZER_PRESET ->
+            value?.takeIf(String::isNotBlank)?.let(FeatureCommand::DeleteEqualizerPreset)
         HeadphoneIpcContract.TYPE_SET_LOW_LATENCY ->
             value?.toBooleanStrictOrNull()?.let(FeatureCommand::SetLowLatency)
         HeadphoneIpcContract.TYPE_SET_SPATIAL_AUDIO ->
@@ -218,6 +229,17 @@ data class IpcCommandPayload(
                 IpcCommandPayload(
                     type = HeadphoneIpcContract.TYPE_SET_EQUALIZER_CURVE,
                     curve = EqualizerCurvePayload.from(command.curve),
+                )
+            is FeatureCommand.RenameEqualizerPreset ->
+                IpcCommandPayload(
+                    type = HeadphoneIpcContract.TYPE_RENAME_EQUALIZER_PRESET,
+                    value = command.preset.id,
+                    name = command.preset.displayName,
+                )
+            is FeatureCommand.DeleteEqualizerPreset ->
+                IpcCommandPayload(
+                    type = HeadphoneIpcContract.TYPE_DELETE_EQUALIZER_PRESET,
+                    value = command.presetId,
                 )
             is FeatureCommand.SetLowLatency ->
                 IpcCommandPayload(HeadphoneIpcContract.TYPE_SET_LOW_LATENCY, command.enabled.toString())

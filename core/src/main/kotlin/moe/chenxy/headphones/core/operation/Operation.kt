@@ -45,6 +45,14 @@ sealed interface FeatureCommand {
         override val featureId: FeatureId get() = FeatureId.EQUALIZER
     }
 
+    data class RenameEqualizerPreset(val preset: EqualizerPreset) : FeatureCommand {
+        override val featureId: FeatureId get() = FeatureId.EQUALIZER
+    }
+
+    data class DeleteEqualizerPreset(val presetId: String) : FeatureCommand {
+        override val featureId: FeatureId get() = FeatureId.EQUALIZER
+    }
+
     data class SetLowLatency(val enabled: Boolean) : FeatureCommand {
         override val featureId: FeatureId get() = FeatureId.LOW_LATENCY
     }

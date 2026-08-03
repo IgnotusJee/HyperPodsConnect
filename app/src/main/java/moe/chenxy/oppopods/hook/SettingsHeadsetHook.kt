@@ -9,6 +9,8 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
+import android.widget.ImageView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,10 +24,12 @@ import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
 import moe.chenxy.oppopods.integration.toIntegrationState
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
+import moe.chenxy.oppopods.utils.PodImageLoader
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
 @SuppressLint("MissingPermission")
@@ -67,6 +71,61 @@ object SettingsHeadsetHook : HookContext() {
         hookServiceProxy()
         hookBatteryView()
         hookFragmentState()
+        hookHeadsetArtwork()
+    }
+
+    private fun hookHeadsetArtwork() {
+        runCatching {
+            hookBefore(
+                findMethodByParamCount(
+                    "com.android.settings.bluetooth.tws.MiuiHeadsetAnimation",
+                    "loadDefaultInternal",
+                    0,
+                ),
+            ) {
+                val deviceId = runCatching { getObjectField(instance, "mDeviceId") as? String }.getOrNull()
+                if (deviceId != fakeDeviceId()) return@hookBefore
+                val settingsContext = weakFieldValue(instance, "mContext") as? Context
+                    ?: return@hookBefore
+                val rootView = weakFieldValue(instance, "mRootView") as? View
+                    ?: return@hookBefore
+                val address = oppoAddressForRoot(rootView) ?: return@hookBefore
+                val bitmap = PodImageLoader.loadSettingsHeroBitmap(
+                    context = settingsContext,
+                    prefs = prefs,
+                    address = address,
+                ) ?: run {
+                    Log.w(TAG, "Settings hero cache unavailable address=$address; keeping MIUI default")
+                    return@hookBefore
+                }
+                val imageId = settingsContext.resources.getIdentifier(
+                    "tic",
+                    "id",
+                    "com.android.settings",
+                )
+                val imageView = rootView.findViewById<ImageView>(imageId) ?: return@hookBefore
+                imageView.setImageBitmap(bitmap)
+                result = null
+                Log.i(
+                    TAG,
+                    "Settings hero replaced address=$address bitmap=${bitmap.width}x${bitmap.height}",
+                )
+            }
+        }.onFailure { Log.w(TAG, "hook MiuiHeadsetAnimation.loadDefaultInternal skipped", it) }
+    }
+
+    private fun oppoAddressForRoot(rootView: View): String? {
+        return headsetFragments.keys.toList().firstNotNullOfOrNull { fragment ->
+            val fragmentRoot = runCatching { getObjectField(fragment, "mRootView") as? View }.getOrNull()
+            if (fragmentRoot !== rootView) return@firstNotNullOfOrNull null
+            val device = runCatching { getObjectField(fragment, "mDevice") as? BluetoothDevice }.getOrNull()
+            if (!isOppoPod(device)) return@firstNotNullOfOrNull null
+            runCatching { device?.address }.getOrNull()
+        }
+    }
+
+    private fun weakFieldValue(instance: Any?, fieldName: String): Any? {
+        return (runCatching { getObjectField(instance, fieldName) }.getOrNull() as? WeakReference<*>)?.get()
     }
 
     private fun hookActivityEntry() {

@@ -47,6 +47,7 @@ import androidx.navigation3.ui.NavDisplay
 import moe.chenxy.oppopods.OppoPodsApp
 import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.config.ConfigManager
+import moe.chenxy.oppopods.config.DeviceArtworkSelector
 import moe.chenxy.oppopods.config.PodImagePrefs
 import moe.chenxy.oppopods.config.PodImageResource
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
@@ -65,11 +66,13 @@ import moe.chenxy.oppopods.pods.WearState
 import moe.chenxy.oppopods.pods.WearStatus
 import moe.chenxy.oppopods.ui.pages.AboutPage
 import moe.chenxy.oppopods.ui.pages.DeviceCapabilitiesPage
+import moe.chenxy.oppopods.ui.pages.EqualizerPage
 import moe.chenxy.oppopods.ui.pages.RfcommDebugPage
 import moe.chenxy.oppopods.ui.pages.ThemeSettingsPage
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.oppopods.ui.state.UiConnectionState
 import moe.chenxy.oppopods.utils.RootManager
+import moe.chenxy.oppopods.utils.MelodyImageCandidate
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.PodParams
@@ -96,6 +99,7 @@ sealed interface Screen : NavKey {
     data object About : Screen
     data object Theme : Screen
     data object DeviceCapabilities : Screen
+    data object Equalizer : Screen
     data object RfcommDebug : Screen
 }
 
@@ -449,6 +453,20 @@ fun MainUI(
         )
     }
 
+    fun renameEqPreset(presetId: String, name: String) {
+        HeadphoneCommandClient.execute(
+            context,
+            FeatureCommand.RenameEqualizerPreset(EqualizerPreset(presetId, name)),
+        )
+    }
+
+    fun deleteEqPreset(presetId: String) {
+        HeadphoneCommandClient.execute(
+            context,
+            FeatureCommand.DeleteEqualizerPreset(presetId),
+        )
+    }
+
     fun setDualDeviceConnection(enabled: Boolean) {
         HeadphoneCommandClient.execute(
             context,
@@ -545,8 +563,47 @@ fun MainUI(
         earphonePrefs.value = PodImagePrefs.saveImages(context, prefs, xposedService, address, name, images, clearedImages)
     }
 
-    fun savePodImageBytes(address: String, name: String, images: Map<PodImageResource, ByteArray>) {
-        earphonePrefs.value = PodImagePrefs.saveImageBytes(context, prefs, xposedService, address, name, images)
+    fun saveOfficialPodImages(
+        address: String,
+        name: String,
+        candidate: MelodyImageCandidate,
+        images: Map<PodImageResource, ByteArray>,
+    ) {
+        earphonePrefs.value = PodImagePrefs.saveOfficialImages(
+            context = context,
+            prefs = prefs,
+            service = xposedService,
+            address = address,
+            name = name,
+            selector = DeviceArtworkSelector(
+                vendorId = "oppo",
+                productId = candidate.productId,
+                colorId = candidate.colorId,
+                model = candidate.model,
+                firmware = headphoneUiState.firmware,
+            ),
+            images = images,
+        )
+    }
+
+    LaunchedEffect(
+        headphoneUiState.connected,
+        headphoneUiState.vendorId,
+        headphoneUiState.address,
+        headphoneUiState.title,
+        headphoneUiState.firmware,
+    ) {
+        val state = headphoneUiState
+        val address = state.address.orEmpty()
+        if (!state.connected || !state.vendorId.equals("oppo", ignoreCase = true) || address.isBlank()) {
+            return@LaunchedEffect
+        }
+        val resolved = withContext(Dispatchers.IO) {
+            val candidate = RootManager.resolveMelodyImageCandidate(state.title, address) ?: return@withContext null
+            val images = RootManager.readMelodyImages(candidate) ?: return@withContext null
+            candidate to images
+        } ?: return@LaunchedEffect
+        saveOfficialPodImages(address, state.title, resolved.first, resolved.second)
     }
 
     fun restartScopes(packages: List<String>) {
@@ -606,9 +663,7 @@ fun MainUI(
                 spatialSoundSwitch = spatialSoundSwitch.value,
                 onSpatialSoundSwitchChange = { setSpatialSoundSwitch(it) },
                 eqPresetId = eqPresetId.value,
-                onEqPresetChange = { setEqPreset(it) },
-                equalizerCurve = headphoneUiState.equalizerCurve,
-                onEqualizerCurveChange = { setEqCurve(it) },
+                onOpenEqualizer = { backStack.add(Screen.Equalizer) },
                 displayDualDeviceConnection = displayDualDeviceConnection,
                 onDualDeviceConnectionChange = { setDualDeviceConnection(it) },
                 features = displayFeatures,
@@ -713,8 +768,52 @@ fun MainUI(
                 onSavePodImages = { address, name, images, clearedImages ->
                     savePodImages(address, name, images, clearedImages)
                 },
-                onSavePodImageBytes = { address, name, images -> savePodImageBytes(address, name, images) },
+                onSavePodImageBytes = { address, name, candidate, images ->
+                    saveOfficialPodImages(address, name, candidate, images)
+                },
             )
+        }
+        entry<Screen.Equalizer> {
+            val equalizerScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+            val equalizer = displayFeatures[FeatureId.EQUALIZER.name]
+
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = stringResource(R.string.eq_page_title),
+                        largeTitle = stringResource(R.string.eq_page_title),
+                        scrollBehavior = equalizerScrollBehavior,
+                        navigationIcon = {
+                            IconButton(onClick = { backStack.removeLast() }) {
+                                Icon(imageVector = MiuixIcons.Back, contentDescription = "Back")
+                            }
+                        },
+                    )
+                },
+            ) { padding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(backgroundColor)
+                        .padding(padding),
+                ) {
+                    if (equalizer != null) {
+                        EqualizerPage(
+                            vendorId = headphoneUiState.vendorId,
+                            deviceName = headphoneUiState.title,
+                            feature = equalizer,
+                            curveState = headphoneUiState.equalizerCurve,
+                            onPresetChange = { setEqPreset(it) },
+                            onCurveChange = { setEqCurve(it) },
+                            onPresetRename = { presetId, name -> renameEqPreset(presetId, name) },
+                            onPresetDelete = { deleteEqPreset(it) },
+                            modifier = Modifier
+                                .overScrollVertical()
+                                .nestedScroll(equalizerScrollBehavior.nestedScrollConnection),
+                        )
+                    }
+                }
+            }
         }
         entry<Screen.About> {
             val aboutScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())

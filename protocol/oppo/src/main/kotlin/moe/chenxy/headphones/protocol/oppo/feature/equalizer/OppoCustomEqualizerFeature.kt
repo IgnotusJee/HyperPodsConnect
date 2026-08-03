@@ -34,7 +34,19 @@ object OppoCustomEqualizerFeature {
     private const val SLOT_PREFIX = "oppo:eq:custom:"
     const val CREATION_SLOT_ID = "oppo:eq:custom:new"
 
-    private val AIR5S_FREQUENCIES_HZ = listOf(62, 250, 1_000, 4_000, 8_000, 16_000)
+    /** HeyMelody Air5s customEqUiVersion=2 creation template, confirmed in the official UI. */
+    private val AIR5S_FREQUENCIES_HZ = listOf(
+        31,
+        62,
+        125,
+        250,
+        500,
+        1_000,
+        2_000,
+        4_000,
+        8_000,
+        16_000,
+    )
 
     fun query(): ByteArray = OppoMessageCodec.encode(OppoCommand.QUERY_CUSTOM_EQ)
 
@@ -111,6 +123,12 @@ object OppoCustomEqualizerFeature {
     fun select(slot: OppoCustomEqualizerSlot): ByteArray? =
         encode(ACTION_UPDATE_OR_SELECT, slot, slot.gains)
 
+    /** Renames a device-assigned slot while preserving its exact curve. */
+    fun rename(slot: OppoCustomEqualizerSlot, name: String): ByteArray? =
+        slot.takeIf { it.eqId != 0 && isValidName(name) }
+            ?.copy(name = name)
+            ?.let { encode(ACTION_UPDATE_OR_SELECT, it, it.gains) }
+
     /**
      * Creates a slot using the same action used by HeyMelody. The device assigns the final EQ id,
      * so an add request must carry id 0 and must be followed by [query] before the slot is used.
@@ -119,7 +137,7 @@ object OppoCustomEqualizerFeature {
         slot.takeIf { it.eqId == 0 && !it.selected }
             ?.let { encode(ACTION_ADD, it, it.gains) }
 
-    /** Creates the official six-band Air5s draft; the device assigns its persistent id. */
+    /** Creates the official ten-band Air5s draft; the device assigns its persistent id. */
     fun createAir5s(curve: EqualizerCurve): ByteArray? {
         if (!air5sCreationSpec().accepts(curve)) return null
         return add(
@@ -179,6 +197,9 @@ object OppoCustomEqualizerFeature {
         .takeIf { slotId.startsWith(SLOT_PREFIX) }
         ?.toIntOrNull()
         ?.takeIf { it in 0..0xFF }
+
+    fun isValidName(name: String): Boolean =
+        name.isNotBlank() && name.toByteArray(Charsets.UTF_8).size in 1..MAX_NAME_BYTES
 
     private fun encode(action: Int, slot: OppoCustomEqualizerSlot, gains: List<Int>): ByteArray? {
         if (action !in ACTION_ADD..ACTION_DELETE) return null

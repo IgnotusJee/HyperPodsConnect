@@ -20,6 +20,14 @@
     <string name="spatial_audio_head_tracking">Head Tracking</string>
     <string name="eq_preset_title">Master Tuning</string>
     <string name="eq_preset_summary">Choose the master EQ preset</string>
+    <string name="eq_page_title">Equalizer</string>
+    <string name="eq_recommended_title">Recommended</string>
+    <string name="eq_custom_section_title">Custom</string>
+    <string name="eq_custom_add">Add equalizer</string>
+    <string name="eq_editable_summary">Editable</string>
+    <string name="eq_air5s_ultimate_sound">Ultimate sound</string>
+    <string name="eq_air5s_pure_vocals">Pure vocals</string>
+    <string name="eq_air5s_powerful_bass">Thundering bass</string>
     <string name="eq_custom_title">Custom equalizer</string>
     <string name="eq_custom_summary">Drag a band; the complete curve is sent after release</string>
     <string name="eq_custom_create">Create custom equalizer</string>
@@ -78,14 +86,15 @@
     <string name="custom_image_left">Left earbud image</string>
     <string name="custom_image_right">Right earbud image</string>
     <string name="custom_image_selected">Custom image selected</string>
+    <string name="official_image_selected">Official device image (auto)</string>
     <string name="custom_image_default">Use default image</string>
     <string name="custom_image_restore_default">Restore default image</string>
     <string name="import_melody_images">Import Images</string>
-    <string name="import_melody_images_summary">Import model images from HeyTap Headset</string>
-    <string name="import_melody_images_hint">Please connect the earphones once in HeyTap Headset first.</string>
-    <string name="import_melody_images_empty">No HeyTap Headset model images found.</string>
+    <string name="import_melody_images_summary">Verify the exact official image match</string>
+    <string name="import_melody_images_hint">The product and color identifiers are read from HeyTap Headset. No model-name fuzzy matching is used.</string>
+    <string name="import_melody_images_empty">No unique official image match was found for this device.</string>
     <string name="import_melody_images_root_required">Please check ROOT permission.</string>
-    <string name="import_melody_images_action">Import All</string>
+    <string name="import_melody_images_action">Refresh Cache</string>
     <string name="theme_title">Theme</string>
     <string name="theme_follow_system">Follow System</string>
     <string name="theme_light">Light</string>
@@ -154,4 +163,10 @@
     <string name="operation_timed_out">Change timed out; confirmed state restored</string>
     <string name="operation_failed">Change failed; confirmed state restored</string>
     <string name="operation_cancelled">Change cancelled</string>
+    <string name="eq_custom_manage">Edit</string>
+    <string name="eq_custom_edit_title">Edit custom equalizer</string>
+    <string name="eq_custom_name_hint">Enter a name up to 128 UTF-8 bytes.</string>
+    <string name="eq_custom_delete">Delete</string>
+    <string name="eq_custom_delete_title">Delete custom equalizer?</string>
+    <string name="eq_custom_delete_summary">“%1$s” will be permanently removed from the earphones.</string>
 </resources>

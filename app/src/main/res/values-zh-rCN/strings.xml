@@ -21,6 +21,14 @@
     <string name="spatial_audio_head_tracking">头部跟踪</string>
     <string name="eq_preset_title">大师调音</string>
     <string name="eq_preset_summary">选择大师调音预设</string>
+    <string name="eq_page_title">均衡器</string>
+    <string name="eq_recommended_title">推荐</string>
+    <string name="eq_custom_section_title">自定义</string>
+    <string name="eq_custom_add">添加均衡器</string>
+    <string name="eq_editable_summary">可编辑</string>
+    <string name="eq_air5s_ultimate_sound">至臻原音</string>
+    <string name="eq_air5s_pure_vocals">纯享人声</string>
+    <string name="eq_air5s_powerful_bass">澎湃低音</string>
     <string name="eq_custom_title">自定义均衡器</string>
     <string name="eq_custom_summary">拖动频段，松手后一次性写入整条曲线</string>
     <string name="eq_custom_create">创建自定义均衡器</string>
@@ -79,14 +87,15 @@
     <string name="custom_image_left">左耳图片</string>
     <string name="custom_image_right">右耳图片</string>
     <string name="custom_image_selected">已选择自定义图片</string>
+    <string name="official_image_selected">官方设备图片（自动匹配）</string>
     <string name="custom_image_default">使用默认图片</string>
     <string name="custom_image_restore_default">恢复默认图片</string>
     <string name="import_melody_images">导入图片</string>
-    <string name="import_melody_images_summary">从欢律导入耳机型号图片</string>
-    <string name="import_melody_images_hint">请提前在欢律中连接一次耳机。</string>
-    <string name="import_melody_images_empty">未找到欢律耳机型号图片。</string>
+    <string name="import_melody_images_summary">核验官方图片精确匹配</string>
+    <string name="import_melody_images_hint">从欢律读取产品与配色标识，不使用设备名称模糊匹配。</string>
+    <string name="import_melody_images_empty">未找到该设备唯一匹配的官方图片。</string>
     <string name="import_melody_images_root_required">请检查 ROOT 权限。</string>
-    <string name="import_melody_images_action">一键导入</string>
+    <string name="import_melody_images_action">刷新缓存</string>
     <string name="theme_title">主题</string>
     <string name="theme_follow_system">跟随系统</string>
     <string name="theme_light">浅色</string>
@@ -155,4 +164,10 @@
     <string name="operation_timed_out">更改超时，已恢复设备确认状态</string>
     <string name="operation_failed">更改失败，已恢复设备确认状态</string>
     <string name="operation_cancelled">更改已取消</string>
+    <string name="eq_custom_manage">编辑</string>
+    <string name="eq_custom_edit_title">编辑自定义均衡器</string>
+    <string name="eq_custom_name_hint">名称最多占用 128 个 UTF-8 字节。</string>
+    <string name="eq_custom_delete">删除</string>
+    <string name="eq_custom_delete_title">删除自定义均衡器？</string>
+    <string name="eq_custom_delete_summary">“%1$s”将从耳机中永久删除。</string>
 </resources>
