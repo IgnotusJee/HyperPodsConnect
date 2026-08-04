@@ -6,8 +6,6 @@
 
 **为 HyperOS 设备提供系统级多品牌耳机控制**
 
-[![GitHub Release](https://img.shields.io/github/v/release/1812z/OppoPods?style=flat-square&logo=github&color=black)](https://github.com/1812z/OppoPods/releases)
-![Downloads](https://img.shields.io/github/downloads/1812z/OppoPods/total?style=flat-square)
 [![Platform](https://img.shields.io/badge/Platform-Android-green?style=flat-square&logo=android)](https://android.com)
 [![LSPosed](https://img.shields.io/badge/Framework-LSPosed-blueviolet?style=flat-square)](https://github.com/LSPosed/LSPosed)
 [![HyperOS](https://img.shields.io/badge/ROM-澎湃OS3-orange?style=flat-square)](https://hyperos.mi.com)
@@ -17,6 +15,8 @@
 </div>
 
 HyperPods Connect 是为小米 HyperOS 设备提供系统级多品牌耳机控制的 Xposed 模块。展示层统一消费品牌无关的驱动能力模型，目前内置 OPPO 与 Sony 驱动。
+
+> **发布状态：** 目前尚未发布公开 Release。如需测试当前开发版本，请自行构建并安装 APK。
 
 ### 耳机功能
 
@@ -70,9 +70,10 @@ Android Studio 优化部署不能作为 LSPosed 模块已更新的依据。安�
 
 ### 致谢
 
-- [HyperPods](https://github.com/Art-Chen/HyperPods) by Art_Chen — 原始项目
+- [1812z/OppoPods](https://github.com/1812z/OppoPods) — 本仓库 fork 的上游源项目
+- [HyperPods](https://github.com/Art-Chen/HyperPods) by Art_Chen — 项目参考
 - [Miuix](https://github.com/YuKongA/miuix) — HyperOS 风格 Compose UI 组件
-- [OPPOPods](https://github.com/Leaf-lsgtky/OppoPods) by Leaf-lsgtky
+- [OPPOPods](https://github.com/Leaf-lsgtky/OppoPods) by Leaf-lsgtky — 项目参考
 
 ### 许可证
 

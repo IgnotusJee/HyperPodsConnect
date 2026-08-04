@@ -6,8 +6,6 @@
 
 **System-level multi-brand headphone control for HyperOS devices**
 
-[![GitHub Release](https://img.shields.io/github/v/release/1812z/OppoPods?style=flat-square&logo=github&color=black)](https://github.com/1812z/OppoPods/releases)
-![Downloads](https://img.shields.io/github/downloads/1812z/OppoPods/total?style=flat-square)
 [![Platform](https://img.shields.io/badge/Platform-Android-green?style=flat-square&logo=android)](https://android.com)
 [![LSPosed](https://img.shields.io/badge/Framework-LSPosed-blueviolet?style=flat-square)](https://github.com/LSPosed/LSPosed)
 [![HyperOS](https://img.shields.io/badge/ROM-HyperOS%203-orange?style=flat-square)](https://hyperos.mi.com)
@@ -17,6 +15,8 @@
 </div>
 
 HyperPods Connect is an Xposed module that provides system-level, multi-brand headphone control on Xiaomi HyperOS devices. Its presentation layer consumes a vendor-neutral driver capability model; OPPO and Sony drivers are currently bundled.
+
+> **Release status:** No public release has been published yet. Install a locally built APK if you want to test the current development version.
 
 ### Headphone features
 
@@ -70,9 +70,10 @@ See the [Phase 13–16 roadmap](docs/architecture/PHASE13_16_NEXT_STAGE_ROADMAP.
 
 ### Credits
 
-- [HyperPods](https://github.com/Art-Chen/HyperPods) by Art_Chen — original project
+- [1812z/OppoPods](https://github.com/1812z/OppoPods) — upstream project this repository was forked from
+- [HyperPods](https://github.com/Art-Chen/HyperPods) by Art_Chen — project reference
 - [Miuix](https://github.com/YuKongA/miuix) — HyperOS-style Compose UI components
-- [OPPOPods](https://github.com/Leaf-lsgtky/OppoPods) by Leaf-lsgtky
+- [OPPOPods](https://github.com/Leaf-lsgtky/OppoPods) by Leaf-lsgtky — project reference
 
 ### License
 
