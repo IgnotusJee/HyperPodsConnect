@@ -76,15 +76,16 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
                         String::class.java
                     )
                 ) {
-                    val device = args[4] as? BluetoothDevice
+                    val device = args[4] as? BluetoothDevice ?: return@hookBefore
                     if (!isOppoPod(device)) return@hookBefore
-                    pendingOfficialIslandAddress = device?.address
+                    pendingOfficialIslandAddress = device.address
                     val battery = effectiveBattery() ?: return@hookBefore
                     val leftBattery = displayBattery(battery.left) ?: (args[1] as? Int ?: 0)
                     val rightBattery = displayBattery(battery.right) ?: (args[2] as? Int ?: 0)
                     val wearState = displayWearState(battery, args[3] as? Int ?: 1)
                     val notification = currentMiuiBluetoothNotification() ?: return@hookBefore
                     result = null
+                    ensureOfficialConnectManager(notification, device, args[0] as? Int ?: 2)
                     callMethod(
                         notification,
                         "showConnectedToast",
@@ -104,6 +105,34 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
         val notificationClass = findClassOrNull("com.android.bluetooth.ble.app.MiuiBluetoothNotification")
         val requestClass = findClassOrNull("com.android.bluetooth.ble.app.C4705R2")
         if (notificationClass != null) {
+            runCatching {
+                hookAfter(
+                    notificationClass.method(
+                        "checkIfSetStopShowDialog",
+                        BluetoothDevice::class.java,
+                    ),
+                ) {
+                    val device = args[0] as? BluetoothDevice ?: return@hookAfter
+                    val state = HyperOsHeadphoneAdapter.state
+                    val isCurrentOfficialProjection =
+                        ConfigManager.islandMode() == ConfigManager.ISLAND_MODE_OFFICIAL &&
+                            state.supportsAddress(pendingOfficialIslandAddress) &&
+                            state.supportsAddress(device.address) &&
+                            isOppoPod(device)
+                    if (!isCurrentOfficialProjection) return@hookAfter
+
+                    // The module already owns this exact Ready-session request, so there is no
+                    // separate Fast Connect dialog that the native island must wait for.
+                    result = -1
+                    Log.d(
+                        TAG,
+                        "official island Fast Connect wait bypassed device=${device.describe()}",
+                    )
+                }
+                Log.d(TAG, "MiuiBluetoothNotification.checkIfSetStopShowDialog hook installed")
+            }.onFailure {
+                Log.w(TAG, "hook MiuiBluetoothNotification.checkIfSetStopShowDialog skipped", it)
+            }
             runCatching {
                 hookBefore(notificationClass.method("invokeStatusBar", Context::class.java, String::class.java, Bundle::class.java)) {
                     val bundle = args[2] as? Bundle
@@ -762,6 +791,7 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
         lastOppoDevice = device
         pendingOfficialIslandAddress = device.address
         runCatching {
+            ensureOfficialConnectManager(notification, device, payload.requestFlag)
             callMethod(
                 notification,
                 "showConnectedToast",
@@ -770,17 +800,37 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
                 payload.rightBattery,
                 payload.wearState,
                 device,
-                "",
+                fakeDeviceId(),
             )
         }.onSuccess {
             Log.i(
                 TAG,
                 "official island bridge reason=$reason device=${device.describe()} " +
-                    "left=${payload.leftBattery} right=${payload.rightBattery} wear=${payload.wearState}",
+                    "left=${payload.leftBattery} right=${payload.rightBattery} wear=${payload.wearState} " +
+                    "officialDeviceId=${fakeDeviceId()}",
             )
         }.onFailure {
             Log.w(TAG, "official island bridge failed reason=$reason device=${device.describe()}", it)
         }
+    }
+
+    /** HyperOS drops message 114 when its per-device connection record was never created. */
+    private fun ensureOfficialConnectManager(
+        notification: Any,
+        device: BluetoothDevice,
+        requestFlag: Int,
+    ) {
+        val exists = runCatching {
+            (callMethod(notification, "getConnectManagerList") as? Map<*, *>)
+                ?.containsKey(device) == true
+        }.getOrDefault(false)
+        if (exists) return
+
+        callMethod(notification, "addConnectManager", device, requestFlag, 0)
+        Log.i(
+            TAG,
+            "official island connect manager queued device=${device.describe()} flag=$requestFlag",
+        )
     }
 
     private fun currentMiuiBluetoothNotification(): Any? {

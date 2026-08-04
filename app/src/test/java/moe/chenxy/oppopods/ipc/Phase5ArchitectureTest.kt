@@ -158,6 +158,12 @@ class Phase5ArchitectureTest {
         assumeTrue(projection != null)
 
         assertTrue(upstream!!.contains("showOfficialHeadsetIsland(state, \"snapshot\")"))
+        assertTrue(upstream.contains("ensureOfficialConnectManager(notification, device, payload.requestFlag)"))
+        assertTrue(upstream.contains("\"addConnectManager\", device, requestFlag, 0"))
+        assertTrue(upstream.contains("\"checkIfSetStopShowDialog\""))
+        assertTrue(upstream.contains("official island Fast Connect wait bypassed"))
+        assertTrue(upstream.contains("state.supportsAddress(pendingOfficialIslandAddress)"))
+        assertTrue(upstream.contains("fakeDeviceId(),"))
         assertTrue(upstream.contains("\"showConnectedToast\""))
         assertTrue(upstream.contains("current.supportsAddress(state.address)"))
         assertTrue(projection!!.contains("!connected || deviceId == null || address.isNullOrBlank()"))

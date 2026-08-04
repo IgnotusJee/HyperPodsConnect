@@ -61,11 +61,19 @@ capability，不能仅靠构造 Intent 越过门禁。断开按钮与通知点�
 - 桥接前同时要求 `CONNECTED/Ready`、非空 `deviceId`、精确地址匹配和至少一个有效电量，不能靠设备名
   白名单把普通蓝牙设备伪装成受支持耳机；
 - 连接 Ready 时显示一次，之后仅真实佩戴状态变化时再次触发，普通电量刷新不会反复弹岛；
+- 调用 `showConnectedToast` 前确保官方 `ConnectManager` 已按相同 `requestFlag` 为精确设备排队建立记录；
+  否则 HyperOS 会在处理消息 114 时以 `connectManager is null` 丢弃请求；相同 flag 还保证该记录与本次
+  官方展示请求属于同一种连接事件；
+- 部分 ROM 会继续通过 `fastconnect_version_control_flag`、Fast Connect 服务状态和记录内的 stop-dialog
+  标志判断是否先等系统配对弹窗。模块桥接没有另一张待显示的配对弹窗，因此只对当前 Ready session、
+  精确地址且处于“官方”模式的请求，把该判断投影为“不需要等待”；系统原生设备及其他地址保持原逻辑；
 - HyperOS 官方佩戴值固定为：未佩戴 `0`、双耳 `1`、左耳 `2`、右耳 `3`、不支持 `4`；没有佩戴
   capability 的设备保留“不支持”，不会根据左右电量猜测佩戴；
 - 官方 UI 只有两个电量槽。单电池设备使用左槽并以 `255` 隐藏右槽；TWS 使用左右槽，盒电量仍由模块
   焦点通知完整表达；
-- 第六个参数保持空字符串，使用 ROM 内置的官方通用资源，不伪造小米云端 `deviceId`。因此官方视觉由
-  当前 HyperOS ROM 决定，设备专属图片仍以模块超级岛/焦点通知路径最完整；
+- 第六个参数使用模块既有、可配置的兼容 `fakeDeviceId`，只为通过 ROM 的官方通知类型门禁并选择内置
+  资源。实机验证表明空 ID 会令 `isSupportShowNotificationHandle` 得到 `deviceType=null` 并丢弃消息；该
+  兼容身份只在已经通过精确 snapshot 地址门禁的调用中使用，不写入设备 profile，也不扩大支持范围。
+  官方视觉仍由当前 HyperOS ROM 决定，设备专属图片以模块超级岛/焦点通知路径最完整；
 - 小米原生耳机和非目标设备的既有官方路径不被吞掉；只有本 App 当前统一 session 对应的精确地址会被
   snapshot 数据修正。
