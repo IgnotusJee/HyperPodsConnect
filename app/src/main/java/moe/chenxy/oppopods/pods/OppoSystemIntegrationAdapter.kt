@@ -36,6 +36,8 @@ import moe.chenxy.headphones.protocol.oppo.session.OppoSessionEvent
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.hook.Log
+import moe.chenxy.oppopods.integration.ConnectionPresentationGate
+import moe.chenxy.oppopods.integration.connectionPresentationKey
 import moe.chenxy.oppopods.ipc.IpcSenderPolicy
 import moe.chenxy.oppopods.ipc.isSentFrom
 import moe.chenxy.oppopods.runtime.bluetoothprocess.BluetoothProcessRuntimeHost
@@ -76,6 +78,7 @@ object OppoSystemIntegrationAdapter {
     private var currentTopology: String? = null
     private var currentVendorId: String? = null
     private var canCycleNoiseControl = false
+    private var currentProfileGroupId: Int? = null
     private var receiverRegistered = false
     private var currentWearStatus = WearStatus()
     private val rawHexSessionGate = RawHexSessionGate(BuildConfig.ALLOW_RAW_PROTOCOL_CONSOLE)
@@ -84,6 +87,9 @@ object OppoSystemIntegrationAdapter {
     private var lastEngineState = HeadphoneState()
     private var readyGeneration = -1L
     private val connectedPopupCoordinator = ConnectedPopupCoordinator()
+    private val connectionPresentationGate = ConnectionPresentationGate()
+    private var presentationGeneration = -1L
+    private var presentationAllowed = false
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -153,11 +159,27 @@ object OppoSystemIntegrationAdapter {
         prefs: SharedPreferences,
     ) = connectPod(context, device, prefs, automatic = true)
 
+    fun connectPodFromProfile(
+        context: Context,
+        device: BluetoothDevice,
+        prefs: SharedPreferences,
+        profileGroupId: Int?,
+    ) = connectPod(
+        context,
+        device,
+        prefs,
+        automatic = false,
+        profileConnected = true,
+        profileGroupId = profileGroupId,
+    )
+
     private fun connectPod(
         context: Context,
         device: BluetoothDevice,
         prefs: SharedPreferences,
         automatic: Boolean,
+        profileConnected: Boolean = false,
+        profileGroupId: Int? = null,
     ) {
         mPrefs = prefs
         autoGameModeEnabled = mPrefs.getBoolean("auto_game_mode", false)
@@ -169,9 +191,23 @@ object OppoSystemIntegrationAdapter {
             automatic &&
             !BluetoothProcessRuntimeHost.canAutoConnect(device, sessionOverrides())
         ) return
+        if (
+            profileConnected &&
+            !BluetoothProcessRuntimeHost.canConnectFromProfile(device, sessionOverrides())
+        ) return
+        if (profileConnected && isCurrentProfileDevice(device, profileGroupId)) {
+            if (!isCurrentDevice(device)) {
+                // A previous build may have published a focus notification for another
+                // member address. The group session owns only the selected member now.
+                cancelPodsNotificationByMiuiBt(context, device)
+            }
+            Log.i(TAG, "ignore duplicate connected profile member group=$profileGroupId")
+            return
+        }
 
         mContext = context
         mDevice = device
+        currentProfileGroupId = profileGroupId
         cachedDeviceName = device.name ?: ""
 
         if (!receiverRegistered) {
@@ -192,9 +228,15 @@ object OppoSystemIntegrationAdapter {
         isConnected = true
         lastEngineState = HeadphoneState()
         lifecycleScope.launch {
-            delay(500)
+            if (!profileConnected) delay(500)
             if (isConnected) {
-                if (automatic) {
+                if (profileConnected) {
+                    BluetoothProcessRuntimeHost.connectFromProfile(
+                        context,
+                        device,
+                        sessionOverrides(),
+                    )
+                } else if (automatic) {
                     BluetoothProcessRuntimeHost.connectAutomatically(
                         context,
                         device,
@@ -231,6 +273,27 @@ object OppoSystemIntegrationAdapter {
         lastEngineState = snapshot.state
         val notificationReady = snapshot.connection is SessionState.Ready
         val enteringReady = notificationReady && readyGeneration != snapshot.generationId
+        if (enteringReady) {
+            presentationGeneration = snapshot.generationId
+            presentationAllowed = connectionPresentationGate.claim(
+                logicalDeviceKey = connectionPresentationKey(
+                    vendorId = nextVendorId,
+                    deviceName = nextDeviceName,
+                    profileGroupId = currentProfileGroupId,
+                    address = mDevice.address,
+                ),
+                nowMs = SystemClock.elapsedRealtime(),
+            )
+            if (!presentationAllowed) {
+                Log.i(
+                    TAG,
+                    "suppress reconnect presentation generation=${snapshot.generationId} " +
+                        "group=$currentProfileGroupId",
+                )
+            }
+        }
+        val allowConnectedPresentation =
+            presentationGeneration == snapshot.generationId && presentationAllowed
         if (shouldCancelConnectedNotification(readyGeneration, notificationReady)) {
             clearConnectedNotification(snapshot.connection)
         }
@@ -239,6 +302,7 @@ object OppoSystemIntegrationAdapter {
             snapshot.state,
             notificationReady,
             presentationChanged || enteringReady,
+            allowConnectedPresentation,
         )
         when (val connection = snapshot.connection) {
             is SessionState.Ready -> {
@@ -248,7 +312,7 @@ object OppoSystemIntegrationAdapter {
                     RfcommLog.i(mContext, TAG, "session ready generation=${snapshot.generationId}")
                     if (autoGameModeEnabled) lifecycleScope.launch { enableGameModeOnConnect() }
                 }
-                maybeShowConnectedPopup(snapshot, enteringReady)
+                maybeShowConnectedPopup(snapshot, enteringReady && allowConnectedPresentation)
             }
             is SessionState.Reconnecting -> Unit
             is SessionState.Failed -> {
@@ -295,13 +359,14 @@ object OppoSystemIntegrationAdapter {
         current: HeadphoneState,
         notificationReady: Boolean,
         forceNotificationRefresh: Boolean,
+        allowConnectedPresentation: Boolean,
     ) {
         if (
             notificationReady &&
             current.batteries.isNotEmpty() &&
             (current.batteries != previous.batteries || forceNotificationRefresh)
         ) {
-            handleBatteryChanged(current.batteries)
+            handleBatteryChanged(current.batteries, allowConnectedPresentation)
         }
         if (current.wearing != previous.wearing) {
             val oldWear = currentWearStatus
@@ -354,19 +419,45 @@ object OppoSystemIntegrationAdapter {
         currentTopology = null
         currentVendorId = null
         canCycleNoiseControl = false
+        currentProfileGroupId = null
         readyGeneration = -1L
+        presentationGeneration = -1L
+        presentationAllowed = false
         lastEngineState = HeadphoneState()
         mContext = null
     }
 
-    fun onBluetoothProfileDisconnected(context: Context, device: BluetoothDevice) {
+    fun onBluetoothProfileDisconnected(
+        context: Context,
+        device: BluetoothDevice,
+        profileGroupId: Int? = null,
+    ) {
         if (isCurrentDevice(device)) {
             disconnectedPod(context, device)
+        } else if (isCurrentProfileDevice(device, profileGroupId)) {
+            // The LE Audio group can report each member separately. Keep the active group
+            // session, but clear any per-address notification left by an older session.
+            cancelPodsNotificationByMiuiBt(context, device)
+            Log.d(TAG, "ignore disconnect of non-session profile member group=$profileGroupId")
         } else {
             // A process restart loses the in-memory session, but its system notification may
             // survive. Cancelling by device address also reconciles that stale state.
             cancelPodsNotificationByMiuiBt(context, device)
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun isCurrentProfileDevice(device: BluetoothDevice, profileGroupId: Int?): Boolean {
+        if (!isConnected || !::mDevice.isInitialized) return false
+        if (mDevice.address.equals(device.address, ignoreCase = true)) return true
+        if (
+            currentProfileGroupId != null &&
+            profileGroupId != null &&
+            currentProfileGroupId == profileGroupId
+        ) return true
+        val currentName = runCatching { mDevice.name ?: mDevice.alias }.getOrNull()?.trim()
+        val incomingName = runCatching { device.name ?: device.alias }.getOrNull()?.trim()
+        return !currentName.isNullOrEmpty() && currentName.equals(incomingName, ignoreCase = true)
     }
 
     private fun clearConnectedNotification(connection: SessionState) {
@@ -539,7 +630,10 @@ object OppoSystemIntegrationAdapter {
         CoreNoiseControlMode.NOISE_CANCELLATION_DEEP -> 8
     }
 
-    fun handleBatteryChanged(result: Map<BatteryComponent, BatteryState>) {
+    fun handleBatteryChanged(
+        result: Map<BatteryComponent, BatteryState>,
+        allowConnectedPresentation: Boolean = true,
+    ) {
         val leftState = result[BatteryComponent.LEFT] ?: result[BatteryComponent.SINGLE]
         val singleState = result[BatteryComponent.SINGLE]
         val rightState = result[BatteryComponent.RIGHT]
@@ -553,7 +647,8 @@ object OppoSystemIntegrationAdapter {
         } else {
             PodParams(lastKnownCaseBattery, lastKnownCaseCharging, false, 0)
         }
-        val shouldShowToast = !mShowedConnectedToast
+        val shouldShowToast = allowConnectedPresentation && !mShowedConnectedToast
+        if (!allowConnectedPresentation) mShowedConnectedToast = true
         if (shouldShowToast) {
             val valid = (left.isConnected && left.battery > 0) ||
                 (right.isConnected && right.battery > 0)

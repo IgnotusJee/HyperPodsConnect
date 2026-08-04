@@ -47,12 +47,19 @@ fun shouldTriggerOfficialHeadsetIsland(
     current: HeadphoneUiState,
 ): Boolean {
     if (current.toOfficialHeadsetIslandPayload() == null) return false
-    val newlyReady = !previous.connected ||
-        previous.deviceId != current.deviceId ||
-        !previous.address.equals(current.address, ignoreCase = true)
+    val newlyReady = isOfficialHeadsetReadyEdge(previous, current)
     if (newlyReady) return true
     return current.wearing.isNotEmpty() && previous.wearing != current.wearing
 }
+
+fun isOfficialHeadsetReadyEdge(
+    previous: HeadphoneUiState,
+    current: HeadphoneUiState,
+): Boolean = current.connected && (
+    !previous.connected ||
+        previous.deviceId != current.deviceId ||
+        !previous.address.equals(current.address, ignoreCase = true)
+    )
 
 private fun HeadphoneUiState.officialWearState(): Int {
     if (wearing.isEmpty()) return OfficialHeadsetIslandPayload.WEAR_NOT_SUPPORTED

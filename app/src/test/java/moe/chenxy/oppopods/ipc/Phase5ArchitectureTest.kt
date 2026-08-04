@@ -182,6 +182,36 @@ class Phase5ArchitectureTest {
     }
 
     @Test
+    fun `LE Audio connected edge starts the trusted profile session immediately`() {
+        val dispatcher = source(
+            "src/main/java/moe/chenxy/oppopods/hook/HeadsetStateDispatcher.kt",
+        )
+        val adapter = source(
+            "src/main/java/moe/chenxy/oppopods/pods/OppoSystemIntegrationAdapter.kt",
+        )
+        val runtime = source(
+            "src/main/java/moe/chenxy/oppopods/runtime/bluetoothprocess/" +
+                "BluetoothProcessRuntimeHost.kt",
+        )
+        assumeTrue(dispatcher != null)
+        assumeTrue(adapter != null)
+        assumeTrue(runtime != null)
+
+        assertTrue(dispatcher!!.contains("state == BluetoothProfile.STATE_CONNECTED"))
+        assertTrue(
+            dispatcher.contains("scheduleProfileConnect(context, device)"),
+        )
+        assertTrue(dispatcher.contains("LE_AUDIO_GROUP_SETTLE_MS = 250L"))
+        assertTrue(dispatcher.contains("profileHandler.postDelayed(connect, LE_AUDIO_GROUP_SETTLE_MS)"))
+        assertTrue(dispatcher.contains("leAudioGroupId(device)"))
+        assertTrue(dispatcher.contains("it.name == \"getGroupId\""))
+        assertTrue(adapter!!.contains("isCurrentProfileDevice(device, profileGroupId)"))
+        assertTrue(adapter.contains("ignore duplicate connected profile member"))
+        assertTrue(adapter!!.contains("if (!profileConnected) delay(500)"))
+        assertTrue(runtime!!.contains("DriverRegistry.canConnectFromProfile(it, candidate)"))
+    }
+
+    @Test
     fun `official island bridge uses exact Ready snapshot and Xiaomi native path`() {
         val upstream = source(
             "src/main/java/moe/chenxy/oppopods/hook/BluetoothUpstreamHeadsetHook.kt",
@@ -238,8 +268,13 @@ class Phase5ArchitectureTest {
         assumeTrue(coordinator != null)
         assumeTrue(popup != null)
 
-        assertTrue(adapter!!.contains("maybeShowConnectedPopup(snapshot, enteringReady)"))
+        assertTrue(
+            adapter!!.contains(
+                "maybeShowConnectedPopup(snapshot, enteringReady && allowConnectedPresentation)",
+            ),
+        )
         assertTrue(adapter.contains("readyEdge = enteringReady"))
+        assertTrue(adapter.contains("connectionPresentationGate.claim("))
         assertTrue(adapter.contains("snapshot.state.batteries.values.map(BatteryState::level)"))
         assertTrue(adapter.contains("isConnectedPopupEnvironmentEligible(context)"))
         assertTrue(coordinator!!.contains("handledKey = key"))

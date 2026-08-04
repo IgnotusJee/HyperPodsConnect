@@ -57,5 +57,15 @@ class DriverRegistry(
     companion object {
         fun canAutoConnect(match: DriverMatch): Boolean =
             match.evidence.confidence >= DetectionConfidence.TRANSPORT_EVIDENCE
+
+        /**
+         * A protected platform profile-connected event is stronger than a name hint alone: the
+         * device is already bonded and connected by Android. The session must still complete its
+         * read-only protocol handshake before any capability becomes writable.
+         */
+        fun canConnectFromProfile(match: DriverMatch, candidate: DeviceCandidate): Boolean =
+            candidate.bonded &&
+                candidate.identity.vendorId != null &&
+                candidate.identity.vendorId == match.provider.vendorId
     }
 }

@@ -304,14 +304,8 @@ class SonySession(
         } else {
             false
         }
-        val autoPlayWearingObserved = if (
+        val shouldConnectAutoPlayWearing =
             SonyProfile.shouldQueryAutoPlayWearing(route.kind, protocol, support)
-        ) {
-            connectAutoPlayWearing()
-        } else {
-            false
-        }
-        val wearingObserved = tableWearingObserved || autoPlayWearingObserved
         if (SonyProfile.shouldQueryNoiseControl(protocol, support)) {
             v2NoiseControlCapability = exchange(
                 SonyNoiseControlFeature.queryCapability(),
@@ -379,47 +373,56 @@ class SonySession(
                 )?.let { SonyV1EqualizerFeature.parse(it, v1Capability) } != null
             }
         }
-        _profile.value = SonyProfile.verified(
-            requireNotNull(_profile.value),
-            protocol,
-            model,
-            firmware,
-            support,
-            noiseControlObserved,
-            equalizerObserved,
-            wearingReadVerified = wearingObserved,
-            equalizerPresetIds = v1EqualizerCapability?.presetIds
-                ?: v2EqualizerCapability?.presetIds
-                ?: emptySet(),
-            equalizerCurveSpec = when (protocol.generation) {
-                SonyProtocolGeneration.V1 ->
-                    v1EqualizerCapability?.let(SonyV1EqualizerFeature::curveSpec)
-                SonyProtocolGeneration.V2 ->
-                    v2EqualizerCapability?.let(SonyEqualizerFeature::curveSpec)
-            },
-            equalizerValueLabels = v2EqualizerCapability?.valueLabels
-                ?: SonyEqualizerFeature.valueLabels,
-            batteryComponents = _state.value.batteries.keys,
-            ambientLevelRange = when (protocol.generation) {
-                SonyProtocolGeneration.V1 -> v1NoiseControlCapability
-                    ?.takeIf {
-                        it.ambientSettingType ==
-                            moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1AmbientSettingType.LEVEL_ADJUSTMENT
-                    }
-                    ?.ambientSteps
-                    ?.values
-                    ?.maxOrNull()
-                    ?.let { SonyV1NoiseControlFeature.AMBIENT_LEVEL_MIN..it }
-                SonyProtocolGeneration.V2 ->
-                    v2NoiseControlCapability?.ambientLevelRange
-            }.takeIf { noiseControlObserved },
-            transparencyVocalEnhancementSupported = noiseControlObserved && when (protocol.generation) {
-                SonyProtocolGeneration.V1 -> v1NoiseControlCapability?.ambientSteps?.keys
-                    ?.containsAll(SonyAmbientSoundMode.entries) == true
-                SonyProtocolGeneration.V2 -> true
-            },
-        )
+        fun verifiedProfile(wearingReadVerified: Boolean): DeviceProfile =
+            SonyProfile.verified(
+                requireNotNull(_profile.value),
+                protocol,
+                model,
+                firmware,
+                support,
+                noiseControlObserved,
+                equalizerObserved,
+                wearingReadVerified = wearingReadVerified,
+                equalizerPresetIds = v1EqualizerCapability?.presetIds
+                    ?: v2EqualizerCapability?.presetIds
+                    ?: emptySet(),
+                equalizerCurveSpec = when (protocol.generation) {
+                    SonyProtocolGeneration.V1 ->
+                        v1EqualizerCapability?.let(SonyV1EqualizerFeature::curveSpec)
+                    SonyProtocolGeneration.V2 ->
+                        v2EqualizerCapability?.let(SonyEqualizerFeature::curveSpec)
+                },
+                equalizerValueLabels = v2EqualizerCapability?.valueLabels
+                    ?: SonyEqualizerFeature.valueLabels,
+                batteryComponents = _state.value.batteries.keys,
+                ambientLevelRange = when (protocol.generation) {
+                    SonyProtocolGeneration.V1 -> v1NoiseControlCapability
+                        ?.takeIf {
+                            it.ambientSettingType ==
+                                moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1AmbientSettingType.LEVEL_ADJUSTMENT
+                        }
+                        ?.ambientSteps
+                        ?.values
+                        ?.maxOrNull()
+                        ?.let { SonyV1NoiseControlFeature.AMBIENT_LEVEL_MIN..it }
+                    SonyProtocolGeneration.V2 ->
+                        v2NoiseControlCapability?.ambientLevelRange
+                }.takeIf { noiseControlObserved },
+                transparencyVocalEnhancementSupported = noiseControlObserved && when (protocol.generation) {
+                    SonyProtocolGeneration.V1 -> v1NoiseControlCapability?.ambientSteps?.keys
+                        ?.containsAll(SonyAmbientSoundMode.entries) == true
+                    SonyProtocolGeneration.V2 -> true
+                },
+            )
+
+        _profile.value = verifiedProfile(tableWearingObserved)
         transition(SessionEvent.InitialStateSynchronized)
+
+        // Auto Play is an optional, separate GATT channel. Do not hold back the connection UI,
+        // notification or core controls while Android scans for that service.
+        if (shouldConnectAutoPlayWearing && connectAutoPlayWearing()) {
+            _profile.value = verifiedProfile(wearingReadVerified = true)
+        }
     }
 
     override suspend fun refresh(featureIds: Set<FeatureId>) {
@@ -794,15 +797,7 @@ class SonySession(
     }
 
     private fun applyBattery(report: DeviceReport.Batteries, source: ValueSource) {
-        val merged = when {
-            BatteryComponent.CASE in report.values ->
-                _state.value.batteries.filterKeys { it != BatteryComponent.CASE } + report.values
-            BatteryComponent.LEFT in report.values || BatteryComponent.RIGHT in report.values ->
-                _state.value.batteries.filterKeys {
-                    it != BatteryComponent.LEFT && it != BatteryComponent.RIGHT
-                } + report.values
-            else -> report.values
-        }
+        val merged = SonyBatteryFeature.merge(_state.value.batteries, report)
         applyReport(DeviceReport.Batteries(merged), source)
     }
 

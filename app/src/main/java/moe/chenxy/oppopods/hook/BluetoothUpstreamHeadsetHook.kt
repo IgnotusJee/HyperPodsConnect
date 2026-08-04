@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Bundle
 import android.os.Parcel
+import android.os.SystemClock
 import java.lang.reflect.Method
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,9 @@ import moe.chenxy.oppopods.ipc.IpcSenderPolicy
 import moe.chenxy.oppopods.ipc.isSentFrom
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
 import moe.chenxy.oppopods.integration.OfficialHeadsetIslandPayload
+import moe.chenxy.oppopods.integration.ConnectionPresentationGate
+import moe.chenxy.oppopods.integration.connectionPresentationKey
+import moe.chenxy.oppopods.integration.isOfficialHeadsetReadyEdge
 import moe.chenxy.oppopods.integration.shouldTriggerOfficialHeadsetIsland
 import moe.chenxy.oppopods.integration.toIntegrationState
 import moe.chenxy.oppopods.integration.toOfficialHeadsetIslandPayload
@@ -55,6 +59,7 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
     private var currentName: String? = null
     private var previousOfficialIslandState = HeadphoneUiState()
     private var pendingOfficialIslandAddress: String? = null
+    private val officialIslandPresentationGate = ConnectionPresentationGate()
 
     override fun onHook() {
         hookHeadsetServiceBinder()
@@ -227,9 +232,26 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
         }, filter, Context.RECEIVER_EXPORTED)
         stateScope.launch {
             HeadphoneUiStore.state.collect { state ->
+                val readyEdge = isOfficialHeadsetReadyEdge(previousOfficialIslandState, state)
+                val presentationAllowed = !readyEdge || officialIslandPresentationGate.claim(
+                    logicalDeviceKey = connectionPresentationKey(
+                        vendorId = state.vendorId,
+                        deviceName = state.title,
+                        address = state.address,
+                    ),
+                    nowMs = SystemClock.elapsedRealtime(),
+                )
                 val bridgeOfficialIsland =
                     ConfigManager.islandMode() == ConfigManager.ISLAND_MODE_OFFICIAL &&
-                        shouldTriggerOfficialHeadsetIsland(previousOfficialIslandState, state)
+                        shouldTriggerOfficialHeadsetIsland(previousOfficialIslandState, state) &&
+                        presentationAllowed
+                if (readyEdge && !presentationAllowed) {
+                    Log.i(
+                        TAG,
+                        "suppress official island reconnect generation=${state.generationId} " +
+                            "device=${state.title}",
+                    )
+                }
                 previousOfficialIslandState = state
                 val projected = state.toIntegrationState()
                 currentAddress = projected.address ?: currentAddress

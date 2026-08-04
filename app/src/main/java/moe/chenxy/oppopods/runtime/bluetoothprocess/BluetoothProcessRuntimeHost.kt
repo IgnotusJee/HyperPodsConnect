@@ -156,12 +156,43 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
         }
     }
 
+    fun connectFromProfile(
+        context: Context,
+        device: BluetoothDevice,
+        overrides: OppoCompatibilityOverrides,
+    ) {
+        initialize(context)
+        activeDevice = device
+        registerDrivers(overrides)
+        scope.launch {
+            connect(
+                candidate(device),
+                AndroidBluetoothTransportFactory(
+                    this@BluetoothProcessRuntimeHost.context,
+                    device,
+                    SonyAutoPlayGattDeviceResolver(this@BluetoothProcessRuntimeHost.context),
+                ),
+            )
+        }
+    }
+
     fun canAutoConnect(
         device: BluetoothDevice,
         overrides: OppoCompatibilityOverrides,
     ): Boolean {
         registerDrivers(overrides)
         return registry.resolve(candidate(device))?.let(DriverRegistry::canAutoConnect) == true
+    }
+
+    fun canConnectFromProfile(
+        device: BluetoothDevice,
+        overrides: OppoCompatibilityOverrides,
+    ): Boolean {
+        registerDrivers(overrides)
+        val candidate = candidate(device)
+        return registry.resolve(candidate)?.let {
+            DriverRegistry.canConnectFromProfile(it, candidate)
+        } == true
     }
 
     private fun registerDrivers(overrides: OppoCompatibilityOverrides) {

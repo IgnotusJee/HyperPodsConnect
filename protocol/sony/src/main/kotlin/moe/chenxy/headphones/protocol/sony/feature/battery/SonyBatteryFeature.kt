@@ -43,6 +43,32 @@ object SonyBatteryFeature {
         }?.let(DeviceReport::Batteries)
     }
 
+    /**
+     * Merges a Sony battery report while translating the LinkBuds in-case sentinel.
+     * A paired earbud reported as 0% and not charging is currently unreachable, not a
+     * trustworthy zero-percent measurement, so it must disappear from the connected set.
+     */
+    internal fun merge(
+        current: Map<BatteryComponent, BatteryState>,
+        report: DeviceReport.Batteries,
+    ): Map<BatteryComponent, BatteryState> {
+        val reported = report.values
+        val available = reported.filterNot { (component, state) ->
+            (component == BatteryComponent.LEFT || component == BatteryComponent.RIGHT) &&
+                state.level == 0 &&
+                !state.charging
+        }
+        return when {
+            BatteryComponent.CASE in reported ->
+                current.filterKeys { it != BatteryComponent.CASE } + available
+            BatteryComponent.LEFT in reported || BatteryComponent.RIGHT in reported ->
+                current.filterKeys {
+                    it != BatteryComponent.LEFT && it != BatteryComponent.RIGHT
+                } + available
+            else -> available
+        }
+    }
+
     private fun parseSingle(
         bytes: ByteArray,
         component: BatteryComponent,

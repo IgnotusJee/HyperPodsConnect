@@ -12,6 +12,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
+import android.os.Looper
 import moe.chenxy.oppopods.BuildConfig
 import moe.chenxy.oppopods.pods.OppoSystemIntegrationAdapter
 import moe.chenxy.oppopods.runtime.bluetoothprocess.BluetoothProcessRuntimeHost
@@ -22,7 +23,10 @@ import moe.chenxy.oppopods.utils.SystemApisUtils.setIconVisibility
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 
 object HeadsetStateDispatcher : HookContext() {
+    private const val LE_AUDIO_GROUP_SETTLE_MS = 250L
     private var appRequestReceiverRegistered = false
+    private val profileHandler by lazy(LazyThreadSafetyMode.NONE) { Handler(Looper.getMainLooper()) }
+    private var pendingProfileConnect: Runnable? = null
 
     override fun onHook() {
         runCatching {
@@ -58,7 +62,11 @@ object HeadsetStateDispatcher : HookContext() {
                     if (isOppoPod(device)) {
                         statusBarManager.setIconVisibility("wireless_headset", false)
                     }
-                    OppoSystemIntegrationAdapter.onBluetoothProfileDisconnected(context, device)
+                    OppoSystemIntegrationAdapter.onBluetoothProfileDisconnected(
+                        context,
+                        device,
+                        leAudioGroupId(device),
+                    )
                 }
             }
         }
@@ -83,14 +91,17 @@ object HeadsetStateDispatcher : HookContext() {
                             BluetoothProfile.EXTRA_STATE,
                             -1,
                         )
-                        if (
+                        val device = intent.getParcelableExtra(
+                            BluetoothDevice.EXTRA_DEVICE,
+                            BluetoothDevice::class.java,
+                        ) ?: return
+                        if (state == BluetoothProfile.STATE_CONNECTED) {
+                            scheduleProfileConnect(context, device)
+                        } else if (
                             state == BluetoothProfile.STATE_DISCONNECTING ||
                             state == BluetoothProfile.STATE_DISCONNECTED
                         ) {
-                            val device = intent.getParcelableExtra(
-                                BluetoothDevice.EXTRA_DEVICE,
-                                BluetoothDevice::class.java,
-                            ) ?: return
+                            cancelPendingProfileConnect()
                             Log.d("OppoPods", "LE Audio profile disconnected")
                             OppoSystemIntegrationAdapter.onBluetoothProfileDisconnected(context, device)
                         }
@@ -121,6 +132,39 @@ object HeadsetStateDispatcher : HookContext() {
         }, Context.RECEIVER_EXPORTED)
         appRequestReceiverRegistered = true
     }
+
+    private fun scheduleProfileConnect(context: Context, device: BluetoothDevice) {
+        cancelPendingProfileConnect()
+        val connect = Runnable {
+            pendingProfileConnect = null
+            val groupId = leAudioGroupId(device)
+            Log.i("OppoPods", "LE Audio group settled; starting session group=$groupId")
+            OppoSystemIntegrationAdapter.connectPodFromProfile(context, device, prefs, groupId)
+        }
+        pendingProfileConnect = connect
+        profileHandler.postDelayed(connect, LE_AUDIO_GROUP_SETTLE_MS)
+    }
+
+    private fun cancelPendingProfileConnect() {
+        pendingProfileConnect?.let(profileHandler::removeCallbacks)
+        pendingProfileConnect = null
+    }
+
+    private fun leAudioGroupId(device: BluetoothDevice): Int? = runCatching {
+        val serviceClass = findClass("com.android.bluetooth.le_audio.LeAudioService")
+        val service = serviceClass.getDeclaredMethod("getLeAudioService")
+            .apply { isAccessible = true }
+            .invoke(null)
+            ?: return@runCatching null
+        val method = serviceClass.declaredMethods.firstOrNull {
+            it.name == "getGroupId" &&
+                it.parameterTypes.contentEquals(arrayOf(BluetoothDevice::class.java))
+        } ?: return@runCatching null
+        (method.apply { isAccessible = true }.invoke(service, device) as? Int)
+            ?.takeIf { it >= 0 }
+    }.onFailure {
+        Log.w("OppoPods", "LE Audio group lookup unavailable", it)
+    }.getOrNull()
 
     /**
      * Detect OPPO earphones by checking if the device name contains "oppo" (case insensitive).

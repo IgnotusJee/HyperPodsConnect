@@ -1,6 +1,7 @@
 package moe.chenxy.headphones.protocol.sony
 
 import moe.chenxy.headphones.core.feature.BatteryComponent
+import moe.chenxy.headphones.core.feature.BatteryState
 import moe.chenxy.headphones.core.feature.EqualizerBandKind
 import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.headphones.core.feature.EqualizerPreset
@@ -333,6 +334,38 @@ class SonyParsersTest {
         assertTrue(pair.values[BatteryComponent.LEFT]?.charging == true)
         assertFalse(pair.values[BatteryComponent.RIGHT]?.charging == true)
         assertEquals(66, cradle.values[BatteryComponent.CASE]?.level)
+    }
+
+    @Test
+    fun `in-case zero sentinel removes only the unavailable paired earbud`() {
+        val current = mapOf(
+            BatteryComponent.LEFT to BatteryState(100, false),
+            BatteryComponent.RIGHT to BatteryState(100, false),
+            BatteryComponent.CASE to BatteryState(75, false),
+        )
+        val inCase = SonyBatteryFeature.parse(
+            SonyProtocolGeneration.V2,
+            message(byteArrayOf(0x23, 1, 0, 0, 100, 1)),
+        )!!
+
+        val merged = SonyBatteryFeature.merge(current, inCase)
+
+        assertFalse(BatteryComponent.LEFT in merged)
+        assertEquals(BatteryState(100, true), merged[BatteryComponent.RIGHT])
+        assertEquals(BatteryState(75, false), merged[BatteryComponent.CASE])
+    }
+
+    @Test
+    fun `paired zero is retained when the earbud explicitly reports charging`() {
+        val report = SonyBatteryFeature.parse(
+            SonyProtocolGeneration.V2,
+            message(byteArrayOf(0x23, 1, 0, 1, 100, 0)),
+        )!!
+
+        val merged = SonyBatteryFeature.merge(emptyMap(), report)
+
+        assertEquals(BatteryState(0, true), merged[BatteryComponent.LEFT])
+        assertEquals(BatteryState(100, false), merged[BatteryComponent.RIGHT])
     }
 
     @Test

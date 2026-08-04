@@ -544,7 +544,8 @@ class SonySessionTest {
             advertisedUuids = emptySet(),
             availableTransports = setOf(TransportKind.BLE_GATT),
         ).copy(displayName = "LinkBuds S")
-        val session = SonySession(
+        lateinit var session: SonySession
+        session = SonySession(
             DriverSessionContext(
                 candidate,
                 object : TransportFactory {
@@ -557,6 +558,7 @@ class SonySessionTest {
                         return if (
                             service.equals(SonyProfile.SONY_AUTO_PLAY_SERVICE_UUID, true)
                         ) {
+                            assertTrue(session.connection.value is SessionState.Ready)
                             autoPlay
                         } else {
                             tandem

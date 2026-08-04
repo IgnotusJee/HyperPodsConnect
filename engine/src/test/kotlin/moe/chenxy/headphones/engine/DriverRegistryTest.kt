@@ -41,6 +41,29 @@ class DriverRegistryTest {
         assertTrue(DriverRegistry.canAutoConnect(match))
     }
 
+    @Test
+    fun `bonded matching vendor may connect from protected profile event`() {
+        val candidate = candidate(vendorId = VendorId.SONY, bonded = true)
+        val match = DriverRegistry(listOf(provider(VendorId.SONY, DetectionConfidence.HINT)))
+            .resolve(candidate)!!
+
+        assertTrue(DriverRegistry.canConnectFromProfile(match, candidate))
+    }
+
+    @Test
+    fun `profile event still rejects unbonded or mismatched vendor hints`() {
+        val sony = provider(VendorId.SONY, DetectionConfidence.HINT)
+        val unbonded = candidate(vendorId = VendorId.SONY, bonded = false)
+        val mismatched = candidate(vendorId = VendorId.OPPO, bonded = true)
+
+        assertFalse(
+            DriverRegistry.canConnectFromProfile(DriverRegistry(listOf(sony)).resolve(unbonded)!!, unbonded),
+        )
+        assertFalse(
+            DriverRegistry.canConnectFromProfile(DriverRegistry(listOf(sony)).resolve(mismatched)!!, mismatched),
+        )
+    }
+
     private fun provider(vendor: VendorId, confidence: DetectionConfidence) =
         object : HeadphoneDriverProvider {
             override val vendorId = vendor
@@ -52,9 +75,12 @@ class DriverRegistryTest {
                 error("not used")
         }
 
-    private fun candidate() = DeviceCandidate(
-        DeviceIdentity(DeviceId("test"), null, "00"),
+    private fun candidate(
+        vendorId: VendorId? = null,
+        bonded: Boolean = true,
+    ) = DeviceCandidate(
+        DeviceIdentity(DeviceId("test"), vendorId, "00"),
         "Headphones",
-        bonded = true,
+        bonded = bonded,
     )
 }
