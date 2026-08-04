@@ -10,6 +10,9 @@ import android.graphics.drawable.Icon
 import android.os.Handler
 import android.os.Looper
 import com.xzakota.hyper.notification.focus.FocusNotification
+import moe.chenxy.oppopods.integration.NotificationBatteryComponent
+import moe.chenxy.oppopods.integration.NotificationBatterySlot
+import moe.chenxy.oppopods.integration.toNotificationProjection
 import moe.chenxy.oppopods.hook.Log
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 
@@ -17,9 +20,8 @@ import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 object FocusIslandUtil {
     private const val TAG = "OppoPods-FocusIsland"
     private const val CHANNEL_ID = "oppopods_focus_island"
-    private const val CHANNEL_NAME = "OppoPods Battery"
+    private const val CHANNEL_NAME = "Headphone Battery"
     private const val NOTIFICATION_ID = 10086
-    private const val ISLAND_TIMEOUT_SECONDS = 3
     private const val DISMISS_DELAY_MS = 4000L
 
     fun showBatteryIsland(
@@ -29,26 +31,20 @@ object FocusIslandUtil {
         address: String,
     ): Boolean {
         try {
-            val leftConnected = batteryParams.left?.isConnected == true
-            val rightConnected = batteryParams.right?.isConnected == true
-
-            // Need at least one ear connected
-            if (!leftConnected && !rightConnected) return false
-
-            val leftText = if (leftConnected) "${batteryParams.left!!.battery}" else "-"
-            val rightText = if (rightConnected) "${batteryParams.right!!.battery}" else "-"
-
-            val leftBitmap = PodImageLoader.loadIslandLeftBitmap(context, prefs, address)
-            val rightBitmap = PodImageLoader.loadIslandRightBitmap(context, prefs, address)
-
-            if (leftBitmap == null || rightBitmap == null) {
-                Log.e(TAG, "Failed to decode earphone icon bitmaps")
-                return false
+            val projection = batteryParams.toNotificationProjection("Headphones")
+            val slots = projection.islandSlots
+            if (slots.isEmpty()) return false
+            val primary = slots[0]
+            val secondary = slots.getOrNull(1)
+            val primaryBitmap = loadSlotBitmap(context, prefs, address, primary) ?: return false
+            val secondaryBitmap = secondary?.let {
+                loadSlotBitmap(context, prefs, address, it)
             }
+            if (secondary != null && secondaryBitmap == null) return false
 
-            // 使用 createWithBitmap 直接嵌入图片数据，SystemUI 无需再访问模块资源
-            val leftIcon = Icon.createWithBitmap(leftBitmap)
-            val rightIcon = Icon.createWithBitmap(rightBitmap)
+            // Embed bitmap data so SystemUI never needs direct access to module resources.
+            val primaryIcon = Icon.createWithBitmap(primaryBitmap)
+            val secondaryIcon = secondaryBitmap?.let(Icon::createWithBitmap)
 
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(
@@ -59,18 +55,17 @@ object FocusIslandUtil {
                 }
             )
 
-            val contentParts = mutableListOf<String>()
-            if (leftConnected) contentParts.add("L: ${batteryParams.left!!.battery}%")
-            if (rightConnected) contentParts.add("R: ${batteryParams.right!!.battery}%")
-            val contentText = contentParts.joinToString("  ")
+            val contentText = projection.aodTitle
 
             val extras = FocusNotification.buildV3 {
-                val picLeft = createPicture("key_pic_left", leftIcon)
-                val picRight = createPicture("key_pic_right", rightIcon)
+                val picPrimary = createPicture("key_pic_primary", primaryIcon)
+                val picSecondary = secondaryIcon?.let {
+                    createPicture("key_pic_secondary", it)
+                }
 
                 enableFloat = true
-                ticker = "OppoPods"
-                tickerPic = picLeft
+                ticker = projection.title
+                tickerPic = picPrimary
 
                 isShowNotification = false
                 island {
@@ -80,38 +75,40 @@ object FocusIslandUtil {
                             type = 1
                             picInfo {
                                 type = 1
-                                pic = picLeft
+                                pic = picPrimary
                             }
                             textInfo {
-                                title = leftText
+                                title = primary.level.toString()
                                 content = "%"
                             }
                         }
-                        imageTextInfoRight {
-                            type = 2
-                            picInfo {
-                                type = 1
-                                pic = picRight
-                            }
-                            textInfo {
-                                title = rightText
-                                content = "%"
+                        if (secondary != null && picSecondary != null) {
+                            imageTextInfoRight {
+                                type = 2
+                                picInfo {
+                                    type = 1
+                                    pic = picSecondary
+                                }
+                                textInfo {
+                                    title = secondary.level.toString()
+                                    content = "%"
+                                }
                             }
                         }
                     }
                     shareData {
-                        title = "OppoPods"
+                        title = projection.title
                         content = contentText
                         shareContent = contentText
                     }
                 }
-            } ?: return false
+            }
 
             val notification = Notification.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-                .setContentTitle("OppoPods")
+                .setContentTitle(projection.title)
                 .setContentText(contentText)
-                .setTicker("OppoPods")
+                .setTicker(projection.title)
                 .addExtras(extras)
                 .build()
 
@@ -121,11 +118,26 @@ object FocusIslandUtil {
                 try { nm.cancel(NOTIFICATION_ID) } catch (_: Exception) {}
             }, DISMISS_DELAY_MS)
 
-            Log.d(TAG, "Focus Island shown: L=$leftText% R=$rightText%")
+            Log.d(TAG, "Focus Island shown: title=${projection.title} batteries=$contentText")
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to show Focus Island", e)
             return false
         }
+    }
+
+    private fun loadSlotBitmap(
+        context: Context,
+        prefs: SharedPreferences,
+        address: String,
+        slot: NotificationBatterySlot,
+    ) = when (slot.component) {
+        NotificationBatteryComponent.LEFT ->
+            PodImageLoader.loadIslandLeftBitmap(context, prefs, address)
+        NotificationBatteryComponent.RIGHT ->
+            PodImageLoader.loadIslandRightBitmap(context, prefs, address)
+        NotificationBatteryComponent.SINGLE,
+        NotificationBatteryComponent.CASE ->
+            PodImageLoader.loadIslandSingleBitmap(context, prefs, address)
     }
 }

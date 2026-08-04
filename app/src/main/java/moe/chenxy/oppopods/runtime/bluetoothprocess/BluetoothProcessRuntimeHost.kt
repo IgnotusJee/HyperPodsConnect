@@ -102,9 +102,8 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
                         },
                 )
                 attachVendorEvents(value.generationId)
-                if (value.profile?.vendorId == VendorId.OPPO) {
-                    OppoSystemIntegrationAdapter.onEngineSnapshot(value)
-                }
+                // Notification and island effects consume the brand-neutral snapshot.
+                OppoSystemIntegrationAdapter.onEngineSnapshot(value)
                 publishSnapshot(value)
             }
         }

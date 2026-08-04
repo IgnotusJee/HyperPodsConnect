@@ -30,6 +30,12 @@ fun HeadphoneUiState.toIntegrationState() = HeadphoneIntegrationState(
             case = values["CASE"]?.let {
                 PodParams(it.level, it.charging, true, 0)
             },
+            single = values["SINGLE"]?.let {
+                PodParams(it.level, it.charging, true, 0)
+            },
+            deviceName = title.takeIf(String::isNotBlank),
+            topology = topology,
+            canCycleNoiseControl = features["NOISE_CONTROL"]?.writable == true,
         )
     },
     anc = features["NOISE_CONTROL"]?.confirmed?.let(::noiseControlValue),

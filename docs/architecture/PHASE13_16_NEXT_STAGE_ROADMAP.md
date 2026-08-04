@@ -13,6 +13,10 @@ Phase 13 先补齐设备控制证据，Phase 14 在其上扩展领域模型。Ph
 弹窗提供统一图片来源，Phase 16 最后消费已经稳定的 snapshot、能力与图片，不在 Hook 进程中
 另建蓝牙会话。
 
+Phase 15 闭环后、进入 Phase 16 前增加一个不改变阶段编号的通用通知增量，执行边界见
+[`UNIVERSAL_HEADPHONE_NOTIFICATIONS.md`](UNIVERSAL_HEADPHONE_NOTIFICATIONS.md)：焦点通知与模块
+超级岛统一消费 snapshot，支持 TWS、单电池和单侧 + 盒拓扑，控制按钮只按 capability 出现。
+
 ## 2. Phase 13：Sony Classic SPP 功能闭环
 
 执行记录见

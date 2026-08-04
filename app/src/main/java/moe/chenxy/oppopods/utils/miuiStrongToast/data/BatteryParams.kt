@@ -20,5 +20,9 @@ data class PodParams (
 data class BatteryParams(
     var left: PodParams? = null,
     var right: PodParams? = null,
-    var case: PodParams? = null
+    var case: PodParams? = null,
+    var single: PodParams? = null,
+    var deviceName: String? = null,
+    var topology: String? = null,
+    var canCycleNoiseControl: Boolean = false,
 ) : Parcelable

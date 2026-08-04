@@ -29,7 +29,9 @@ import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.LegacyPodsAction
 import moe.chenxy.oppopods.R
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
+import moe.chenxy.oppopods.integration.NotificationBatteryComponent
 import moe.chenxy.oppopods.integration.toIntegrationState
+import moe.chenxy.oppopods.integration.toNotificationProjection
 import moe.chenxy.oppopods.ipc.IpcSenderPolicy
 import moe.chenxy.oppopods.ipc.isSentFrom
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
@@ -63,9 +65,6 @@ object MiBluetoothToastHook : HookContext() {
 
         @SuppressLint("WrongConstant")
         fun createPodsNotification(bluetoothDevice: BluetoothDevice?, context: Context, batteryParams: BatteryParams) {
-            val miheadset_notification_Box = context.resources.getIdentifier("miheadset_notification_Box", "string", "com.xiaomi.bluetooth")
-            val miheadset_notification_LeftEar = context.resources.getIdentifier("miheadset_notification_LeftEar", "string", "com.xiaomi.bluetooth")
-            val miheadset_notification_RightEar = context.resources.getIdentifier("miheadset_notification_RightEar", "string", "com.xiaomi.bluetooth")
             val miheadset_notification_Disconnect = context.resources.getIdentifier("miheadset_notification_Disconnect", "string", "com.xiaomi.bluetooth")
             val system_notification_accent_color = context.resources.getIdentifier("system_notification_accent_color", "color", "android")
             if (bluetoothDevice == null) {
@@ -78,27 +77,26 @@ object MiBluetoothToastHook : HookContext() {
                 if (alias?.isEmpty() == true) {
                     alias = bluetoothDevice.name
                 }
-
-                val caseBattStr = if (batteryParams.case != null && batteryParams.case!!.isConnected)
-                    "${context.resources.getString(miheadset_notification_Box)}${batteryParams.case!!.battery}%" +
-                            "${if (batteryParams.case!!.isCharging) "⚡ " else " "}\n"
-                else ""
-                val leftEar = if (batteryParams.left != null && batteryParams.left!!.isConnected)
-                    "${context.resources.getString(miheadset_notification_LeftEar)}${batteryParams.left!!.battery}%" +
-                        (if (batteryParams.left!!.isCharging) "⚡" else "")
-                else ""
-                val leftToRight = if (batteryParams.left?.isConnected == true && batteryParams.right?.isConnected == true) " " else ""
-                val rightEar = if (batteryParams.right != null && batteryParams.right!!.isConnected)
-                    "$leftToRight${context.resources.getString(miheadset_notification_RightEar)}${batteryParams.right!!.battery}%" +
-                        (if (batteryParams.right!!.isCharging) "⚡ " else " ")
-                else ""
-
-                val contentText: String = caseBattStr + leftEar + rightEar
+                val moduleContext = context.createPackageContext(
+                    "moe.chenxy.oppopods", Context.CONTEXT_IGNORE_SECURITY
+                )
+                val projection = batteryParams.toNotificationProjection(alias ?: "Headphones")
+                if (projection.slots.isEmpty()) return
+                val notificationTitle = projection.title
+                val contentText = projection.slots.joinToString("  ") { slot ->
+                    val label = when (slot.component) {
+                        NotificationBatteryComponent.SINGLE -> R.string.notification_battery_single
+                        NotificationBatteryComponent.LEFT -> R.string.notification_battery_left
+                        NotificationBatteryComponent.RIGHT -> R.string.notification_battery_right
+                        NotificationBatteryComponent.CASE -> R.string.notification_battery_case
+                    }
+                    moduleContext.getString(label, slot.level) + if (slot.charging) " ⚡" else ""
+                }
                 val notificationManager = context.getSystemService("notification") as NotificationManager
                 notificationManager.createNotificationChannel(
                     NotificationChannel(
                         "BTHeadset$address",
-                        alias,
+                        notificationTitle,
                         NotificationManager.IMPORTANCE_DEFAULT
                     ).apply {
                         setSound(null, null)
@@ -120,11 +118,8 @@ object MiBluetoothToastHook : HookContext() {
                 val ancCycleIntent = Intent(LegacyPodsAction.ACTION_CYCLE_ANC)
                 ancCycleIntent.setPackage("com.android.bluetooth")
                 ancCycleIntent.setIdentifier("BTHeadset$address")
-                ancCycleIntent.putExtra("device_name", alias ?: bluetoothDevice.name ?: "")
-                val moduleContext = context.createPackageContext(
-                    "moe.chenxy.oppopods", Context.CONTEXT_IGNORE_SECURITY
-                )
-                val headsetBitmap = PodImageLoader.loadBoxBitmap(context, prefs, address)
+                ancCycleIntent.putExtra("device_name", notificationTitle)
+                val headsetBitmap = PodImageLoader.loadNotificationBitmap(context, prefs, address)
                     ?: BitmapFactory.decodeResource(moduleContext.resources, R.drawable.img_box)
                 if (headsetBitmap == null) {
                     Log.e("OppoPods", "createPodsNotification: headset bitmap null")
@@ -138,14 +133,14 @@ object MiBluetoothToastHook : HookContext() {
                         setClassName("moe.chenxy.oppopods", "moe.chenxy.oppopods.PopupActivity")
                         putExtra("android.bluetooth.device.extra.DEVICE", bluetoothDevice)
                         putExtra("bluetoothaddress", bluetoothDevice.address)
-                        putExtra("device_name", alias)
+                        putExtra("device_name", notificationTitle)
                     },
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
                 val focusExtras = FocusNotification.buildV3 {
                     val logo = createPicture("key_headset", headsetIcon)
                     enableFloat = true
-                    ticker = alias ?: ""
+                    ticker = notificationTitle
                     updatable = true
 //                    tickerPic = logo
 
@@ -154,7 +149,7 @@ object MiBluetoothToastHook : HookContext() {
                             type = 0
                             src = logo
                         }
-                        title = alias ?: ""
+                        title = notificationTitle
                         content = contentText
                     }
 
@@ -171,7 +166,7 @@ object MiBluetoothToastHook : HookContext() {
                             imageTextInfoRight {
                                 type = 2
                                 textInfo {
-                                    title = alias ?: ""
+                                    title = notificationTitle
                                     content = contentText
                                 }
                             }
@@ -180,15 +175,17 @@ object MiBluetoothToastHook : HookContext() {
 
 
                     textButton {
-                        addActionInfo {
-                            val ancLabel = moduleContext.getString(R.string.cycle_anc)
-                            val ancAction = Notification.Action.Builder(
-                                Icon.createWithResource(context, android.R.drawable.ic_lock_silent_mode),
-                                ancLabel,
-                                PendingIntent.getBroadcast(context, 1, ancCycleIntent, 201326592)
-                            ).build()
-                            action = createAction("key_anc_cycle", ancAction)
-                            actionTitle = ancLabel
+                        if (projection.canCycleNoiseControl) {
+                            addActionInfo {
+                                val ancLabel = moduleContext.getString(R.string.cycle_anc)
+                                val ancAction = Notification.Action.Builder(
+                                    Icon.createWithResource(context, android.R.drawable.ic_lock_silent_mode),
+                                    ancLabel,
+                                    PendingIntent.getBroadcast(context, 1, ancCycleIntent, 201326592)
+                                ).build()
+                                action = createAction("key_anc_cycle", ancAction)
+                                actionTitle = ancLabel
+                            }
                         }
                         addActionInfo {
                             val disconnectLabel = moduleContext.getString(R.string.notification_btn_disconnect)
@@ -207,38 +204,30 @@ object MiBluetoothToastHook : HookContext() {
                         }
                     }
                 }
-                // AOD 息屏显示：左右耳电量拼合后注入 aodTitle
-                if (focusExtras != null) {
-                    val aodParts = mutableListOf<String>()
-                    if (batteryParams.left?.isConnected == true)
-                        aodParts.add("L ${batteryParams.left!!.battery}%")
-                    if (batteryParams.right?.isConnected == true)
-                        aodParts.add("R ${batteryParams.right!!.battery}%")
-                    val aodTitle = aodParts.joinToString(" | ")
-                    try {
-                        val json = org.json.JSONObject(focusExtras.getString("miui.focus.param") ?: "{}")
-                        val pv2 = json.optJSONObject("param_v2") ?: org.json.JSONObject()
-                        pv2.put("aodTitle", aodTitle)
-                        pv2.put("aodPic", "key_headset")
-                        json.put("param_v2", pv2)
-                        focusExtras.putString("miui.focus.param", json.toString())
-                    } catch (_: Exception) {}
-                }
+                // AOD uses the same topology-aware battery projection as the notification.
+                try {
+                    val json = org.json.JSONObject(focusExtras.getString("miui.focus.param") ?: "{}")
+                    val pv2 = json.optJSONObject("param_v2") ?: org.json.JSONObject()
+                    pv2.put("aodTitle", projection.aodTitle)
+                    pv2.put("aodPic", "key_headset")
+                    json.put("param_v2", pv2)
+                    focusExtras.putString("miui.focus.param", json.toString())
+                } catch (_: Exception) {}
                 notificationManager.notifyAsUser(
                     "BTHeadset$address",
                     10003,
                     Notification.Builder(context, "BTHeadset$address")
                         .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
                         .setWhen(0L)
-                        .setTicker(alias)
+                        .setTicker(notificationTitle)
                         .setDefaults(-1)
-                        .setContentTitle(alias)
+                        .setContentTitle(notificationTitle)
                         .setContentText(contentText)
                         .setContentIntent(pendingIntent)
                         .setDeleteIntent(deleteIntent(context, bluetoothDevice))
                         .setColor(context.getColor(system_notification_accent_color))
                         .addAction(disconnectAction)
-                        .apply { focusExtras?.let { addExtras(it) } }
+                        .addExtras(focusExtras)
                         .setVisibility(Notification.VISIBILITY_PUBLIC)
                         .build(),
                     SystemApisUtils.getUserAllUserHandle()
@@ -277,18 +266,30 @@ object MiBluetoothToastHook : HookContext() {
                                     Log.d("OppoPods", "skip module island mode=${ConfigManager.islandMode()}")
                                     return
                                 }
-                                val batteryParams = p1.getParcelableExtra("batteryParams", BatteryParams::class.java)!!
+                                val batteryParams = p1.getParcelableExtra(
+                                    "batteryParams",
+                                    BatteryParams::class.java,
+                                ) ?: return
                                 // Use Focus Island (HyperOS 3+) for battery display
                                 val address = p1.getStringExtra("address").orEmpty()
                                 FocusIslandUtil.showBatteryIsland(context, prefs, batteryParams, address)
                             } else if (p1?.action == "chen.action.oppopods.updatepodsnotification") {
-                                val batteryParams = p1.getParcelableExtra<BatteryParams>("batteryParams", BatteryParams::class.java)
+                                val batteryParams = p1.getParcelableExtra(
+                                    "batteryParams",
+                                    BatteryParams::class.java,
+                                ) ?: return
                                 val device = p1.getParcelableExtra("device", BluetoothDevice::class.java)
-                                createPodsNotification(device, context, batteryParams!!)
+                                createPodsNotification(device, context, batteryParams)
                             } else if (p1?.action == "chen.action.oppopods.cancelpodsnotification") {
                                 val device = p1.getParcelableExtra("device", BluetoothDevice::class.java) as BluetoothDevice
                                 cancelNotification(device, context)
                             } else if (p1?.action == LegacyPodsAction.ACTION_CYCLE_ANC) {
+                                val noiseControl = HyperOsHeadphoneAdapter.state
+                                    .feature(FeatureId.NOISE_CONTROL.name)
+                                if (noiseControl?.writable != true) {
+                                    Log.w("OppoPods", "ignore ANC cycle without writable capability")
+                                    return
+                                }
                                 val adaptiveSupported = HyperOsHeadphoneAdapter.state
                                     .feature(FeatureId.NOISE_CONTROL.name)
                                     ?.options?.any { it.value == "ADAPTIVE" } == true

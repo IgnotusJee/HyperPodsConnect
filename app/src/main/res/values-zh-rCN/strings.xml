@@ -123,12 +123,12 @@
     <string name="capability_force_disabled">强制关闭</string>
     <string name="capability_override_summary">自动时跟随型号检测；检测不准时可在这里覆盖。</string>
     <string name="island_mode">超级岛</string>
-    <string name="island_mode_summary">选择要显示的电量超级岛</string>
+    <string name="island_mode_summary">为所有已支持耳机选择电量超级岛</string>
     <string name="island_mode_none">不显示</string>
     <string name="island_mode_official">官方</string>
     <string name="island_mode_module">模块</string>
     <string name="island_show_timing">超级岛显示时机</string>
-    <string name="island_show_timing_summary">仅开启超级岛时候显示</string>
+    <string name="island_show_timing_summary">模块模式下对所有已支持耳机生效</string>
     <string name="island_show_timing_connected">连接时</string>
     <string name="island_show_timing_wearing">佩戴时</string>
     <string name="island_show_timing_removed">摘下时</string>
@@ -136,6 +136,10 @@
     <string name="fake_device_id">伪装耳机型号</string>
     <string name="fake_device_id_summary">留空时默认使用 01010607</string>
     <string name="notification_btn_disconnect">断开连接</string>
+    <string name="notification_battery_single">电量 %1$d%%</string>
+    <string name="notification_battery_left">左耳 %1$d%%</string>
+    <string name="notification_battery_right">右耳 %1$d%%</string>
+    <string name="notification_battery_case">充电盒 %1$d%%</string>
     <string name="restart_scope_title">重启作用域</string>
     <string name="restart_scope_summary">选择要重启的 LSPosed 作用域。</string>
     <string name="restart_scope_success">作用域已重启</string>

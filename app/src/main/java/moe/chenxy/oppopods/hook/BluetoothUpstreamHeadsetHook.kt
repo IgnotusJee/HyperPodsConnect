@@ -2,6 +2,7 @@ package moe.chenxy.oppopods.hook
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -23,7 +24,11 @@ import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
 import moe.chenxy.oppopods.ipc.IpcSenderPolicy
 import moe.chenxy.oppopods.ipc.isSentFrom
 import moe.chenxy.oppopods.integration.HyperOsHeadphoneAdapter
+import moe.chenxy.oppopods.integration.OfficialHeadsetIslandPayload
+import moe.chenxy.oppopods.integration.shouldTriggerOfficialHeadsetIsland
 import moe.chenxy.oppopods.integration.toIntegrationState
+import moe.chenxy.oppopods.integration.toOfficialHeadsetIslandPayload
+import moe.chenxy.oppopods.ui.state.HeadphoneUiState
 import moe.chenxy.oppopods.ui.state.HeadphoneUiStore
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.oppopods.utils.miuiStrongToast.data.BatteryParams
@@ -48,6 +53,8 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
     private var hasTransparencyVocalEnhancementState = false
     private var currentAddress: String? = null
     private var currentName: String? = null
+    private var previousOfficialIslandState = HeadphoneUiState()
+    private var pendingOfficialIslandAddress: String? = null
 
     override fun onHook() {
         hookHeadsetServiceBinder()
@@ -71,6 +78,7 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
                 ) {
                     val device = args[4] as? BluetoothDevice
                     if (!isOppoPod(device)) return@hookBefore
+                    pendingOfficialIslandAddress = device?.address
                     val battery = effectiveBattery() ?: return@hookBefore
                     val leftBattery = displayBattery(battery.left) ?: (args[1] as? Int ?: 0)
                     val rightBattery = displayBattery(battery.right) ?: (args[2] as? Int ?: 0)
@@ -119,7 +127,9 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
                 hookAfter(notificationClass.method("updateParameters", requestClass)) {
                     val request = args[0] ?: return@hookAfter
                     val device = getObjectField(request, "f18110e") as? BluetoothDevice
-                    if (!isOppoPod(device)) return@hookAfter
+                    val supported = isOppoPod(device)
+                    pendingOfficialIslandAddress = device?.address?.takeIf { supported }
+                    if (!supported) return@hookAfter
                     val battery = effectiveBattery() ?: return@hookAfter
                     val leftBattery = displayBattery(battery.left)
                     val rightBattery = displayBattery(battery.right)
@@ -181,10 +191,17 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
                 if (intent?.action != LegacyPodsAction.ACTION_CONFIG_CHANGED) return
                 refreshConfig()
                 notifyRealStatus("config-changed")
+                if (ConfigManager.islandMode() == ConfigManager.ISLAND_MODE_OFFICIAL) {
+                    showOfficialHeadsetIsland(HeadphoneUiStore.state.value, "config-changed")
+                }
             }
         }, filter, Context.RECEIVER_EXPORTED)
         stateScope.launch {
             HeadphoneUiStore.state.collect { state ->
+                val bridgeOfficialIsland =
+                    ConfigManager.islandMode() == ConfigManager.ISLAND_MODE_OFFICIAL &&
+                        shouldTriggerOfficialHeadsetIsland(previousOfficialIslandState, state)
+                previousOfficialIslandState = state
                 val projected = state.toIntegrationState()
                 currentAddress = projected.address ?: currentAddress
                 currentName = projected.name ?: currentName
@@ -199,7 +216,12 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
                     "snapshot generation=${state.generationId} address=$currentAddress " +
                         "name=$currentName anc=$currentAnc battery=${currentBattery.debugString()}",
                 )
-                handler.post { notifyRealStatus("snapshot") }
+                handler.post {
+                    notifyRealStatus("snapshot")
+                    if (bridgeOfficialIsland) {
+                        showOfficialHeadsetIsland(state, "snapshot")
+                    }
+                }
             }
         }
         receiverRegistered = true
@@ -671,7 +693,8 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
     }
 
     private fun effectiveBattery(): BatteryParams? {
-        val batteries = HyperOsHeadphoneAdapter.state.batteries
+        val state = HyperOsHeadphoneAdapter.state
+        val batteries = state.batteries
         if (batteries.isEmpty()) return currentBattery
         fun battery(primary: String, fallback: String? = null): PodParams? {
             val value = batteries[primary] ?: fallback?.let(batteries::get) ?: return null
@@ -681,6 +704,10 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
             left = battery("LEFT", "SINGLE"),
             right = battery("RIGHT"),
             case = battery("CASE"),
+            single = battery("SINGLE"),
+            deviceName = state.title.takeIf(String::isNotBlank),
+            topology = state.topology,
+            canCycleNoiseControl = state.features["NOISE_CONTROL"]?.writable == true,
         )
     }
 
@@ -690,14 +717,69 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
     }
 
     private fun displayWearState(battery: BatteryParams, fallback: Int): Int {
+        HyperOsHeadphoneAdapter.state.toOfficialHeadsetIslandPayload()?.let { return it.wearState }
         val leftConnected = battery.left?.isConnected == true
         val rightConnected = battery.right?.isConnected == true
         return when {
-            leftConnected && rightConnected -> 1
-            leftConnected -> 3
-            rightConnected -> 2
+            leftConnected && rightConnected -> OfficialHeadsetIslandPayload.WEAR_BOTH
+            leftConnected -> OfficialHeadsetIslandPayload.WEAR_LEFT
+            rightConnected -> OfficialHeadsetIslandPayload.WEAR_RIGHT
             fallback != 0 -> fallback
-            else -> 1
+            else -> OfficialHeadsetIslandPayload.WEAR_NOT_SUPPORTED
+        }
+    }
+
+    private fun showOfficialHeadsetIsland(
+        state: HeadphoneUiState,
+        reason: String,
+        attempt: Int = 0,
+    ) {
+        if (ConfigManager.islandMode() != ConfigManager.ISLAND_MODE_OFFICIAL) return
+        val payload = state.toOfficialHeadsetIslandPayload() ?: return
+        val current = HyperOsHeadphoneAdapter.state
+        if (current.deviceId != state.deviceId || !current.supportsAddress(state.address)) return
+        val appContext = context ?: return
+        val device = runCatching {
+            appContext.getSystemService(BluetoothManager::class.java)
+                ?.adapter
+                ?.getRemoteDevice(state.address)
+        }.getOrNull() ?: return
+        if (!HyperOsHeadphoneAdapter.supports(device.address, state.title)) return
+
+        val notification = currentMiuiBluetoothNotification()
+        if (notification == null) {
+            if (attempt < 3) {
+                handler.postDelayed(
+                    { showOfficialHeadsetIsland(state, reason, attempt + 1) },
+                    500L,
+                )
+            } else {
+                Log.w(TAG, "official island bridge unavailable reason=$reason package=$packageName")
+            }
+            return
+        }
+
+        lastOppoDevice = device
+        pendingOfficialIslandAddress = device.address
+        runCatching {
+            callMethod(
+                notification,
+                "showConnectedToast",
+                payload.requestFlag,
+                payload.leftBattery,
+                payload.rightBattery,
+                payload.wearState,
+                device,
+                "",
+            )
+        }.onSuccess {
+            Log.i(
+                TAG,
+                "official island bridge reason=$reason device=${device.describe()} " +
+                    "left=${payload.leftBattery} right=${payload.rightBattery} wear=${payload.wearState}",
+            )
+        }.onFailure {
+            Log.w(TAG, "official island bridge failed reason=$reason device=${device.describe()}", it)
         }
     }
 
@@ -714,12 +796,19 @@ class BluetoothUpstreamHeadsetHook : HookContext() {
         if (bundle == null) return
         if (!shouldInterceptHeadsetWearIsland(bundle)) return
         if (ConfigManager.islandMode() != ConfigManager.ISLAND_MODE_OFFICIAL) return
-        val battery = effectiveBattery() ?: return
-        val leftText = displayBattery(battery.left)?.let { "$it%" }
-        val rightText = displayBattery(battery.right)?.let { "$it%" }
+        val state = HyperOsHeadphoneAdapter.state
+        val payload = state.toOfficialHeadsetIslandPayload() ?: return
+        if (!state.supportsAddress(pendingOfficialIslandAddress)) return
+        val leftText = payload.leftBattery
+            .takeIf { it != OfficialHeadsetIslandPayload.BATTERY_UNAVAILABLE }
+            ?.let { "$it%" }
+        val rightText = payload.rightBattery
+            .takeIf { it != OfficialHeadsetIslandPayload.BATTERY_UNAVAILABLE }
+            ?.let { "$it%" }
         if (leftText == null && rightText == null) return
         patchIslandJson(bundle, "param", leftText, rightText)
         patchIslandJson(bundle, "island_param", leftText, rightText)
+        pendingOfficialIslandAddress = null
         Log.d(TAG, "patched headset_wear_notification island text left=$leftText right=$rightText")
     }
 

@@ -64,6 +64,24 @@ object PodImageLoader {
         return loadBitmap(context, prefs, address, PodImageResource.BOX, R.drawable.img_box)
     }
 
+    /** Uses topology-neutral official detail art when a device has no box asset. */
+    fun loadNotificationBitmap(
+        context: Context,
+        prefs: SharedPreferences,
+        address: String,
+    ): Bitmap? = loadFirstAvailableBitmap(
+        context,
+        prefs,
+        address,
+        listOf(
+            PodImageResource.BOX,
+            PodImageResource.DETAIL,
+            PodImageResource.LEFT,
+            PodImageResource.RIGHT,
+        ),
+        R.drawable.img_box,
+    )
+
     /**
      * MIUI Settings only exposes a static ImageView for the large headset artwork. Keep explicit
      * user artwork ahead of the official detail render, then degrade through the topology assets.
@@ -81,25 +99,60 @@ object PodImageLoader {
     }
 
     fun loadIslandLeftBitmap(context: Context, prefs: SharedPreferences, address: String): Bitmap? {
-        return loadBitmapWithCustomFallback(
-            context = context,
-            prefs = prefs,
-            address = address,
-            resource = PodImageResource.LEFT,
-            customFallbackResource = PodImageResource.BOX,
-            fallbackResId = R.drawable.img_left,
+        return loadFirstAvailableBitmap(
+            context,
+            prefs,
+            address,
+            listOf(PodImageResource.LEFT, PodImageResource.BOX, PodImageResource.DETAIL),
+            R.drawable.img_left,
         )
     }
 
     fun loadIslandRightBitmap(context: Context, prefs: SharedPreferences, address: String): Bitmap? {
-        return loadBitmapWithCustomFallback(
-            context = context,
-            prefs = prefs,
-            address = address,
-            resource = PodImageResource.RIGHT,
-            customFallbackResource = PodImageResource.BOX,
-            fallbackResId = R.drawable.img_right,
+        return loadFirstAvailableBitmap(
+            context,
+            prefs,
+            address,
+            listOf(PodImageResource.RIGHT, PodImageResource.BOX, PodImageResource.DETAIL),
+            R.drawable.img_right,
         )
+    }
+
+    fun loadIslandSingleBitmap(
+        context: Context,
+        prefs: SharedPreferences,
+        address: String,
+    ): Bitmap? = loadFirstAvailableBitmap(
+        context,
+        prefs,
+        address,
+        listOf(
+            PodImageResource.BOX,
+            PodImageResource.DETAIL,
+            PodImageResource.LEFT,
+            PodImageResource.RIGHT,
+        ),
+        R.drawable.img_box,
+    )
+
+    private fun loadFirstAvailableBitmap(
+        context: Context,
+        prefs: SharedPreferences,
+        address: String,
+        resources: List<PodImageResource>,
+        fallbackResId: Int,
+    ): Bitmap? {
+        val earphone = runCatching { PodImagePrefs.findOrLatest(prefs, address) }.getOrNull()
+        resources.firstNotNullOfOrNull { resource ->
+            runCatching {
+                earphone?.imageUri(resource)?.let { uri -> decodeUri(context, uri) }
+            }.getOrNull()
+        }?.let { return it }
+
+        val moduleContext = runCatching {
+            context.createPackageContext(MODULE_PACKAGE, Context.CONTEXT_IGNORE_SECURITY)
+        }.getOrNull() ?: return null
+        return BitmapFactory.decodeResource(moduleContext.resources, fallbackResId)
     }
 
     private fun decodeUri(context: Context, uri: android.net.Uri): Bitmap? {

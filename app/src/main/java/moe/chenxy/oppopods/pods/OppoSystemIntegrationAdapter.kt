@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import moe.chenxy.headphones.core.device.VendorId
 import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.BatteryState
 import moe.chenxy.headphones.core.feature.FeatureId
@@ -69,6 +70,9 @@ object OppoSystemIntegrationAdapter {
     private var lastKnownCaseBattery = 0
     private var lastKnownCaseCharging = false
     private var cachedDeviceName = ""
+    private var currentTopology: String? = null
+    private var currentVendorId: String? = null
+    private var canCycleNoiseControl = false
     private var receiverRegistered = false
     private var currentWearStatus = WearStatus()
     private val rawHexSessionGate = RawHexSessionGate(BuildConfig.ALLOW_RAW_PROTOCOL_CONSOLE)
@@ -99,7 +103,11 @@ object OppoSystemIntegrationAdapter {
             LegacyPodsAction.ACTION_CYCLE_ANC -> cycleAnc()
             LegacyPodsAction.ACTION_CONFIG_CHANGED -> {
                 ConfigManager.refreshFromPrefs(mPrefs)
-                if (!currentCompatibility().adaptiveSupported && currentAnc == 4) setANCMode(2)
+                if (
+                    currentVendorId == VendorId.OPPO.value &&
+                    !currentCompatibility().adaptiveSupported &&
+                    currentAnc == 4
+                ) setANCMode(2)
             }
             LegacyPodsAction.ACTION_RFCOMM_LOG_CONNECT -> {
                 if (!RfcommLog.isEnabled()) RfcommLog.setEnabled(true, mContext)
@@ -204,8 +212,27 @@ object OppoSystemIntegrationAdapter {
             moe.chenxy.headphones.core.device.DeviceId.fromAddress(mDevice.address).value
         ) return
         val previous = lastEngineState
+        val nextVendorId = snapshot.profile?.vendorId?.value
+        val nextTopology = snapshot.profile?.topology?.name
+        val nextCanCycleNoiseControl = snapshot.profile?.canWrite(FeatureId.NOISE_CONTROL) == true
+        val nextDeviceName = snapshot.profile?.model?.takeIf(String::isNotBlank) ?: cachedDeviceName
+        val presentationChanged =
+            nextTopology != currentTopology ||
+                nextCanCycleNoiseControl != canCycleNoiseControl ||
+                nextDeviceName != cachedDeviceName
+        currentVendorId = nextVendorId
+        currentTopology = nextTopology
+        canCycleNoiseControl = nextCanCycleNoiseControl
+        cachedDeviceName = nextDeviceName
         lastEngineState = snapshot.state
-        publishStateChanges(previous, snapshot.state)
+        val notificationReady = snapshot.connection is SessionState.Ready
+        val enteringReady = notificationReady && readyGeneration != snapshot.generationId
+        publishStateChanges(
+            previous,
+            snapshot.state,
+            notificationReady,
+            presentationChanged || enteringReady,
+        )
         when (val connection = snapshot.connection) {
             is SessionState.Ready -> {
                 if (readyGeneration != snapshot.generationId) {
@@ -255,8 +282,17 @@ object OppoSystemIntegrationAdapter {
         )
     }
 
-    private fun publishStateChanges(previous: HeadphoneState, current: HeadphoneState) {
-        if (current.batteries.isNotEmpty() && current.batteries != previous.batteries) {
+    private fun publishStateChanges(
+        previous: HeadphoneState,
+        current: HeadphoneState,
+        notificationReady: Boolean,
+        forceNotificationRefresh: Boolean,
+    ) {
+        if (
+            notificationReady &&
+            current.batteries.isNotEmpty() &&
+            (current.batteries != previous.batteries || forceNotificationRefresh)
+        ) {
             handleBatteryChanged(current.batteries)
         }
         if (current.wearing != previous.wearing) {
@@ -266,7 +302,7 @@ object OppoSystemIntegrationAdapter {
                 right = current.wearing[WearComponent.RIGHT]?.toLegacyWearState(),
                 case = oldWear.case,
             )
-            showIslandForWearStatusChange(oldWear, currentWearStatus)
+            if (notificationReady) showIslandForWearStatusChange(oldWear, currentWearStatus)
         }
         current.noiseControl.confirmed?.let { value ->
             if (value != previous.noiseControl.confirmed) {
@@ -307,6 +343,9 @@ object OppoSystemIntegrationAdapter {
         lastKnownCaseBattery = 0
         lastKnownCaseCharging = false
         cachedDeviceName = ""
+        currentTopology = null
+        currentVendorId = null
+        canCycleNoiseControl = false
         mContext = null
     }
 
@@ -420,6 +459,7 @@ object OppoSystemIntegrationAdapter {
 
     fun handleBatteryChanged(result: Map<BatteryComponent, BatteryState>) {
         val leftState = result[BatteryComponent.LEFT] ?: result[BatteryComponent.SINGLE]
+        val singleState = result[BatteryComponent.SINGLE]
         val rightState = result[BatteryComponent.RIGHT]
         val caseState = result[BatteryComponent.CASE]
         val left = PodParams(leftState?.level ?: 0, leftState?.charging == true, leftState != null, 0)
@@ -437,7 +477,17 @@ object OppoSystemIntegrationAdapter {
                 (right.isConnected && right.battery > 0)
             if (!valid) return
         }
-        val battery = BatteryParams(left, right, case)
+        val battery = BatteryParams(
+            left = left,
+            right = right,
+            case = case,
+            single = singleState?.let {
+                PodParams(it.level, it.charging, true, 0)
+            },
+            deviceName = cachedDeviceName,
+            topology = currentTopology,
+            canCycleNoiseControl = canCycleNoiseControl,
+        )
         currentBatteryParams = battery
         if (shouldShowToast) {
             if (shouldShowIsland(ConfigManager.ISLAND_SHOW_TIMING_CONNECTED)) {

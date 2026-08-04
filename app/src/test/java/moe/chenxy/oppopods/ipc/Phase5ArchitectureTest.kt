@@ -124,6 +124,48 @@ class Phase5ArchitectureTest {
     }
 
     @Test
+    fun `notification projection consumes every supported vendor snapshot after ready`() {
+        val runtime = source(
+            "src/main/java/moe/chenxy/oppopods/runtime/bluetoothprocess/" +
+                "BluetoothProcessRuntimeHost.kt",
+        )
+        val adapter = source(
+            "src/main/java/moe/chenxy/oppopods/pods/OppoSystemIntegrationAdapter.kt",
+        )
+        assumeTrue(runtime != null)
+        assumeTrue(adapter != null)
+
+        assertTrue(runtime!!.contains("OppoSystemIntegrationAdapter.onEngineSnapshot(value)"))
+        assertFalse(
+            Regex(
+                """if\s*\(value\.profile\?\.vendorId\s*==\s*VendorId\.OPPO\)\s*\{\s*""" +
+                    """OppoSystemIntegrationAdapter\.onEngineSnapshot""",
+            ).containsMatchIn(runtime),
+        )
+        assertTrue(adapter!!.contains("notificationReady = snapshot.connection is SessionState.Ready"))
+        assertTrue(adapter.contains("canWrite(FeatureId.NOISE_CONTROL)"))
+    }
+
+    @Test
+    fun `official island bridge uses exact Ready snapshot and Xiaomi native path`() {
+        val upstream = source(
+            "src/main/java/moe/chenxy/oppopods/hook/BluetoothUpstreamHeadsetHook.kt",
+        )
+        val projection = source(
+            "src/main/java/moe/chenxy/oppopods/integration/OfficialHeadsetIslandProjection.kt",
+        )
+        assumeTrue(upstream != null)
+        assumeTrue(projection != null)
+
+        assertTrue(upstream!!.contains("showOfficialHeadsetIsland(state, \"snapshot\")"))
+        assertTrue(upstream.contains("\"showConnectedToast\""))
+        assertTrue(upstream.contains("current.supportsAddress(state.address)"))
+        assertTrue(projection!!.contains("!connected || deviceId == null || address.isNullOrBlank()"))
+        assertFalse(projection.contains("VendorId.OPPO"))
+        assertFalse(projection.contains("VendorId.SONY"))
+    }
+
+    @Test
     fun `default runtime logs do not format identity bearing addresses`() {
         val runtime = source(
             "src/main/java/moe/chenxy/oppopods/runtime/bluetoothprocess/" +

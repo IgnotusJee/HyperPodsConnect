@@ -122,12 +122,12 @@
     <string name="capability_force_disabled">Force disabled</string>
     <string name="capability_override_summary">Auto follows model detection. Override only when detection is wrong.</string>
     <string name="island_mode">Super Island</string>
-    <string name="island_mode_summary">Choose which battery island is displayed</string>
+    <string name="island_mode_summary">Choose the battery island for every supported headset</string>
     <string name="island_mode_none">none</string>
     <string name="island_mode_official">Official</string>
     <string name="island_mode_module">Module</string>
     <string name="island_show_timing">Super Island display timing</string>
-    <string name="island_show_timing_summary">Only displayed when Super Island is enabled</string>
+    <string name="island_show_timing_summary">Applies to every supported headset in module mode</string>
     <string name="island_show_timing_connected">When connected</string>
     <string name="island_show_timing_wearing">When wearing</string>
     <string name="island_show_timing_removed">When removed</string>
@@ -135,6 +135,10 @@
     <string name="fake_device_id">Fake earphone model</string>
     <string name="fake_device_id_summary">Empty value falls back to 01010607.</string>
     <string name="notification_btn_disconnect">Disconnect</string>
+    <string name="notification_battery_single">Battery %1$d%%</string>
+    <string name="notification_battery_left">Left %1$d%%</string>
+    <string name="notification_battery_right">Right %1$d%%</string>
+    <string name="notification_battery_case">Case %1$d%%</string>
     <string name="restart_scope_title">Restart Scope</string>
     <string name="restart_scope_summary">Select LSPosed scopes to restart.</string>
     <string name="restart_scope_success">Scope restarted</string>
