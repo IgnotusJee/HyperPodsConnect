@@ -2,8 +2,9 @@
 
 ## 1. 当前状态
 
-2026-08-03 已完成 **15A 静态实现、OPPO Enco Air5s 官方缓存取证与真机显示回归**，并完成
-**15B 高清详情资源与动画资源升级**，并完成 **15C Sony 本地官方资源索引静态实现**：
+2026-08-04 已完成 **15A 静态实现、OPPO Enco Air5s 官方缓存取证与真机显示回归**、
+**15B 高清详情资源与动画资源升级**和 **15C Sony 本地官方资源索引及双型号真机回归**，
+Phase 15 已闭环：
 
 - App 连接到 OPPO 设备后，只按 HeyMelody `melody_equipment` 中唯一的精确设备记录解析图片；
 - 图片读取优先级固定为：用户自定义图 > 已验证官方缓存图 > APK 内置通用图；
@@ -26,8 +27,8 @@
   也不由模块发起网络请求。
 
 Air5s 详情页、图片配置、通知与超级岛均已真机显示官方缓存图，外部进程也已通过同一
-ContentProvider 逐字节读取三张图片。Sony 静态解析、单元测试和 WH-1000XM4 真机回归已完成；
-LinkBuds S 仍需连接后完成模块内显示和 HyperOS 设置页回归，因此 Phase 15 尚未闭环。
+ContentProvider 逐字节读取三张图片。Sony 静态解析、单元测试以及 WH-1000XM4、LinkBuds S
+真机回归均已完成，三型号显示矩阵闭合。
 
 ## 2. Air5s 官方 App 证据
 
@@ -141,10 +142,22 @@ Sony 当前目标资源均为单张 `DETAIL`，不伪造耳塞的 LEFT/RIGHT/BOX
   `9e3bcf848f400fb0f1fb6e8ab610611604ef055fdf5b98e5aab2c613d314d936`；
 - HyperOS 设置页真机日志确认 `Settings hero replaced ... bitmap=720x720`，地址来自当前 Sony
   snapshot，证明同一 Sony 官方图片已被 Settings 进程解码并设置到静态 Hero ImageView。
+- LinkBuds S 真机安装使用完整 `:app:installDebug`，随后重启 `com.android.bluetooth`、
+  `com.android.settings`、`com.milink.service` 和 `com.xiaomi.bluetooth` 四个 LSPosed 作用域；
+- 重连后 snapshot 为 `Ready / CONTROLLED / BLE GATT / 4.2.1`，左、右、盒电量分别为
+  `99% / 100% / 93%`，模块详情页同步显示状态与官方蓝紫色设备图；
+- 自动加载 Sony schema 2 descriptor：`productId=0x32:0x06`、`colorId=0x05`、
+  `DETAIL=image/png 720×720 / 95,301 bytes`，SHA-256 为
+  `ea8c1ea11fb4ea6482aa7735ff08b0c77e23cf9f00951d05abe8560c791b1fd7`；
+- 非 root shell 通过 `content://moe.chenxy.oppopods.podimages/...` 读取所得字节数和 SHA-256
+  与模块私有缓存完全一致，验证 Settings 等外部进程使用的跨进程图片通道；
+- `DeviceArtworkCacheDeviceTest` 使用与主 APK 匹配的测试 APK 真机运行，2/2 通过；
+- HyperOS 设置页真机日志确认 `Settings hero replaced ... bitmap=720x720`，截图视觉核验显示
+  LinkBuds S 官方蓝紫色图片，电量和降噪状态与同一 Ready snapshot 一致。
 
-## 6. 后续门禁
+## 6. Phase 15 结论与后续边界
 
-1. 如需人工 UI 回归，验证用户自定义图覆盖、清除后回落官方图；损坏输入保留旧缓存已由
-   instrumentation 覆盖；
-2. 对 LinkBuds S 重复 Sony descriptor、App 详情页、ContentProvider 和 HyperOS 设置页验证；
-3. LinkBuds S 通过后完成三型号真机显示矩阵并关闭 Phase 15。
+Phase 15 的完成标准已由 OPPO Enco Air5s、Sony WH-1000XM4 和 Sony LinkBuds S 三条真机显示
+链路满足。后续新增型号继续遵守精确型号/配色证据、原子缓存、ContentProvider 跨进程读取和
+确定性回退门禁；用户自定义图覆盖及清除回落可作为发布前人工 UI 回归项，损坏输入保留旧缓存已由
+instrumentation 覆盖。

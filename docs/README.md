@@ -37,8 +37,9 @@ Phase 13 **已完成**：WH-1000XM4 2.5.1 / Sony v1 SPP 的 capability-gated NC/
 全效果 OFF 与 preset EQ 已完成 ACK/通知、强制 GET 回读、原值恢复和 20/20 稳定性门禁，精确
 型号/固件/transport tuple 达到 `STABLE`。Phase 14 **已完成**：通用整曲线模型、IPC/UI，
 WH-1000XM4 2.5.1 Sony V1，以及 OPPO Enco Air5s 163.163.102 的临时槽位创建、最小修改、强制
-读回、原值恢复、删除和重连零残留均已闭环。Phase 15–16 依次推进官方设备图片自动解析，以及
-MiLink 状态桥与耳机弹窗。小米/OPPO 弹窗已完成首轮静态论证；
+读回、原值恢复、删除和重连零残留均已闭环。Phase 15 **已完成**：Air5s、WH-1000XM4 和
+LinkBuds S 的官方设备图片自动解析、缓存、模块详情页、跨进程读取与 HyperOS 设置页真机矩阵均已
+闭环。下一步进入 Phase 16 的 MiLink 状态桥与耳机弹窗；小米/OPPO 弹窗已完成首轮静态论证；
 静态反编译结论不会在动态 trace 与真机回归前标记为完成。
 
 模块结构目前是 `:app`、`:core`、`:engine`、`:protocol:oppo`、`:protocol:sony`、

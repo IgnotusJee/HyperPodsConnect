@@ -80,7 +80,9 @@ session 仅在运行时能力位与有效 GET 同时成立后开放对应槽位�
 
 执行记录见 [`PHASE15_DEVICE_ARTWORK.md`](PHASE15_DEVICE_ARTWORK.md)。15A 已完成 Air5s 的
 HeyMelody `melody_equipment` 精确 tuple 取证、版本化 descriptor、安全原子缓存、连接后自动解析、
-详情页、通知和超级岛真机显示与跨进程 provider 读取。Sony 资源索引仍待完成，Phase 15 尚未闭环。
+详情页、通知和超级岛真机显示与跨进程 provider 读取；15B 已完成高清详情与动画资源升级；15C 已
+完成 Sony 本地官方资源索引，以及 WH-1000XM4、LinkBuds S 的模块详情页、ContentProvider 和
+HyperOS 设置页真机回归。Phase 15 已闭环。
 
 ### 设计原则
 
