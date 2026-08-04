@@ -5,8 +5,12 @@ import moe.chenxy.headphones.core.feature.EqualizerBandKind
 import moe.chenxy.headphones.core.feature.EqualizerCurve
 import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.NoiseControlMode
+import moe.chenxy.headphones.core.feature.WearComponent
+import moe.chenxy.headphones.core.feature.WearState
+import moe.chenxy.headphones.core.device.TransportKind
 import moe.chenxy.headphones.protocol.sony.feature.SonyHandshake
 import moe.chenxy.headphones.protocol.sony.feature.SonyProtocolGeneration
+import moe.chenxy.headphones.protocol.sony.feature.SonySupportInfo
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryFeature
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryType
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeature
@@ -18,9 +22,12 @@ import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1AmbientSet
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1NoiseControlCapability
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1NoiseControlFeature
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1NoiseSettingType
+import moe.chenxy.headphones.protocol.sony.feature.wearing.SonyWearingFeature
+import moe.chenxy.headphones.protocol.sony.feature.wearing.SonyAutoPlayWearingFeature
 import moe.chenxy.headphones.protocol.sony.frame.TandemDecodeResult
 import moe.chenxy.headphones.protocol.sony.frame.TandemStreamDecoder
 import moe.chenxy.headphones.protocol.sony.message.SonyCommand
+import moe.chenxy.headphones.protocol.sony.message.SonyCommandTable
 import moe.chenxy.headphones.protocol.sony.message.SonyDataType
 import moe.chenxy.headphones.protocol.sony.message.SonyDeviceInfoType
 import moe.chenxy.headphones.protocol.sony.message.SonyMdrMessage
@@ -326,6 +333,91 @@ class SonyParsersTest {
         assertTrue(pair.values[BatteryComponent.LEFT]?.charging == true)
         assertFalse(pair.values[BatteryComponent.RIGHT]?.charging == true)
         assertEquals(66, cradle.values[BatteryComponent.CASE]?.level)
+    }
+
+    @Test
+    fun `parses table2 wearing checker and rejects fitting detector confusion`() {
+        val leftRemoved = SonyWearingFeature.parse(
+            table2Message(byteArrayOf(0xF3.toByte(), 0x00, 0x02)),
+        )!!
+        val bothRemoved = SonyWearingFeature.parse(
+            table2Message(byteArrayOf(0xF5.toByte(), 0x00, 0x04)),
+        )!!
+        val protocol = requireNotNull(
+            SonyHandshake.parseProtocolInfo(message(byteArrayOf(0x01, 0, 0, 0, 0, 2, 1, 1))),
+        )
+
+        assertEquals(WearState.REMOVED, leftRemoved.values[WearComponent.LEFT])
+        assertEquals(WearState.WEARING, leftRemoved.values[WearComponent.RIGHT])
+        assertEquals(WearState.REMOVED, bothRemoved.values[WearComponent.LEFT])
+        assertEquals(WearState.REMOVED, bothRemoved.values[WearComponent.RIGHT])
+        assertEquals(
+            byteArrayOf(0xF2.toByte(), 0x00).toList(),
+            SonyWearingFeature.query().toList(),
+        )
+        assertTrue(
+            SonyProfile.shouldQueryWearing(
+                protocol,
+                SonySupportInfo(listOf(0xF001), byteArrayOf(), "wearing"),
+            ),
+        )
+        assertFalse(
+            SonyProfile.shouldQueryWearing(
+                protocol,
+                SonySupportInfo(listOf(0xF61E), byteArrayOf(), "fitting"),
+            ),
+        )
+        assertNull(
+            SonyWearingFeature.parse(message(byteArrayOf(0xF3.toByte(), 0x00, 0x00))),
+        )
+        assertNull(
+            SonyWearingFeature.parse(
+                table2Message(byteArrayOf(0xF3.toByte(), 0x00, 0x05)),
+            ),
+        )
+    }
+
+    @Test
+    fun `parses Auto Play wearing bits used by LinkBuds S`() {
+        val leftOnly = SonyAutoPlayWearingFeature.parse(
+            byteArrayOf(0x06, 0x00, 0x7C, 0x00, 0x02),
+        )!!
+        val both = SonyAutoPlayWearingFeature.parse(
+            byteArrayOf(0x06, 0x00, 0x7C, 0x7F, 0x03, 0x55),
+        )!!
+        val protocol = requireNotNull(
+            SonyHandshake.parseProtocolInfo(message(byteArrayOf(0x01, 0, 0, 0, 0, 2, 1, 1))),
+        )
+
+        assertEquals(WearState.WEARING, leftOnly.values[WearComponent.LEFT])
+        assertEquals(WearState.REMOVED, leftOnly.values[WearComponent.RIGHT])
+        assertEquals(WearState.WEARING, both.values[WearComponent.LEFT])
+        assertEquals(WearState.WEARING, both.values[WearComponent.RIGHT])
+        assertEquals(
+            byteArrayOf(0x14, 0x00, 0x7C).toList(),
+            SonyAutoPlayWearingFeature.connect().toList(),
+        )
+        assertEquals(
+            byteArrayOf(0x06, 0x00, 0x7C).toList(),
+            SonyAutoPlayWearingFeature.query().toList(),
+        )
+        assertTrue(
+            SonyProfile.shouldQueryAutoPlayWearing(
+                TransportKind.BLE_GATT,
+                protocol,
+                SonySupportInfo(listOf(0xA20C), byteArrayOf(), "auto-play"),
+            ),
+        )
+        assertFalse(
+            SonyProfile.shouldQueryAutoPlayWearing(
+                TransportKind.CLASSIC_SPP,
+                protocol,
+                SonySupportInfo(listOf(0xA20C), byteArrayOf(), "auto-play"),
+            ),
+        )
+        assertNull(
+            SonyAutoPlayWearingFeature.parse(byteArrayOf(0x06, 0x00, 0x7D, 0x00, 0x03)),
+        )
     }
 
     @Test
@@ -845,6 +937,13 @@ class SonyParsersTest {
         command = payload.first().toInt() and 0xFF,
         payload = payload,
     )
+
+    private fun table2Message(payload: ByteArray) = SonyMdrMessage(
+        SonyDataType.DATA_MDR_NO2,
+        sequence = 0,
+        command = payload.first().toInt() and 0xFF,
+        payload = payload,
+    ).also { assertEquals(SonyCommandTable.TABLE2, it.table) }
 
     private fun linkBudsEqCapability() = requireNotNull(
         SonyEqualizerFeature.parseCapability(

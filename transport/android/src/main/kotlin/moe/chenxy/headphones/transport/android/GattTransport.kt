@@ -371,7 +371,7 @@ class GattTransport(
         if (event.generationId != generation || activeGeneration != generation) return
         if (
             event is GattCallbackEvent.Notification &&
-            event.characteristicUuid.uuidEquals(spec.rxCharacteristicUuid)
+            isIncomingCharacteristic(event.characteristicUuid)
         ) {
             localNotifications.trySend(event.value.copyOf())
             return
@@ -402,6 +402,12 @@ class GattTransport(
             )
         }
     }
+
+    private fun isIncomingCharacteristic(characteristicUuid: String): Boolean =
+        characteristicUuid.uuidEquals(spec.rxCharacteristicUuid) ||
+            spec.preparationSteps
+                .filterIsInstance<GattPreparationStep.Subscribe>()
+                .any { characteristicUuid.uuidEquals(it.characteristicUuid) }
 
     private fun missingAttribute(localClient: GattClient): String? = when {
         !localClient.hasService(spec.serviceUuid) -> spec.serviceUuid

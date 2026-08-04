@@ -16,6 +16,7 @@ import moe.chenxy.headphones.core.transport.TransportSpec
 class AndroidBluetoothTransportFactory(
     context: Context,
     private val platformDevice: BluetoothDevice,
+    private val gattDeviceResolver: AndroidGattDeviceResolver = AndroidGattDeviceResolver.DIRECT,
 ) : TransportFactory {
     private val spp = AndroidSppTransportFactory(platformDevice)
     private val appContext = context.applicationContext
@@ -27,10 +28,13 @@ class AndroidBluetoothTransportFactory(
     ): ByteTransport = when (spec) {
         is TransportSpec.Spp -> spp.create(device, spec)
         is TransportSpec.Gatt -> {
-            val connectedGroupLead = leAudioGroupResolver.resolveConnectedGroupLead(platformDevice)
+            val connectedGroupMembers =
+                leAudioGroupResolver.resolveConnectedGroupMembers(platformDevice)
+            val endpoint = gattDeviceResolver.resolve(connectedGroupMembers, spec)
+                ?: connectedGroupMembers.first()
             AndroidGattTransportFactory(
                 context = appContext,
-                platformDevice = connectedGroupLead,
+                platformDevice = endpoint,
                 sessionIdentityAddress = platformDevice.address,
             ).create(device, spec)
         }

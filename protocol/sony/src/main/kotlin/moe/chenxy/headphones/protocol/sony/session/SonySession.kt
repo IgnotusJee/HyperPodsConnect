@@ -66,6 +66,8 @@ import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControl
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlState
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1NoiseControlCapability
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1NoiseControlFeature
+import moe.chenxy.headphones.protocol.sony.feature.wearing.SonyAutoPlayWearingFeature
+import moe.chenxy.headphones.protocol.sony.feature.wearing.SonyWearingFeature
 import moe.chenxy.headphones.protocol.sony.frame.TandemCodec
 import moe.chenxy.headphones.protocol.sony.frame.TandemDecodeResult
 import moe.chenxy.headphones.protocol.sony.frame.TandemFrame
@@ -82,6 +84,9 @@ sealed interface SonySessionEvent {
     data class RxChunk(val bytes: ByteArray) : SonySessionEvent
     data class RxFrame(val frame: TandemFrame) : SonySessionEvent
     data class DecodeRejected(val reason: String) : SonySessionEvent
+    data class AutoPlayTx(val bytes: ByteArray) : SonySessionEvent
+    data class AutoPlayRx(val bytes: ByteArray) : SonySessionEvent
+    data class AutoPlayUnavailable(val detail: String) : SonySessionEvent
 }
 
 /**
@@ -120,12 +125,15 @@ class SonySession(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lifecycleMutex = Mutex()
     private val exchangeMutex = Mutex()
+    private val autoPlayExchangeMutex = Mutex()
     private val operationMutex = Mutex()
     private val decoder = TandemStreamDecoder()
     private val requestCounter = AtomicLong()
     private var transport: ByteTransport? = null
     private var incomingJob: Job? = null
     private var transportStateJob: Job? = null
+    private var autoPlayTransport: ByteTransport? = null
+    private var autoPlayIncomingJob: Job? = null
     private var outgoingSequence = 0
 
     @Volatile
@@ -133,6 +141,12 @@ class SonySession(
 
     @Volatile
     private var responseWaiter: ResponseWaiter? = null
+
+    @Volatile
+    private var autoPlayResponseWaiter: AutoPlayResponseWaiter? = null
+
+    @Volatile
+    private var autoPlayWearingActive = false
 
     private var protocolInfo: SonyProtocolInfo? = null
     private var capabilityInfo: SonyCapabilityInfo? = null
@@ -278,6 +292,24 @@ class SonySession(
         }
         var noiseControlObserved = false
         var equalizerObserved = false
+        val tableWearingObserved = if (SonyProfile.shouldQueryWearing(protocol, support)) {
+            exchange(
+                SonyWearingFeature.query(),
+                SonyCommand.SYSTEM_RET_STATUS,
+                table = SonyCommandTable.TABLE2,
+                responsePredicate = SonyWearingFeature::matches,
+            )?.let(SonyWearingFeature::parse) != null
+        } else {
+            false
+        }
+        val autoPlayWearingObserved = if (
+            SonyProfile.shouldQueryAutoPlayWearing(route.kind, protocol, support)
+        ) {
+            connectAutoPlayWearing()
+        } else {
+            false
+        }
+        val wearingObserved = tableWearingObserved || autoPlayWearingObserved
         if (SonyProfile.shouldQueryNoiseControl(protocol, support)) {
             val response = exchange(
                 SonyNoiseControlFeature.query(),
@@ -337,6 +369,7 @@ class SonySession(
             support,
             noiseControlObserved,
             equalizerObserved,
+            wearingReadVerified = wearingObserved,
             equalizerPresetIds = v1EqualizerCapability?.presetIds
                 ?: v2EqualizerCapability?.presetIds
                 ?: emptySet(),
@@ -418,6 +451,31 @@ class SonySession(
                     SonyNoiseControlFeature.query(),
                     SonyCommand.NCASM_RET_PARAM,
                     responsePredicate = SonyNoiseControlFeature::matches,
+                )
+            }
+        }
+        if (
+            FeatureId.WEAR_DETECTION in requested &&
+            _profile.value?.capability(FeatureId.WEAR_DETECTION)?.canRead == true
+        ) {
+            if (autoPlayWearingActive) {
+                autoPlayExchange(
+                    SonyAutoPlayWearingFeature.query(),
+                    SonyAutoPlayWearingFeature.HEADPHONE_STATUS_MESSAGE,
+                )
+            }
+            val support = supportInfo
+            val protocol = protocolInfo
+            if (
+                support != null &&
+                protocol != null &&
+                SonyProfile.shouldQueryWearing(protocol, support)
+            ) {
+                exchange(
+                    SonyWearingFeature.query(),
+                    SonyCommand.SYSTEM_RET_STATUS,
+                    table = SonyCommandTable.TABLE2,
+                    responsePredicate = SonyWearingFeature::matches,
                 )
             }
         }
@@ -509,8 +567,15 @@ class SonySession(
         transition(SessionEvent.DisconnectRequested)
         ackWaiter?.deferred?.cancel()
         responseWaiter?.deferred?.cancel()
+        autoPlayResponseWaiter?.deferred?.cancel()
         ackWaiter = null
         responseWaiter = null
+        autoPlayResponseWaiter = null
+        autoPlayTransport?.close(cause)
+        autoPlayIncomingJob?.cancel()
+        autoPlayTransport = null
+        autoPlayIncomingJob = null
+        autoPlayWearingActive = false
         transport?.close(cause)
         incomingJob?.cancel()
         transportStateJob?.cancel()
@@ -576,6 +641,25 @@ class SonySession(
                 applyBattery(it, if (message.command == SonyCommand.POWER_NTFY_STATUS ||
                     message.command == SonyCommand.COMMON_NTFY_BATTERY_LEVEL
                 ) ValueSource.NOTIFICATION else ValueSource.QUERY_RESPONSE)
+            }
+        }
+        val support = supportInfo
+        val protocol = protocolInfo
+        if (
+            support != null &&
+            protocol != null &&
+            SonyProfile.shouldQueryWearing(protocol, support)
+        ) {
+            SonyWearingFeature.parse(message)?.let { report ->
+                applyWearingReport(
+                    report,
+                    if (message.command == SonyCommand.SYSTEM_NTFY_STATUS) {
+                        ValueSource.NOTIFICATION
+                    } else {
+                        ValueSource.QUERY_RESPONSE
+                    },
+                    "table2",
+                )
             }
         }
         val noiseControl = when (generation) {
@@ -702,6 +786,114 @@ class SonySession(
             else -> report.values
         }
         applyReport(DeviceReport.Batteries(merged), source)
+    }
+
+    private suspend fun connectAutoPlayWearing(): Boolean {
+        val created = try {
+            context.transportFactory.create(
+                context.candidate.identity,
+                SonyProfile.autoPlayGattSpec(),
+            )
+        } catch (error: Throwable) {
+            _events.emit(
+                SonySessionEvent.AutoPlayUnavailable(
+                    error.message ?: "Auto Play GATT transport creation failed",
+                ),
+            )
+            return false
+        }
+        autoPlayTransport = created
+        autoPlayIncomingJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            created.incoming.collect(::handleAutoPlayMessage)
+        }
+        try {
+            created.open()
+        } catch (error: Throwable) {
+            _events.emit(
+                SonySessionEvent.AutoPlayUnavailable(
+                    error.message ?: "Auto Play GATT open failed",
+                ),
+            )
+            closeAutoPlayWearing(created)
+            return false
+        }
+        val openState = created.state.value
+        if (openState !is TransportState.Open) {
+            val detail = (openState as? TransportState.Failed)?.failure?.detail
+                ?: "Auto Play GATT transport did not open"
+            _events.emit(SonySessionEvent.AutoPlayUnavailable(detail))
+            closeAutoPlayWearing(created)
+            return false
+        }
+        val connected = autoPlayExchange(
+            SonyAutoPlayWearingFeature.connect(),
+            SonyAutoPlayWearingFeature.CONNECT_MESSAGE,
+        ) != null
+        if (!connected) {
+            closeAutoPlayWearing(created)
+            return false
+        }
+        val status = autoPlayExchange(
+            SonyAutoPlayWearingFeature.query(),
+            SonyAutoPlayWearingFeature.HEADPHONE_STATUS_MESSAGE,
+        )
+        autoPlayWearingActive = status?.let(SonyAutoPlayWearingFeature::parse) != null
+        if (!autoPlayWearingActive) closeAutoPlayWearing(created)
+        return autoPlayWearingActive
+    }
+
+    private suspend fun closeAutoPlayWearing(active: ByteTransport) {
+        autoPlayResponseWaiter?.deferred?.cancel()
+        autoPlayResponseWaiter = null
+        autoPlayWearingActive = false
+        runCatching { active.close(DisconnectCause.REQUESTED) }
+        autoPlayIncomingJob?.cancel()
+        autoPlayIncomingJob = null
+        if (autoPlayTransport === active) autoPlayTransport = null
+    }
+
+    private fun handleAutoPlayMessage(bytes: ByteArray) {
+        _events.tryEmit(SonySessionEvent.AutoPlayRx(bytes.copyOf()))
+        SonyAutoPlayWearingFeature.parse(bytes)?.let { report ->
+            applyWearingReport(report, ValueSource.NOTIFICATION, "auto-play-ble")
+        }
+        autoPlayResponseWaiter?.let { waiter ->
+            if (SonyAutoPlayWearingFeature.matches(bytes, waiter.expectedMessageType)) {
+                waiter.deferred.complete(bytes.copyOf())
+            }
+        }
+    }
+
+    private suspend fun autoPlayExchange(
+        payload: ByteArray,
+        expectedMessageType: Int,
+    ): ByteArray? = autoPlayExchangeMutex.withLock {
+        val active = autoPlayTransport ?: return@withLock null
+        if (active.state.value !is TransportState.Open) return@withLock null
+        val response = CompletableDeferred<ByteArray>()
+        val holder = AutoPlayResponseWaiter(expectedMessageType, response)
+        check(autoPlayResponseWaiter == null) {
+            "only one Sony Auto Play request may be in flight"
+        }
+        autoPlayResponseWaiter = holder
+        try {
+            _events.emit(SonySessionEvent.AutoPlayTx(payload.copyOf()))
+            if (active.write(payload) !is TransportWriteResult.Written) return@withLock null
+            withTimeoutOrNull(responseTimeoutMillis) { response.await() }
+        } finally {
+            if (autoPlayResponseWaiter === holder) autoPlayResponseWaiter = null
+        }
+    }
+
+    private fun applyWearingReport(
+        report: DeviceReport.Wearing,
+        source: ValueSource,
+        channel: String,
+    ) {
+        applyReport(report, source)
+        _state.value = _state.value.copy(
+            vendorStates = _state.value.vendorStates + ("sony.wearing.transport" to channel),
+        )
     }
 
     private fun applyNoiseControlState(state: SonyNoiseControlState, source: ValueSource) {
@@ -1299,6 +1491,11 @@ class SonySession(
         val expectedCommand: Int,
         val predicate: (SonyMdrMessage) -> Boolean,
         val deferred: CompletableDeferred<SonyMdrMessage>,
+    )
+
+    private data class AutoPlayResponseWaiter(
+        val expectedMessageType: Int,
+        val deferred: CompletableDeferred<ByteArray>,
     )
 
     private data class SonyExchangeResult(

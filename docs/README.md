@@ -16,6 +16,7 @@
 | Phase 13 Sony SPP 当前执行记录 | [architecture/PHASE13_SONY_SPP_CONTROLS.md](architecture/PHASE13_SONY_SPP_CONTROLS.md) |
 | Phase 14 多厂商自定义 EQ 执行记录 | [architecture/PHASE14_CUSTOM_EQ.md](architecture/PHASE14_CUSTOM_EQ.md) |
 | Phase 15 官方设备图片执行记录 | [architecture/PHASE15_DEVICE_ARTWORK.md](architecture/PHASE15_DEVICE_ARTWORK.md) |
+| Sony 佩戴检测的能力与通道门禁 | [architecture/SONY_WEARING_DETECTION.md](architecture/SONY_WEARING_DETECTION.md) |
 | 小米原生/OPPO 官方弹窗机制与 Hook 可行性 | [reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md](reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md) |
 | 新增厂商或型号需要满足哪些边界 | [architecture/VENDOR_EXTENSION_CHECKLIST.md](architecture/VENDOR_EXTENSION_CHECKLIST.md) |
 | 官方 App 协议是怎么逆出来的 | [reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md](reverse-engineering/OPPO_OFFICIAL_APP_DEXDUMP_ANALYSIS.md) |
@@ -41,6 +42,10 @@ WH-1000XM4 2.5.1 Sony V1，以及 OPPO Enco Air5s 163.163.102 的临时槽位创
 LinkBuds S 的官方设备图片自动解析、缓存、模块详情页、跨进程读取与 HyperOS 设置页真机矩阵均已
 闭环。下一步进入 Phase 16 的 MiLink 状态桥与耳机弹窗；小米/OPPO 弹窗已完成首轮静态论证；
 静态反编译结论不会在动态 trace 与真机回归前标记为完成。
+
+Sony 佩戴检测现已接入两条只读来源：MDR table2 `0xF0` 与 Auto Play BLE `0xA2`。两条路径
+都必须同时通过设备 capability、协议代际、transport 和实际状态读取门禁，才会向统一 snapshot
+公开 `WEAR_DETECTION`；仅有静态能力位、服务缺失或端点不可连接时保持未知，不猜测佩戴状态。
 
 模块结构目前是 `:app`、`:core`、`:engine`、`:protocol:oppo`、`:protocol:sony`、
 `:transport:android`。`:core`、`:engine` 与两个 protocol 模块都是纯 Kotlin/JVM

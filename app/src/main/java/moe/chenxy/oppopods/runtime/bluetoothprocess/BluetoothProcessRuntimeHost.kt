@@ -131,6 +131,7 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
                 AndroidBluetoothTransportFactory(
                     this@BluetoothProcessRuntimeHost.context,
                     device,
+                    SonyAutoPlayGattDeviceResolver(this@BluetoothProcessRuntimeHost.context),
                 ),
             )
         }
@@ -144,7 +145,11 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
         initialize(context)
         registerDrivers(overrides)
         val candidate = candidate(device)
-        val transportFactory = AndroidBluetoothTransportFactory(this.context, device)
+        val transportFactory = AndroidBluetoothTransportFactory(
+            this.context,
+            device,
+            SonyAutoPlayGattDeviceResolver(this.context),
+        )
         scope.launch {
             if (manager.autoConnect(candidate, transportFactory) != null) {
                 activeDevice = device
@@ -262,6 +267,12 @@ object BluetoothProcessRuntimeHost : SessionRuntimeHost {
                             }
                             is SonySessionEvent.DecodeRejected ->
                                 Log.w("OppoPods-Sony", "REJECT ${event.reason}")
+                            is SonySessionEvent.AutoPlayTx ->
+                                Log.d("OppoPods-Sony", "AUTO_PLAY TX ${event.bytes.toLogHex()}")
+                            is SonySessionEvent.AutoPlayRx ->
+                                Log.d("OppoPods-Sony", "AUTO_PLAY RX ${event.bytes.toLogHex()}")
+                            is SonySessionEvent.AutoPlayUnavailable ->
+                                Log.w("OppoPods-Sony", "AUTO_PLAY unavailable: ${event.detail}")
                         }
                     }
                 }

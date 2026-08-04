@@ -204,6 +204,32 @@ class GattTransportTest {
     }
 
     @Test
+    fun `notifications from a subscribed preparation characteristic are published`() = runBlocking {
+        val eventUuid = "00000000-0000-0000-0000-000000000003"
+        val fake = FakeGattClient().apply { additionalCharacteristics += eventUuid }
+        val transport = transport(
+            fake,
+            spec(
+                preparationSteps = listOf(
+                    GattPreparationStep.Subscribe(eventUuid, FakeGattClient.CCCD_UUID),
+                ),
+            ),
+        )
+        transport.open()
+        val received = async(start = CoroutineStart.UNDISPATCHED) {
+            transport.incoming.take(1).toList().single()
+        }
+
+        fake.notify(byteArrayOf(6, 7, 8), characteristicUuid = eventUuid)
+
+        assertArrayEquals(
+            byteArrayOf(6, 7, 8),
+            withTimeout(2_000) { received.await() },
+        )
+        transport.close()
+    }
+
+    @Test
     fun `characteristic read returns and publishes immutable bytes`() = runBlocking {
         val fake = FakeGattClient().apply { readValue = byteArrayOf(7, 8, 9) }
         val transport = transport(fake)

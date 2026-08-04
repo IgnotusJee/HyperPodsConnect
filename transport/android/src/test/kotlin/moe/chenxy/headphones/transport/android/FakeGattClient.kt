@@ -175,8 +175,12 @@ class FakeGattClient : GattClient {
         )
     }
 
-    fun notify(value: ByteArray, generation: Long = generationId) {
-        emit(GattCallbackEvent.Notification(generation, RX_UUID, value.copyOf()))
+    fun notify(
+        value: ByteArray,
+        generation: Long = generationId,
+        characteristicUuid: String = RX_UUID,
+    ) {
+        emit(GattCallbackEvent.Notification(generation, characteristicUuid, value.copyOf()))
     }
 
     private fun immediate(operation: String): GattStartResult {

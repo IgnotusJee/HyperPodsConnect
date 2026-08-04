@@ -25,21 +25,24 @@ internal class AndroidLeAudioGroupResolver(
     private val adapter = context.getSystemService(BluetoothManager::class.java).adapter
 
     @SuppressLint("MissingPermission")
-    suspend fun resolveConnectedGroupLead(selected: BluetoothDevice): BluetoothDevice {
-        val proxy = awaitProxy() as? BluetoothLeAudio ?: return selected
+    /** Returns the lead and every connected member so vendor resolvers can match rotating endpoints. */
+    suspend fun resolveConnectedGroupMembers(selected: BluetoothDevice): List<BluetoothDevice> {
+        val proxy = awaitProxy() as? BluetoothLeAudio ?: return listOf(selected)
         return try {
             val groupId = proxy.getGroupId(selected)
             if (groupId == BluetoothLeAudio.GROUP_ID_INVALID) {
-                selected
+                listOf(selected)
             } else {
-                proxy.getConnectedGroupLeadDevice(groupId)
-                    ?: proxy.connectedDevices.firstOrNull { member ->
+                buildList {
+                    proxy.getConnectedGroupLeadDevice(groupId)?.let(::add)
+                    addAll(proxy.connectedDevices.filter { member ->
                         proxy.getGroupId(member) == groupId
-                    }
-                    ?: selected
+                    })
+                    add(selected)
+                }.distinctBy(BluetoothDevice::getAddress)
             }
         } catch (_: SecurityException) {
-            selected
+            listOf(selected)
         } finally {
             adapter.closeProfileProxy(BluetoothProfile.LE_AUDIO, proxy)
         }

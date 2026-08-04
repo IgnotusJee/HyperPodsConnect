@@ -22,6 +22,8 @@ import moe.chenxy.headphones.protocol.sony.feature.SonySupportInfo
 import moe.chenxy.headphones.protocol.sony.feature.battery.SonyBatteryType
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyEqualizerFeature
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
+import moe.chenxy.headphones.protocol.sony.feature.wearing.SonyAutoPlayWearingFeature
+import moe.chenxy.headphones.protocol.sony.feature.wearing.SonyWearingFeature
 
 object SonyProfile {
     private const val V1_BATTERY_LEVEL = 0x11
@@ -61,6 +63,7 @@ object SonyProfile {
         supportInfo: SonySupportInfo,
         noiseControlReadVerified: Boolean,
         equalizerReadVerified: Boolean,
+        wearingReadVerified: Boolean = false,
         equalizerPresetIds: Set<String> = SonyEqualizerFeature.allowedPresetIds,
         equalizerCurveSpec: EqualizerCurveSpec? = null,
         equalizerValueLabels: Map<String, String> = SonyEqualizerFeature.valueLabels,
@@ -134,6 +137,17 @@ object SonyProfile {
                 },
             )
         }
+        if (wearingReadVerified) {
+            capabilities[FeatureId.WEAR_DETECTION] = FeatureCapability(
+                featureId = FeatureId.WEAR_DETECTION,
+                canRead = true,
+                canWrite = false,
+                evidence = EvidenceLevel.VERIFIED,
+                availableOnTransports = setOf(initial.transport),
+                requiresReadback = false,
+                source = "Sony table2 or Auto Play BLE wearing-status read verified",
+            )
+        }
         return initial.copy(
             model = model,
             firmware = firmware,
@@ -165,6 +179,27 @@ object SonyProfile {
 
     fun shouldQueryEqualizer(protocolInfo: SonyProtocolInfo): Boolean =
         protocolInfo.generation == SonyProtocolGeneration.V2 && protocolInfo.table1Enabled
+
+    fun shouldQueryWearing(
+        protocolInfo: SonyProtocolInfo,
+        supportInfo: SonySupportInfo,
+    ): Boolean =
+        protocolInfo.generation == SonyProtocolGeneration.V2 &&
+            protocolInfo.table2Enabled &&
+            supportInfo.functions.any { function ->
+                (function ushr 8) == SonyWearingFeature.FUNCTION_ID
+            }
+
+    fun shouldQueryAutoPlayWearing(
+        transportKind: TransportKind,
+        protocolInfo: SonyProtocolInfo,
+        supportInfo: SonySupportInfo,
+    ): Boolean =
+        transportKind == TransportKind.BLE_GATT &&
+            protocolInfo.generation == SonyProtocolGeneration.V2 &&
+            supportInfo.functions.any { function ->
+                (function ushr 8) == SonyAutoPlayWearingFeature.FUNCTION_ID
+            }
 
     fun shouldQueryV1NoiseControl(protocolInfo: SonyProtocolInfo): Boolean =
         protocolInfo.generation == SonyProtocolGeneration.V1 && protocolInfo.table1Enabled
@@ -258,6 +293,20 @@ object SonyProfile {
         mtuFailurePolicy = GattMtuFailurePolicy.CONTINUE_WITH_DEFAULT,
     )
 
+    fun autoPlayGattSpec(): TransportSpec.Gatt = TransportSpec.Gatt(
+        serviceUuid = SONY_AUTO_PLAY_SERVICE_UUID,
+        txCharacteristicUuid = SONY_AUTO_PLAY_COMMAND_UUID,
+        rxCharacteristicUuid = SONY_AUTO_PLAY_RESPONSE_UUID,
+        cccdUuid = GATT_CCCD_UUID,
+        preparationSteps = listOf(
+            GattPreparationStep.Subscribe(
+                characteristicUuid = SONY_AUTO_PLAY_EVENT_UUID,
+                cccdUuid = GATT_CCCD_UUID,
+            ),
+        ),
+        writeMode = GattWriteMode.WITH_RESPONSE,
+    )
+
     private fun readCapabilities(
         evidence: EvidenceLevel,
         transportKind: TransportKind,
@@ -291,5 +340,13 @@ object SonyProfile {
         "5B833C91-6BC7-4802-8E9A-723CECA4BD8F"
     const val SONY_GATT_DETERMINE_MTU_UUID =
         "5B833C93-6BC7-4802-8E9A-723CECA4BD8F"
+    const val SONY_AUTO_PLAY_SERVICE_UUID =
+        "F76ACB00-7CAB-495F-BB1A-E664598FD77F"
+    const val SONY_AUTO_PLAY_COMMAND_UUID =
+        "F76ACB01-7CAB-495F-BB1A-E664598FD77F"
+    const val SONY_AUTO_PLAY_RESPONSE_UUID =
+        "F76ACB02-7CAB-495F-BB1A-E664598FD77F"
+    const val SONY_AUTO_PLAY_EVENT_UUID =
+        "F76ACB03-7CAB-495F-BB1A-E664598FD77F"
     const val GATT_CCCD_UUID = "00002902-0000-1000-8000-00805F9B34FB"
 }

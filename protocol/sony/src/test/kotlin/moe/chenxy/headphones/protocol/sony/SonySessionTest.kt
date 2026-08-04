@@ -1,6 +1,7 @@
 package moe.chenxy.headphones.protocol.sony
 
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -8,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import moe.chenxy.headphones.core.device.DeviceCandidate
 import moe.chenxy.headphones.core.device.DeviceId
 import moe.chenxy.headphones.core.device.DeviceIdentity
@@ -18,8 +20,11 @@ import moe.chenxy.headphones.core.feature.BatteryComponent
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.EqualizerPreset
 import moe.chenxy.headphones.core.feature.EqualizerCurve
+import moe.chenxy.headphones.core.feature.EvidenceLevel
 import moe.chenxy.headphones.core.feature.FeatureId
 import moe.chenxy.headphones.core.feature.NoiseControlMode
+import moe.chenxy.headphones.core.feature.WearComponent
+import moe.chenxy.headphones.core.feature.WearState
 import moe.chenxy.headphones.core.operation.FailureReason
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.headphones.core.session.DisconnectCause
@@ -482,6 +487,106 @@ class SonySessionTest {
     }
 
     @Test
+    fun `table2 wearing capability populates generic icon state`() = runBlocking {
+        val transport = FakeSonyTransport(
+            supportFunctions = intArrayOf(0x20FF, 0xF001),
+            wearingStatus = 0x02,
+        )
+        val session = session(transport)
+
+        session.connect()
+
+        val capability = session.profile.value?.capability(FeatureId.WEAR_DETECTION)
+        assertEquals(EvidenceLevel.VERIFIED, capability?.evidence)
+        assertTrue(capability?.canRead == true)
+        assertFalse(capability?.canWrite == true)
+        assertEquals(WearState.REMOVED, session.state.value.wearing[WearComponent.LEFT])
+        assertEquals(WearState.WEARING, session.state.value.wearing[WearComponent.RIGHT])
+        assertTrue(
+            transport.commandWrites.any { payload ->
+                payload.toList() == byteArrayOf(0xF2.toByte(), 0x00).toList()
+            },
+        )
+        transport.emitWearingNotification(0x03)
+        withTimeout(300) {
+            while (session.state.value.wearing[WearComponent.RIGHT] != WearState.REMOVED) {
+                delay(10)
+            }
+        }
+        assertEquals(WearState.WEARING, session.state.value.wearing[WearComponent.LEFT])
+        session.disconnect()
+    }
+
+    @Test
+    fun `LinkBuds Auto Play service populates and updates generic wearing state`() = runBlocking {
+        val tandem = FakeSonyTransport(
+            kind = TransportKind.BLE_GATT,
+            model = "LinkBuds S",
+            firmware = "4.2.1",
+            supportFunctions = intArrayOf(0x20FF, 0xA20C),
+        )
+        val autoPlay = FakeSonyAutoPlayTransport(initialWearingBits = 0x02)
+        val requestedServices = CopyOnWriteArrayList<String>()
+        val candidate = candidate(
+            advertisedUuids = emptySet(),
+            availableTransports = setOf(TransportKind.BLE_GATT),
+        ).copy(displayName = "LinkBuds S")
+        val session = SonySession(
+            DriverSessionContext(
+                candidate,
+                object : TransportFactory {
+                    override suspend fun create(
+                        device: DeviceIdentity,
+                        spec: TransportSpec,
+                    ): ByteTransport {
+                        val service = (spec as TransportSpec.Gatt).serviceUuid
+                        requestedServices += service
+                        return if (
+                            service.equals(SonyProfile.SONY_AUTO_PLAY_SERVICE_UUID, true)
+                        ) {
+                            autoPlay
+                        } else {
+                            tandem
+                        }
+                    }
+                },
+            ),
+            responseTimeoutMillis = 300,
+            transportSettleDelayMillis = 0,
+        )
+
+        session.connect()
+
+        assertTrue(session.profile.value?.capability(FeatureId.WEAR_DETECTION)?.canRead == true)
+        assertEquals(WearState.WEARING, session.state.value.wearing[WearComponent.LEFT])
+        assertEquals(WearState.REMOVED, session.state.value.wearing[WearComponent.RIGHT])
+        assertEquals("auto-play-ble", session.state.value.vendorStates["sony.wearing.transport"])
+        assertEquals(
+            listOf(
+                SonyProfile.SONY_GATT_TANDEM_V2_HPC_SERVICE_UUID,
+                SonyProfile.SONY_AUTO_PLAY_SERVICE_UUID,
+            ),
+            requestedServices,
+        )
+        assertEquals(
+            listOf(
+                byteArrayOf(0x14, 0x00, 0x7C).toList(),
+                byteArrayOf(0x06, 0x00, 0x7C).toList(),
+            ),
+            autoPlay.writes.map(ByteArray::toList),
+        )
+
+        autoPlay.emitStatus(0x01)
+        withTimeout(300) {
+            while (session.state.value.wearing[WearComponent.RIGHT] != WearState.WEARING) {
+                delay(10)
+            }
+        }
+        assertEquals(WearState.REMOVED, session.state.value.wearing[WearComponent.LEFT])
+        session.disconnect()
+    }
+
+    @Test
     fun `unlisted Sony V2 model exposes custom EQ from live capability`() = runBlocking {
         val transport = FakeSonyTransport(
             kind = TransportKind.BLE_GATT,
@@ -881,6 +986,40 @@ private class FailingSonyTransport : ByteTransport {
     override suspend fun close(cause: DisconnectCause) {
         _state.value = TransportState.Closed
     }
+
+}
+
+private class FakeSonyAutoPlayTransport(
+    private val initialWearingBits: Int,
+) : ByteTransport {
+    override val kind: TransportKind = TransportKind.BLE_GATT
+    private val _state = MutableStateFlow<TransportState>(TransportState.Closed)
+    override val state: StateFlow<TransportState> = _state.asStateFlow()
+    private val _incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 8)
+    override val incoming: Flow<ByteArray> = _incoming.asSharedFlow()
+    override val maxWriteSize: StateFlow<Int> = MutableStateFlow(20).asStateFlow()
+    val writes = CopyOnWriteArrayList<ByteArray>()
+
+    override suspend fun open() {
+        _state.value = TransportState.Open
+    }
+
+    override suspend fun write(bytes: ByteArray): TransportWriteResult {
+        writes += bytes.copyOf()
+        when (bytes.firstOrNull()?.toInt()?.and(0xFF)) {
+            0x14 -> _incoming.emit(bytes.copyOf())
+            0x06 -> emitStatus(initialWearingBits)
+        }
+        return TransportWriteResult.Written
+    }
+
+    override suspend fun close(cause: DisconnectCause) {
+        _state.value = TransportState.Closed
+    }
+
+    suspend fun emitStatus(wearingBits: Int) {
+        _incoming.emit(byteArrayOf(0x06, 0x00, 0x7C, 0x00, wearingBits.toByte()))
+    }
 }
 
 private class FakeSonyTransport(
@@ -894,6 +1033,7 @@ private class FakeSonyTransport(
         intArrayOf(0x20FF)
     },
     private val notifyOnSet: Boolean = true,
+    private val wearingStatus: Int? = null,
     private val equalizerSupported: Boolean =
         model == "LinkBuds S" || protocolGeneration == SonyProtocolGeneration.V1,
 ) : ByteTransport {
@@ -937,7 +1077,7 @@ private class FakeSonyTransport(
         response(frame.payload)?.let { payload ->
             _incoming.emit(
                 TandemCodec.encode(
-                    TandemFrame(SonyDataType.DATA_MDR.code, frame.sequence and 1, payload),
+                    TandemFrame(frame.dataType, frame.sequence and 1, payload),
                 ),
             )
         }
@@ -946,6 +1086,22 @@ private class FakeSonyTransport(
 
     override suspend fun close(cause: DisconnectCause) {
         _state.value = TransportState.Closed
+    }
+
+    suspend fun emitWearingNotification(status: Int) {
+        _incoming.emit(
+            TandemCodec.encode(
+                TandemFrame(
+                    SonyDataType.DATA_MDR_NO2.code,
+                    sequence = 0,
+                    payload = byteArrayOf(
+                        SonyCommand.SYSTEM_NTFY_STATUS.toByte(),
+                        0x00,
+                        status.toByte(),
+                    ),
+                ),
+            ),
+        )
     }
 
     private fun response(request: ByteArray): ByteArray? = when (request.firstOrNull()?.toInt()?.and(0xFF)) {
@@ -980,6 +1136,9 @@ private class FakeSonyTransport(
             byteArrayOf(0x23, request[1], 76, 0)
         SonyCommand.COMMON_GET_BATTERY_LEVEL ->
             byteArrayOf(SonyCommand.COMMON_RET_BATTERY_LEVEL.toByte(), request[1], 76, 0)
+        SonyCommand.SYSTEM_GET_STATUS -> wearingStatus?.let { status ->
+            byteArrayOf(SonyCommand.SYSTEM_RET_STATUS.toByte(), request[1], status.toByte())
+        }
         SonyCommand.NCASM_GET_CAPABILITY ->
             if (protocolGeneration == SonyProtocolGeneration.V1) {
                 byteArrayOf(

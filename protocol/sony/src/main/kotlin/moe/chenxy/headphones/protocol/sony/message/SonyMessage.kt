@@ -74,6 +74,10 @@ object SonyCommand {
     const val NCASM_RET_PARAM = 0x67
     const val NCASM_SET_PARAM = 0x68
     const val NCASM_NTFY_PARAM = 0x69
+
+    const val SYSTEM_GET_STATUS = 0xF2
+    const val SYSTEM_RET_STATUS = 0xF3
+    const val SYSTEM_NTFY_STATUS = 0xF5
 }
 
 enum class SonyDeviceInfoType(val code: Int) {

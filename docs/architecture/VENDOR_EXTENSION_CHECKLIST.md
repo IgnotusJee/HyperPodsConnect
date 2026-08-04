@@ -19,11 +19,15 @@
   `:app`；
 - SPP/GATT 差异通过 transport profile 描述，不在 transport 中按厂商、型号或 UUID
   写分支；
+- 同一功能需要厂商辅助通道时，由 protocol 声明通用 transport profile、Android 组合根解析
+  实际端点；辅助通道失败不得拖垮主会话，也不得据静态能力位公开已验证 capability；
 - Android runtime 只在组合根注册 driver/provider，不解释协议字节。
 
 ## 3. 能力与兼容等级
 
 - 名称、UUID 或静态表只能产生 `DETECTED`/assumed evidence；
+- 只读能力也必须完成一次有效状态响应才能公开为 `VERIFIED`；设备声明支持但当前通道不可用时，
+  状态保持 unknown，并继续允许主会话 Ready；
 - 完成只读握手和状态 fixture 后才能标为 `READ_ONLY`；
 - 写能力必须满足门禁、ACK/业务响应分离、readback 和失败不污染 confirmed，才能标为
   `CONTROLLED`；

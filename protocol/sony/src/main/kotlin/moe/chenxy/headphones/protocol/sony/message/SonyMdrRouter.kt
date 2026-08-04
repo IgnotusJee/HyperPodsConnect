@@ -35,6 +35,9 @@ object SonyMdrRouter {
         SonyCommand.POWER_GET_STATUS to "POWER_GET_STATUS",
         SonyCommand.POWER_RET_STATUS to "POWER_RET_STATUS",
         SonyCommand.POWER_NTFY_STATUS to "POWER_NTFY_STATUS",
+        SonyCommand.SYSTEM_GET_STATUS to "SYSTEM_GET_STATUS",
+        SonyCommand.SYSTEM_RET_STATUS to "SYSTEM_RET_STATUS",
+        SonyCommand.SYSTEM_NTFY_STATUS to "SYSTEM_NTFY_STATUS",
     )
 
     fun route(message: SonyMdrMessage): SonyRoute {
