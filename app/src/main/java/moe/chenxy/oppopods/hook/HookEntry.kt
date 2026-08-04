@@ -16,10 +16,6 @@ class HookEntry : XposedModule() {
     override fun onPackageLoaded(param: PackageLoadedParam) {
         if (!param.isFirstPackage) return
 
-        if (param.packageName in RESTARTABLE_SCOPE_PACKAGES) {
-            loadHook(ScopeRestartHook(), param.defaultClassLoader, param.packageName)
-        }
-
         when (param.packageName) {
             "com.android.bluetooth" -> {
                 loadHook(HeadsetStateDispatcher, param.defaultClassLoader, param.packageName)
@@ -50,13 +46,5 @@ class HookEntry : XposedModule() {
         configListeners.add(configListener)
         hook.prefs.registerOnSharedPreferenceChangeListener(configListener)
         hook.onHook()
-    }
-
-    private companion object {
-        val RESTARTABLE_SCOPE_PACKAGES = setOf(
-            "com.android.bluetooth",
-            "com.milink.service",
-            "com.xiaomi.bluetooth",
-        )
     }
 }

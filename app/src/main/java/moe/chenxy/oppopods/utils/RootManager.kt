@@ -1,14 +1,9 @@
 package moe.chenxy.oppopods.utils
 
-import android.content.Context
-import android.content.Intent
 import android.util.Log
 import moe.chenxy.oppopods.config.DeviceArtworkSelector
 import moe.chenxy.oppopods.config.PodImageResource
-import moe.chenxy.oppopods.ipc.HeadphoneIpcContract
-import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -25,73 +20,18 @@ object RootManager {
         "^https://hpc-image\\.data-gateway\\.seeds\\.services/[0-9a-fA-F-]{36}\\.(png|jpe?g|webp)$",
     )
 
-    fun restartPackages(context: Context, packages: Collection<String>): Boolean {
-        val targets = validRestartTargets(packages)
+    fun restartPackages(packages: Collection<String>): Boolean {
+        val targets = packages.distinct().filter { it.matches(packageNameRegex) }
         if (targets.isEmpty()) return false
-        val command = buildRestartCommand(targets) ?: return false
 
-        val restartedWithRoot = if (File(SU_PATH).canExecute()) {
-            runCatching {
-                val process = ProcessBuilder(SU_PATH, "-c", command)
-                    .redirectErrorStream(true)
-                    .start()
-                val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-                val exitCode = process.waitFor()
-                if (exitCode != 0) {
-                    Log.e(TAG, "scope restart failed exit=$exitCode output=$output")
-                } else {
-                    Log.i(TAG, "scope restart completed")
-                }
-                exitCode == 0
-            }.onFailure {
-                Log.e(TAG, "scope restart failed to execute", it)
-            }.getOrDefault(false)
-        } else {
-            false
-        }
-        if (restartedWithRoot) return true
-
-        Log.w(TAG, "root restart unavailable; falling back to hooked-process restart")
         return runCatching {
-            targets.forEach { target ->
-                context.sendIdentitySharedBroadcast(
-                    Intent(HeadphoneIpcContract.ACTION_RESTART_SCOPE).apply {
-                        setPackage(target)
-                        addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-                    },
-                )
-            }
-            true
-        }.onFailure {
-            Log.e(TAG, "hooked-process restart broadcast failed", it)
+            val command = targets.joinToString("; ") { "am force-stop $it" }
+            val process = ProcessBuilder("su", "-c", command)
+                .redirectErrorStream(true)
+                .start()
+            process.waitFor() == 0
         }.getOrDefault(false)
     }
-
-    /**
-     * HyperOS keeps both Bluetooth packages alive as persistent processes, where
-     * `am force-stop` is accepted but does not terminate the process. Kill those
-     * process names directly; MiLink remains a regular package-level restart so
-     * all of its suffixed processes are stopped together.
-     */
-    internal fun buildRestartCommand(packages: Collection<String>): String? {
-        val targets = validRestartTargets(packages)
-        if (targets.isEmpty()) return null
-        val commands = targets.map { target ->
-            when (target) {
-                "com.android.bluetooth", "com.xiaomi.bluetooth" ->
-                    "if pidof $target >/dev/null 2>&1; then killall $target; fi"
-                else -> "am force-stop $target"
-            }
-        }
-        return commands.joinToString(
-            separator = "; ",
-            prefix = "status=0; ",
-            postfix = "; exit \$status",
-        ) { command -> "($command) || status=1" }
-    }
-
-    private fun validRestartTargets(packages: Collection<String>): List<String> =
-        packages.distinct().filter { it.matches(packageNameRegex) }
 
     fun hasRootAccess(): Boolean {
         return runRootText("echo yes")?.trim() == "yes"
@@ -156,9 +96,8 @@ object RootManager {
     }
 
     private fun runRootText(command: String): String? {
-        if (!File(SU_PATH).canExecute()) return null
         return runCatching {
-            val process = ProcessBuilder(SU_PATH, "-c", command)
+            val process = ProcessBuilder("su", "-c", command)
                 .redirectErrorStream(true)
                 .start()
             val output = process.inputStream.bufferedReader().use { it.readText() }
@@ -166,7 +105,5 @@ object RootManager {
             if (exitCode == 0) output else null
         }.onFailure { Log.e(TAG, "root text failed command=$command", it) }.getOrNull()
     }
-
-    private const val SU_PATH = "/system/bin/su"
 
 }

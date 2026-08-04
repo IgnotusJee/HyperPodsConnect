@@ -624,7 +624,7 @@ fun MainUI(
         restartingScopes = true
         coroutineScope.launch {
             val success = withContext(Dispatchers.IO) {
-                RootManager.restartPackages(context, packages)
+                RootManager.restartPackages(packages)
             }
             restartingScopes = false
             showRestartScopeDialog = false
