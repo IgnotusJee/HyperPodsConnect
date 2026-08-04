@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.app.StatusBarManager
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHeadset
+import android.bluetooth.BluetoothLeAudio
+import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.ContextWrapper
@@ -56,9 +58,7 @@ object HeadsetStateDispatcher : HookContext() {
                     if (isOppoPod(device)) {
                         statusBarManager.setIconVisibility("wireless_headset", false)
                     }
-                    if (OppoSystemIntegrationAdapter.isCurrentDevice(device)) {
-                        OppoSystemIntegrationAdapter.disconnectedPod(context, device)
-                    }
+                    OppoSystemIntegrationAdapter.onBluetoothProfileDisconnected(context, device)
                 }
             }
         }
@@ -70,8 +70,31 @@ object HeadsetStateDispatcher : HookContext() {
         context.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (context == null) return
-                if (!isSentFrom(IpcSenderPolicy.allowedBluetoothLegacySenders(intent?.action))) return
+                val action = intent?.action
+                // This platform action is a protected broadcast. Unlike our shared-identity IPC,
+                // framework profile broadcasts do not promise a visible sender package.
+                if (
+                    action != BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED &&
+                    !isSentFrom(IpcSenderPolicy.allowedBluetoothLegacySenders(action))
+                ) return
                 when (intent?.action) {
+                    BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED -> {
+                        val state = intent.getIntExtra(
+                            BluetoothProfile.EXTRA_STATE,
+                            -1,
+                        )
+                        if (
+                            state == BluetoothProfile.STATE_DISCONNECTING ||
+                            state == BluetoothProfile.STATE_DISCONNECTED
+                        ) {
+                            val device = intent.getParcelableExtra(
+                                BluetoothDevice.EXTRA_DEVICE,
+                                BluetoothDevice::class.java,
+                            ) ?: return
+                            Log.d("OppoPods", "LE Audio profile disconnected")
+                            OppoSystemIntegrationAdapter.onBluetoothProfileDisconnected(context, device)
+                        }
+                    }
                     LegacyPodsAction.ACTION_PODS_UI_INIT -> {
                         context.sendIdentitySharedBroadcast(Intent(LegacyPodsAction.ACTION_MODULE_BLUETOOTH_SERVICE_ALIVE).apply {
                             setPackage(BuildConfig.APPLICATION_ID)
@@ -94,6 +117,7 @@ object HeadsetStateDispatcher : HookContext() {
             addAction(LegacyPodsAction.ACTION_PODS_UI_INIT)
             addAction(LegacyPodsAction.ACTION_CONNECT_POD_REQUEST)
             addAction(LegacyPodsAction.ACTION_DISCONNECT_POD_REQUEST)
+            addAction(BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED)
         }, Context.RECEIVER_EXPORTED)
         appRequestReceiverRegistered = true
     }

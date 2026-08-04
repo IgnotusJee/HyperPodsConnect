@@ -143,7 +143,42 @@ class Phase5ArchitectureTest {
             ).containsMatchIn(runtime),
         )
         assertTrue(adapter!!.contains("notificationReady = snapshot.connection is SessionState.Ready"))
+        assertTrue(adapter.contains("shouldCancelConnectedNotification(readyGeneration, notificationReady)"))
+        assertTrue(adapter.contains("clearConnectedNotification(snapshot.connection)"))
         assertTrue(adapter.contains("canWrite(FeatureId.NOISE_CONTROL)"))
+    }
+
+    @Test
+    fun `notification cancellation also clears the transient focus island`() {
+        val hook = source("src/main/java/moe/chenxy/oppopods/hook/MiBluetoothToastHook.kt")
+        val island = source("src/main/java/moe/chenxy/oppopods/utils/FocusIslandUtil.kt")
+        assumeTrue(hook != null)
+        assumeTrue(island != null)
+
+        assertTrue(hook!!.contains("FocusIslandUtil.cancelBatteryIsland(context)"))
+        assertTrue(island!!.contains("fun cancelBatteryIsland(context: Context)"))
+        assertTrue(island.contains("nm.cancel(NOTIFICATION_ID)"))
+    }
+
+    @Test
+    fun `LE Audio disconnects use the device notification cleanup path`() {
+        val dispatcher = source(
+            "src/main/java/moe/chenxy/oppopods/hook/HeadsetStateDispatcher.kt",
+        )
+        val adapter = source(
+            "src/main/java/moe/chenxy/oppopods/pods/OppoSystemIntegrationAdapter.kt",
+        )
+        assumeTrue(dispatcher != null)
+        assumeTrue(adapter != null)
+
+        assertTrue(
+            dispatcher!!.contains("BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED"),
+        )
+        assertTrue(
+            dispatcher.contains("OppoSystemIntegrationAdapter.onBluetoothProfileDisconnected(context, device)"),
+        )
+        assertTrue(adapter!!.contains("fun onBluetoothProfileDisconnected("))
+        assertTrue(adapter.contains("cancelPodsNotificationByMiuiBt(context, device)"))
     }
 
     @Test

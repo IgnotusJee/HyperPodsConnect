@@ -231,6 +231,9 @@ object OppoSystemIntegrationAdapter {
         lastEngineState = snapshot.state
         val notificationReady = snapshot.connection is SessionState.Ready
         val enteringReady = notificationReady && readyGeneration != snapshot.generationId
+        if (shouldCancelConnectedNotification(readyGeneration, notificationReady)) {
+            clearConnectedNotification(snapshot.connection)
+        }
         publishStateChanges(
             previous,
             snapshot.state,
@@ -334,8 +337,8 @@ object OppoSystemIntegrationAdapter {
         isConnected = false
         BluetoothProcessRuntimeHost.disconnectAsync(DisconnectCause.REQUESTED)
 
+        cancelPodsNotificationByMiuiBt(context, device)
         mContext?.let {
-            cancelPodsNotificationByMiuiBt(context, device)
             if (receiverRegistered) {
                 it.unregisterReceiver(broadcastReceiver)
                 receiverRegistered = false
@@ -351,7 +354,32 @@ object OppoSystemIntegrationAdapter {
         currentTopology = null
         currentVendorId = null
         canCycleNoiseControl = false
+        readyGeneration = -1L
+        lastEngineState = HeadphoneState()
         mContext = null
+    }
+
+    fun onBluetoothProfileDisconnected(context: Context, device: BluetoothDevice) {
+        if (isCurrentDevice(device)) {
+            disconnectedPod(context, device)
+        } else {
+            // A process restart loses the in-memory session, but its system notification may
+            // survive. Cancelling by device address also reconciles that stale state.
+            cancelPodsNotificationByMiuiBt(context, device)
+        }
+    }
+
+    private fun clearConnectedNotification(connection: SessionState) {
+        val generation = readyGeneration
+        readyGeneration = -1L
+        mShowedConnectedToast = false
+        mContext?.let { cancelPodsNotificationByMiuiBt(it, mDevice) }
+        Log.d(TAG, "cancel connected notification: generation=$generation state=$connection")
+        RfcommLog.i(
+            mContext,
+            TAG,
+            "cancel connected notification: generation=$generation state=$connection",
+        )
     }
 
     private fun maybeShowConnectedPopup(snapshot: HeadphoneSnapshot, enteringReady: Boolean) {
@@ -626,3 +654,8 @@ object OppoSystemIntegrationAdapter {
 
     private fun Int.floorMod(divisor: Int): Int = ((this % divisor) + divisor) % divisor
 }
+
+internal fun shouldCancelConnectedNotification(
+    readyGeneration: Long,
+    notificationReady: Boolean,
+): Boolean = readyGeneration >= 0L && !notificationReady

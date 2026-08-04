@@ -282,6 +282,7 @@ object MiBluetoothToastHook : HookContext() {
                                 createPodsNotification(device, context, batteryParams)
                             } else if (p1?.action == "chen.action.oppopods.cancelpodsnotification") {
                                 val device = p1.getParcelableExtra("device", BluetoothDevice::class.java) as BluetoothDevice
+                                FocusIslandUtil.cancelBatteryIsland(context)
                                 cancelNotification(device, context)
                             } else if (p1?.action == LegacyPodsAction.ACTION_CYCLE_ANC) {
                                 val noiseControl = HyperOsHeadphoneAdapter.state

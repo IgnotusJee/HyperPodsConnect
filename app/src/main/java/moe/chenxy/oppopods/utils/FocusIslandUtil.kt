@@ -126,6 +126,16 @@ object FocusIslandUtil {
         }
     }
 
+    fun cancelBatteryIsland(context: Context) {
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.cancel(NOTIFICATION_ID)
+            Log.d(TAG, "Focus Island cancelled")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to cancel Focus Island", e)
+        }
+    }
+
     private fun loadSlotBitmap(
         context: Context,
         prefs: SharedPreferences,
