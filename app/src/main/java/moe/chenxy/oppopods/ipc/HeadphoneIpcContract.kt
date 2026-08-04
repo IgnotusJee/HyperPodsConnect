@@ -285,6 +285,7 @@ data class HeadphoneSnapshotPayload(
     val protocolName: String? = null,
     val protocolVersion: String? = null,
     val commandTable: String? = null,
+    val deviceColorId: String? = null,
     val batteries: List<BatteryPayload>,
     val wearing: Map<String, String>,
     val noiseControlActiveMode: String? = null,
@@ -329,6 +330,8 @@ data class HeadphoneSnapshotPayload(
                 protocolName = profile?.protocol?.name,
                 protocolVersion = profile?.protocol?.version,
                 commandTable = profile?.protocol?.commandTable,
+                deviceColorId = state.vendorStates["sony.model.color"]
+                    ?.takeIf { mayExposeState },
                 batteries = state.batteries.takeIf { mayExposeState }.orEmpty().map { (component, value) ->
                     BatteryPayload(component.name, value.level, value.charging)
                 },

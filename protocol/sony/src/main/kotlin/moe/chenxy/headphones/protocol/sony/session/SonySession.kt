@@ -214,11 +214,18 @@ class SonySession(
         val model = exchange(
             SonyHandshake.getDeviceInfo(SonyDeviceInfoType.MODEL_NAME),
             SonyCommand.CONNECT_RET_DEVICE_INFO,
+            responsePredicate = { SonyHandshake.matchesDeviceInfo(it, SonyDeviceInfoType.MODEL_NAME) },
         )?.let { SonyHandshake.parseDeviceInfo(it, SonyDeviceInfoType.MODEL_NAME) }
         val firmware = exchange(
             SonyHandshake.getDeviceInfo(SonyDeviceInfoType.FIRMWARE_VERSION),
             SonyCommand.CONNECT_RET_DEVICE_INFO,
+            responsePredicate = { SonyHandshake.matchesDeviceInfo(it, SonyDeviceInfoType.FIRMWARE_VERSION) },
         )?.let { SonyHandshake.parseDeviceInfo(it, SonyDeviceInfoType.FIRMWARE_VERSION) }
+        val seriesAndColor = exchange(
+            SonyHandshake.getDeviceInfo(SonyDeviceInfoType.SERIES_AND_COLOR),
+            SonyCommand.CONNECT_RET_DEVICE_INFO,
+            responsePredicate = { SonyHandshake.matchesDeviceInfo(it, SonyDeviceInfoType.SERIES_AND_COLOR) },
+        )?.let(SonyHandshake::parseSeriesAndColor)
         val support = exchange(
             SonyHandshake.getSupportFunction(),
             SonyCommand.CONNECT_RET_SUPPORT_FUNCTION,
@@ -235,14 +242,18 @@ class SonySession(
         supportInfo = support
         applyReport(DeviceReport.Firmware(firmware), ValueSource.QUERY_RESPONSE)
         _state.value = _state.value.copy(
-            vendorStates = mapOf(
-                "sony.transport" to route.kind.name,
-                "sony.protocol.generation" to protocol.generation.name,
-                "sony.protocol.fingerprint" to protocol.rawFingerprint,
-                "sony.capability.fingerprint" to capability.fingerprint,
-                "sony.support.fingerprint" to support.fingerprint,
-                "sony.support.count" to support.functions.size.toString(),
-            ),
+            vendorStates = buildMap {
+                put("sony.transport", route.kind.name)
+                put("sony.protocol.generation", protocol.generation.name)
+                put("sony.protocol.fingerprint", protocol.rawFingerprint)
+                put("sony.capability.fingerprint", capability.fingerprint)
+                put("sony.support.fingerprint", support.fingerprint)
+                put("sony.support.count", support.functions.size.toString())
+                seriesAndColor?.let {
+                    put("sony.model.series", "0x%02X".format(it.seriesCode))
+                    put("sony.model.color", "0x%02X".format(it.colorCode))
+                }
+            },
         )
         transition(SessionEvent.CapabilitiesLoaded)
 
@@ -373,6 +384,9 @@ class SonySession(
             exchange(
                 SonyHandshake.getDeviceInfo(SonyDeviceInfoType.FIRMWARE_VERSION),
                 SonyCommand.CONNECT_RET_DEVICE_INFO,
+                responsePredicate = {
+                    SonyHandshake.matchesDeviceInfo(it, SonyDeviceInfoType.FIRMWARE_VERSION)
+                },
             )
         }
         if (FeatureId.BATTERY in requested) {

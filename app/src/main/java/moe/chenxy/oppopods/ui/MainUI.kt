@@ -588,6 +588,7 @@ fun MainUI(
         headphoneUiState.address,
         headphoneUiState.title,
         headphoneUiState.firmware,
+        headphoneUiState.deviceColorId,
     ) {
         val state = headphoneUiState
         val address = state.address.orEmpty()
@@ -597,7 +598,10 @@ fun MainUI(
         val resolved = withContext(Dispatchers.IO) {
             when {
                 state.vendorId.equals("sony", ignoreCase = true) -> {
-                    val network = RootManager.resolveSonyOfficialNetworkCandidate(state.title)
+                    val network = RootManager.resolveSonyOfficialNetworkCandidate(
+                        state.title,
+                        state.deviceColorId,
+                    )
                         ?: return@withContext null
                     val images = RootManager.readSonyOfficialNetworkImages(network)
                         ?: return@withContext null

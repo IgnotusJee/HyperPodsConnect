@@ -44,12 +44,17 @@ class SonyParsersTest {
             message(byteArrayOf(0x05, 0x01, modelBytes.size.toByte()) + modelBytes),
             SonyDeviceInfoType.MODEL_NAME,
         )
+        val seriesAndColor = SonyHandshake.parseSeriesAndColor(
+            message(byteArrayOf(0x05, 0x03, 0x02, 0x05)),
+        )
 
         assertEquals(SonyProtocolGeneration.V2, protocol?.generation)
         assertEquals(2L, protocol?.version)
         assertTrue(protocol!!.table1Enabled)
         assertTrue(protocol.table2Enabled)
         assertEquals("LinkBuds S", model)
+        assertEquals(0x02, seriesAndColor?.seriesCode)
+        assertEquals(0x05, seriesAndColor?.colorCode)
     }
 
     @Test

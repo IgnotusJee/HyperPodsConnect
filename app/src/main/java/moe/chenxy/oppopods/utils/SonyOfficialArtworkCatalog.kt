@@ -11,8 +11,13 @@ import moe.chenxy.oppopods.config.PodImageResource
  * the module avoids a runtime dependency on Sound Connect and avoids shipping its API key.
  */
 internal object SonyOfficialArtworkCatalog {
-    fun resolve(deviceName: String): SonyOfficialNetworkCandidate? {
-        val entry = entriesByName[deviceName.trim().uppercase()] ?: return null
+    fun resolve(deviceName: String, colorId: String? = null): SonyOfficialNetworkCandidate? {
+        val entries = entriesByName[deviceName.trim().uppercase()] ?: return null
+        val entry = colorId
+            ?.let { color -> entries.firstOrNull { it.colorId.equals(color, ignoreCase = true) } }
+            ?: entries.firstOrNull { it.colorId == "0x00" }
+            ?: entries.firstOrNull()
+            ?: return null
         return SonyOfficialNetworkCandidate(
             selector = DeviceArtworkSelector(
                 vendorId = "sony",
@@ -40,7 +45,12 @@ internal object SonyOfficialArtworkCatalog {
         SonyCatalogEntry("LinkBuds Clip", "0x32", "0x0F", "0x00", "https://hpc-image.data-gateway.seeds.services/264be38a-7367-4cfd-812e-50115663fa5b.png", "https://hpc-image.data-gateway.seeds.services/cba5db7c-d391-447f-9d8d-63a3e3adfa7d.png"),
         SonyCatalogEntry("LinkBuds Fit", "0x32", "0x0B", "0x00", "https://hpc-image.data-gateway.seeds.services/2fb83182-4ac1-432f-8b59-74520ee2611e.png", "https://hpc-image.data-gateway.seeds.services/b4a6cb59-835c-46fe-8645-8bdbb8651433.png"),
         SonyCatalogEntry("LinkBuds Open", "0x32", "0x0A", "0x00", "https://hpc-image.data-gateway.seeds.services/eeb73a46-5f33-4999-8bb9-818db1ef17b7.png", "https://hpc-image.data-gateway.seeds.services/b19a723c-b574-4c76-a55b-00959cf89e3b.png"),
+        SonyCatalogEntry("LinkBuds S", "0x32", "0x06", "0x05", "https://hpc-image.data-gateway.seeds.services/76e4e03e-b1ce-4449-b9d5-1ebe86db9371.png"),
         SonyCatalogEntry("LinkBuds S", "0x32", "0x06", "0x00", "https://hpc-image.data-gateway.seeds.services/c3e8e3f3-e66f-4725-8f20-65fedcdb0e30.png"),
+        SonyCatalogEntry("LinkBuds S", "0x32", "0x06", "0x0B", "https://hpc-image.data-gateway.seeds.services/4eec68c7-6653-4c5a-8f90-5c9a8569ef69.png"),
+        SonyCatalogEntry("LinkBuds S", "0x32", "0x06", "0x0E", "https://hpc-image.data-gateway.seeds.services/b4254dbd-f991-4c40-a46b-e8f3cc7fd5c5.png"),
+        SonyCatalogEntry("LinkBuds S", "0x32", "0x06", "0x01", "https://hpc-image.data-gateway.seeds.services/c3e8e3f3-e66f-4725-8f20-65fedcdb0e30.png"),
+        SonyCatalogEntry("LinkBuds S", "0x32", "0x06", "0x02", "https://hpc-image.data-gateway.seeds.services/686e7f02-fb62-45ed-a9d2-6040be3779be.png"),
         SonyCatalogEntry("LinkBuds Speaker", "0x01", "0x1A", "0x00", "https://hpc-image.data-gateway.seeds.services/d67e2cb0-8ab6-4ed0-ba00-0bfef15dbd2d.png", "https://hpc-image.data-gateway.seeds.services/95f846e3-b23d-45db-867f-80a4f38c163f.png"),
         SonyCatalogEntry("LinkBuds UC", "0x32", "0x07", "0x00", "https://hpc-image.data-gateway.seeds.services/c457e1e6-eed4-4735-ac24-cd0f5dea6845.png"),
         SonyCatalogEntry("MDR-XB950B1", "", "", "0x00", "https://hpc-image.data-gateway.seeds.services/a51fccef-059b-4b42-8ad2-183dca40b9a3.png"),
@@ -89,7 +99,7 @@ internal object SonyOfficialArtworkCatalog {
         SonyCatalogEntry("WI-C600N", "0x33", "0x00", "0x00", "https://hpc-image.data-gateway.seeds.services/5856a6ca-9d89-42f8-896a-34a652848858.png"),
         SonyCatalogEntry("WI-H700", "", "", "0x00", "https://hpc-image.data-gateway.seeds.services/3148c452-cbd0-4382-b07a-a640aa97f97f.png"),
         SonyCatalogEntry("WI-SP600N", "", "", "0x00", "https://hpc-image.data-gateway.seeds.services/cce4a9a0-7388-457b-9428-3c3ea23d65ac.png"),
-    ).associateBy { it.modelName.uppercase() }
+    ).groupBy { it.modelName.uppercase() }
 
     private data class SonyCatalogEntry(
         val modelName: String,

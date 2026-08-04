@@ -26,6 +26,11 @@ data class SonySupportInfo(
     val fingerprint: String,
 )
 
+data class SonySeriesAndColorInfo(
+    val seriesCode: Int,
+    val colorCode: Int,
+)
+
 object SonyHandshake {
     fun getProtocolInfo(): ByteArray =
         byteArrayOf(SonyCommand.CONNECT_GET_PROTOCOL_INFO.toByte(), 0x00)
@@ -35,6 +40,11 @@ object SonyHandshake {
 
     fun getDeviceInfo(type: SonyDeviceInfoType): ByteArray =
         byteArrayOf(SonyCommand.CONNECT_GET_DEVICE_INFO.toByte(), type.code.toByte())
+
+    fun matchesDeviceInfo(message: SonyMdrMessage, type: SonyDeviceInfoType): Boolean =
+        message.command == SonyCommand.CONNECT_RET_DEVICE_INFO &&
+            message.payload.size >= 2 &&
+            (message.payload[1].toInt() and 0xFF) == type.code
 
     fun getSupportFunction(): ByteArray =
         byteArrayOf(SonyCommand.CONNECT_GET_SUPPORT_FUNCTION.toByte(), 0x00)
@@ -73,9 +83,8 @@ object SonyHandshake {
     fun parseDeviceInfo(message: SonyMdrMessage, expected: SonyDeviceInfoType): String? {
         val bytes = message.payload
         if (
-            message.command != SonyCommand.CONNECT_RET_DEVICE_INFO ||
-            bytes.size < 3 ||
-            (bytes[1].toInt() and 0xFF) != expected.code
+            !matchesDeviceInfo(message, expected) ||
+            bytes.size < 3
         ) return null
         val length = bytes[2].toInt() and 0xFF
         if (length >= 0x80 || bytes.size != length + 3) return null
@@ -83,6 +92,18 @@ object SonyHandshake {
             .toString(Charsets.UTF_8)
             .trimEnd('\u0000')
             .takeIf(String::isNotBlank)
+    }
+
+    fun parseSeriesAndColor(message: SonyMdrMessage): SonySeriesAndColorInfo? {
+        val bytes = message.payload
+        if (
+            !matchesDeviceInfo(message, SonyDeviceInfoType.SERIES_AND_COLOR) ||
+            bytes.size != 4
+        ) return null
+        return SonySeriesAndColorInfo(
+            seriesCode = bytes[2].toInt() and 0xFF,
+            colorCode = bytes[3].toInt() and 0xFF,
+        )
     }
 
     fun parseSupportFunction(

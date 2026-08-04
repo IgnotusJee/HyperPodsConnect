@@ -56,6 +56,7 @@ class SonySessionTest {
         assertEquals(CompatibilityLevel.READ_ONLY, session.profile.value?.compatibilityLevel)
         assertEquals("WH-1000XM4", session.profile.value?.model)
         assertEquals("2.5.1", session.state.value.firmware)
+        assertEquals("0x05", session.state.value.vendorStates["sony.model.color"])
         assertEquals(76, session.state.value.batteries[BatteryComponent.SINGLE]?.level)
         assertTrue(session.state.value.vendorStates["sony.capability.fingerprint"]?.length == 64)
         assertTrue(transport.ackWrites > 0)
@@ -958,8 +959,12 @@ private class FakeSonyTransport(
             byteArrayOf(0x03, 0, 0x12, 0x34)
         SonyCommand.CONNECT_GET_DEVICE_INFO -> {
             val type = request.getOrNull(1) ?: return null
-            val value = if (type.toInt() == 1) model else firmware
-            byteArrayOf(0x05, type, value.length.toByte()) + value.toByteArray()
+            when (type.toInt() and 0xFF) {
+                0x01 -> byteArrayOf(0x05, type, model.length.toByte()) + model.toByteArray()
+                0x02 -> byteArrayOf(0x05, type, firmware.length.toByte()) + firmware.toByteArray()
+                0x03 -> byteArrayOf(0x05, type, 0x02, 0x05)
+                else -> null
+            }
         }
         SonyCommand.CONNECT_GET_SUPPORT_FUNCTION ->
             if (protocolGeneration == SonyProtocolGeneration.V1) {

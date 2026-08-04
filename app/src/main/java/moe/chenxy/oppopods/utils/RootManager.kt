@@ -97,7 +97,13 @@ object RootManager {
         return runRootText("echo yes")?.trim() == "yes"
     }
 
-    /** Resolves Sony's public CDN using the embedded official default-color catalog. */
+    /** Resolves Sony's public CDN using the color code reported by the headset. */
+    internal fun resolveSonyOfficialNetworkCandidate(
+        deviceName: String,
+        colorId: String?,
+    ): SonyOfficialNetworkCandidate? = SonyOfficialArtworkCatalog.resolve(deviceName, colorId)
+
+    /** Keeps the model-only fallback for callers without an address/color source. */
     internal fun resolveSonyOfficialNetworkCandidate(deviceName: String): SonyOfficialNetworkCandidate? =
         SonyOfficialArtworkCatalog.resolve(deviceName)
 
