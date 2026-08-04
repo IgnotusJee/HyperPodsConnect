@@ -62,6 +62,7 @@ import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV1EqualizerCapa
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV1EqualizerFeature
 import moe.chenxy.headphones.protocol.sony.feature.equalizer.SonyV2EqualizerCapability
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyAmbientSoundMode
+import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlCapability
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlFeature
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyNoiseControlState
 import moe.chenxy.headphones.protocol.sony.feature.noisecontrol.SonyV1NoiseControlCapability
@@ -151,6 +152,7 @@ class SonySession(
     private var protocolInfo: SonyProtocolInfo? = null
     private var capabilityInfo: SonyCapabilityInfo? = null
     private var supportInfo: SonySupportInfo? = null
+    private var v2NoiseControlCapability: SonyNoiseControlCapability? = null
     private var v1NoiseControlCapability: SonyV1NoiseControlCapability? = null
     private var v1EqualizerCapability: SonyV1EqualizerCapability? = null
     private var v2EqualizerCapability: SonyV2EqualizerCapability? = null
@@ -311,12 +313,28 @@ class SonySession(
         }
         val wearingObserved = tableWearingObserved || autoPlayWearingObserved
         if (SonyProfile.shouldQueryNoiseControl(protocol, support)) {
-            val response = exchange(
-                SonyNoiseControlFeature.query(),
-                SonyCommand.NCASM_RET_PARAM,
-                responsePredicate = SonyNoiseControlFeature::matches,
-            )
-            noiseControlObserved = response?.let(SonyNoiseControlFeature::parse) != null
+            v2NoiseControlCapability = exchange(
+                SonyNoiseControlFeature.queryCapability(),
+                SonyCommand.NCASM_RET_CAPABILITY,
+                responsePredicate = SonyNoiseControlFeature::capabilityMatches,
+            )?.let(SonyNoiseControlFeature::parseCapability)
+            val statusEnabled = if (v2NoiseControlCapability != null) {
+                exchange(
+                    SonyNoiseControlFeature.queryStatus(),
+                    SonyCommand.NCASM_RET_STATUS,
+                    responsePredicate = SonyNoiseControlFeature::statusMatches,
+                )?.let(SonyNoiseControlFeature::parseStatusEnabled) == true
+            } else {
+                false
+            }
+            if (statusEnabled) {
+                val response = exchange(
+                    SonyNoiseControlFeature.query(),
+                    SonyCommand.NCASM_RET_PARAM,
+                    responsePredicate = SonyNoiseControlFeature::matches,
+                )
+                noiseControlObserved = response?.let(SonyNoiseControlFeature::parse) != null
+            }
         } else if (SonyProfile.shouldQueryV1NoiseControl(protocol)) {
             v1NoiseControlCapability = exchange(
                 SonyV1NoiseControlFeature.queryCapability(),
@@ -393,7 +411,7 @@ class SonySession(
                     ?.maxOrNull()
                     ?.let { SonyV1NoiseControlFeature.AMBIENT_LEVEL_MIN..it }
                 SonyProtocolGeneration.V2 ->
-                    SonyNoiseControlFeature.AMBIENT_LEVEL_MIN..SonyNoiseControlFeature.AMBIENT_LEVEL_MAX
+                    v2NoiseControlCapability?.ambientLevelRange
             }.takeIf { noiseControlObserved },
             transparencyVocalEnhancementSupported = noiseControlObserved && when (protocol.generation) {
                 SonyProtocolGeneration.V1 -> v1NoiseControlCapability?.ambientSteps?.keys
@@ -976,29 +994,30 @@ class SonySession(
             notified.ambientSoundMode == original.ambientSoundMode
         ) {
             emit(requestId, command, OperationPhase.STATE_CONFIRMED)
-        }
-
-        val readback = exchange(
-            noiseControlQuery(),
-            SonyCommand.NCASM_RET_PARAM,
-            responsePredicate = ::noiseControlMatches,
-        )?.let(::parseNoiseControl)
-        if (
-            readback?.mode == command.mode &&
-            readback.ambientSoundMode == original.ambientSoundMode
-        ) {
-            applyNoiseControlState(readback, ValueSource.READ_BACK)
-            emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
-            OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+            OperationResult(requestId, OperationPhase.STATE_CONFIRMED)
         } else {
-            abandon(command.featureId)
-            terminalFailure(
-                requestId,
-                command,
-                FailureReason.TIMEOUT,
-                "Sony write was not confirmed by explicit GET readback",
-                OperationPhase.TIMED_OUT,
-            )
+            val readback = exchange(
+                noiseControlQuery(),
+                SonyCommand.NCASM_RET_PARAM,
+                responsePredicate = ::noiseControlMatches,
+            )?.let(::parseNoiseControl)
+            if (
+                readback?.mode == command.mode &&
+                readback.ambientSoundMode == original.ambientSoundMode
+            ) {
+                applyNoiseControlState(readback, ValueSource.READ_BACK)
+                emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
+                OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+            } else {
+                abandon(command.featureId)
+                terminalFailure(
+                    requestId,
+                    command,
+                    FailureReason.TIMEOUT,
+                    "Sony NC/ASM SET was not confirmed by 0x69 or explicit GET readback",
+                    OperationPhase.TIMED_OUT,
+                )
+            }
         }
     }
 
@@ -1056,26 +1075,27 @@ class SonySession(
         val notified = setResult.response?.let(::parseNoiseControl)
         if (notified.matchesAmbientLevel(command.level, original.ambientSoundMode)) {
             emit(requestId, command, OperationPhase.STATE_CONFIRMED)
-        }
-
-        val readback = exchange(
-            noiseControlQuery(),
-            SonyCommand.NCASM_RET_PARAM,
-            responsePredicate = ::noiseControlMatches,
-        )?.let(::parseNoiseControl)
-        if (readback.matchesAmbientLevel(command.level, original.ambientSoundMode)) {
-            applyNoiseControlState(requireNotNull(readback), ValueSource.READ_BACK)
-            emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
-            OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+            OperationResult(requestId, OperationPhase.STATE_CONFIRMED)
         } else {
-            abandon(command.featureId)
-            terminalFailure(
-                requestId,
-                command,
-                FailureReason.TIMEOUT,
-                "Sony ambient-level write was not confirmed by explicit GET readback",
-                OperationPhase.TIMED_OUT,
-            )
+            val readback = exchange(
+                noiseControlQuery(),
+                SonyCommand.NCASM_RET_PARAM,
+                responsePredicate = ::noiseControlMatches,
+            )?.let(::parseNoiseControl)
+            if (readback.matchesAmbientLevel(command.level, original.ambientSoundMode)) {
+                applyNoiseControlState(requireNotNull(readback), ValueSource.READ_BACK)
+                emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
+                OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+            } else {
+                abandon(command.featureId)
+                terminalFailure(
+                    requestId,
+                    command,
+                    FailureReason.TIMEOUT,
+                    "Sony ambient-level SET was not confirmed by 0x69 or explicit GET readback",
+                    OperationPhase.TIMED_OUT,
+                )
+            }
         }
     }
 
@@ -1136,26 +1156,27 @@ class SonySession(
         val notified = setResult.response?.let(::parseNoiseControl)
         if (notified.matchesAmbientSoundMode(expectedMode, original.ambientLevel)) {
             emit(requestId, command, OperationPhase.STATE_CONFIRMED)
-        }
-
-        val readback = exchange(
-            noiseControlQuery(),
-            SonyCommand.NCASM_RET_PARAM,
-            responsePredicate = ::noiseControlMatches,
-        )?.let(::parseNoiseControl)
-        if (readback.matchesAmbientSoundMode(expectedMode, original.ambientLevel)) {
-            applyNoiseControlState(requireNotNull(readback), ValueSource.READ_BACK)
-            emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
-            OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+            OperationResult(requestId, OperationPhase.STATE_CONFIRMED)
         } else {
-            abandon(command.featureId)
-            terminalFailure(
-                requestId,
-                command,
-                FailureReason.TIMEOUT,
-                "Sony ambient-mode write was not confirmed by explicit GET readback",
-                OperationPhase.TIMED_OUT,
-            )
+            val readback = exchange(
+                noiseControlQuery(),
+                SonyCommand.NCASM_RET_PARAM,
+                responsePredicate = ::noiseControlMatches,
+            )?.let(::parseNoiseControl)
+            if (readback.matchesAmbientSoundMode(expectedMode, original.ambientLevel)) {
+                applyNoiseControlState(requireNotNull(readback), ValueSource.READ_BACK)
+                emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
+                OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+            } else {
+                abandon(command.featureId)
+                terminalFailure(
+                    requestId,
+                    command,
+                    FailureReason.TIMEOUT,
+                    "Sony ambient-mode SET was not confirmed by 0x69 or explicit GET readback",
+                    OperationPhase.TIMED_OUT,
+                )
+            }
         }
     }
 

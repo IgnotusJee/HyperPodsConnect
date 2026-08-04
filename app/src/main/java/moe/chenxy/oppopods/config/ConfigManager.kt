@@ -12,6 +12,7 @@ data class AppConfig(
     val logLevel: Int = ConfigManager.LOG_LEVEL_BASIC,
     val islandMode: Int = ConfigManager.ISLAND_MODE_OFFICIAL,
     val islandShowTimings: Set<Int> = emptySet(),
+    val connectionPopupEnabled: Boolean = true,
     val notificationClickAction: Int = ConfigManager.NOTIFICATION_CLICK_MODULE_POPUP,
     val moreClickAction: Int = ConfigManager.MORE_CLICK_MODULE,
     val adaptiveCapabilityOverride: Int = ConfigManager.CAPABILITY_OVERRIDE_AUTO,
@@ -28,6 +29,7 @@ object ConfigManager {
     const val PREF_KEY_LOG_LEVEL = "log_level"
     const val PREF_KEY_ISLAND_MODE = "island_mode"
     const val PREF_KEY_ISLAND_SHOW_TIMINGS = "island_show_timings"
+    const val PREF_KEY_CONNECTION_POPUP_ENABLED = "connection_popup_enabled"
     const val PREF_KEY_NOTIFICATION_CLICK_ACTION = "notification_click_action"
     const val PREF_KEY_MORE_CLICK_ACTION = "more_click_action"
     const val PREF_KEY_ADAPTIVE_CAPABILITY_OVERRIDE = "adaptive_capability_override"
@@ -90,6 +92,8 @@ object ConfigManager {
 
     fun islandShowTimings(): Set<Int> = current().islandShowTimings.normalizedIslandShowTimings()
 
+    fun connectionPopupEnabled(): Boolean = current().connectionPopupEnabled
+
     fun notificationClickAction(): Int = current().notificationClickAction.coerceIn(NOTIFICATION_CLICK_MODULE_POPUP, NOTIFICATION_CLICK_HEYTAP)
 
     fun moreClickAction(): Int = current().moreClickAction.coerceIn(MORE_CLICK_HEYTAP, MORE_CLICK_MODULE)
@@ -127,6 +131,10 @@ object ConfigManager {
     fun updateIslandShowTimings(prefs: SharedPreferences, service: XposedService?, timings: Set<Int>) {
         val config = current().copy(islandShowTimings = timings.normalizedIslandShowTimings())
         save(prefs, service, config)
+    }
+
+    fun updateConnectionPopupEnabled(prefs: SharedPreferences, service: XposedService?, enabled: Boolean) {
+        save(prefs, service, current().copy(connectionPopupEnabled = enabled))
     }
 
     fun updateNotificationClickAction(prefs: SharedPreferences, service: XposedService?, action: Int) {
@@ -186,6 +194,7 @@ object ConfigManager {
             .putInt(PREF_KEY_LOG_LEVEL, config.logLevel)
             .putInt(PREF_KEY_ISLAND_MODE, config.islandMode)
             .putStringSet(PREF_KEY_ISLAND_SHOW_TIMINGS, config.islandShowTimings.map { it.toString() }.toSet())
+            .putBoolean(PREF_KEY_CONNECTION_POPUP_ENABLED, config.connectionPopupEnabled)
             .putInt(PREF_KEY_NOTIFICATION_CLICK_ACTION, config.notificationClickAction)
             .putInt(PREF_KEY_MORE_CLICK_ACTION, config.moreClickAction)
             .putInt(PREF_KEY_ADAPTIVE_CAPABILITY_OVERRIDE, config.adaptiveCapabilityOverride)
@@ -200,6 +209,9 @@ object ConfigManager {
         val directLogLevel = prefs.getInt(PREF_KEY_LOG_LEVEL, Int.MIN_VALUE)
         val directIslandMode = prefs.getInt(PREF_KEY_ISLAND_MODE, Int.MIN_VALUE)
         val directIslandShowTimings = prefs.getStringSet(PREF_KEY_ISLAND_SHOW_TIMINGS, null)?.mapNotNull { it.toIntOrNull() }?.toSet()
+        val directConnectionPopupEnabled = if (prefs.contains(PREF_KEY_CONNECTION_POPUP_ENABLED)) {
+            prefs.getBoolean(PREF_KEY_CONNECTION_POPUP_ENABLED, true)
+        } else null
         val directNotificationClickAction = prefs.getInt(PREF_KEY_NOTIFICATION_CLICK_ACTION, Int.MIN_VALUE)
         val directMoreClickAction = prefs.getInt(PREF_KEY_MORE_CLICK_ACTION, Int.MIN_VALUE)
         val directAdaptiveCapabilityOverride = prefs.getInt(PREF_KEY_ADAPTIVE_CAPABILITY_OVERRIDE, Int.MIN_VALUE)
@@ -218,6 +230,7 @@ object ConfigManager {
                 logLevel = directLogLevel.takeIf { it != Int.MIN_VALUE } ?: config.logLevel,
                 islandMode = directIslandMode.takeIf { it != Int.MIN_VALUE } ?: config.islandMode,
                 islandShowTimings = directIslandShowTimings ?: config.islandShowTimings,
+                connectionPopupEnabled = directConnectionPopupEnabled ?: config.connectionPopupEnabled,
                 notificationClickAction = directNotificationClickAction.takeIf { it != Int.MIN_VALUE } ?: config.notificationClickAction,
                 moreClickAction = directMoreClickAction.takeIf { it != Int.MIN_VALUE } ?: migratedMoreClickAction,
                 adaptiveCapabilityOverride = directAdaptiveCapabilityOverride.takeIf { it != Int.MIN_VALUE } ?: config.adaptiveCapabilityOverride,
@@ -231,6 +244,7 @@ object ConfigManager {
             logLevel = directLogLevel.takeIf { it != Int.MIN_VALUE } ?: config.logLevel,
             islandMode = directIslandMode.takeIf { it != Int.MIN_VALUE } ?: config.islandMode,
             islandShowTimings = directIslandShowTimings ?: config.islandShowTimings,
+            connectionPopupEnabled = directConnectionPopupEnabled ?: config.connectionPopupEnabled,
             notificationClickAction = directNotificationClickAction.takeIf { it != Int.MIN_VALUE } ?: config.notificationClickAction,
             moreClickAction = directMoreClickAction.takeIf { it != Int.MIN_VALUE } ?: migratedMoreClickAction,
             adaptiveCapabilityOverride = directAdaptiveCapabilityOverride.takeIf { it != Int.MIN_VALUE } ?: config.adaptiveCapabilityOverride,
@@ -292,6 +306,9 @@ object ConfigManager {
             }
             if (oldConfig.islandShowTimings != newConfig.islandShowTimings) {
                 add("islandShowTimings=${oldConfig.islandShowTimings}->${newConfig.islandShowTimings}")
+            }
+            if (oldConfig.connectionPopupEnabled != newConfig.connectionPopupEnabled) {
+                add("connectionPopupEnabled=${oldConfig.connectionPopupEnabled}->${newConfig.connectionPopupEnabled}")
             }
             if (oldConfig.notificationClickAction != newConfig.notificationClickAction) {
                 add("notificationClickAction=${oldConfig.notificationClickAction}->${newConfig.notificationClickAction}")

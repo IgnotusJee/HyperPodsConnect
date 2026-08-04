@@ -63,6 +63,7 @@ object MiLinkServiceHook : HookContext() {
         hookContextEntry()
         hookMxBluetoothRuntime()
         hookHeadsetRuntimeDisplay()
+        hookSwitchToHeadsetActivity()
         spatialAudioHook.hookCirculateHeadsetServiceInfo()
     }
 
@@ -110,6 +111,7 @@ object MiLinkServiceHook : HookContext() {
     }
 
     private fun hookHeadsetRuntimeDisplay() {
+        hookHeadsetInfoConstruction()
         hookBluetoothDeviceResult("com.miui.headset.runtime.ProfileContext", "getDeviceId") { miLinkDeviceId() }
         hookBluetoothDeviceResult("com.miui.headset.runtime.ProfileContext", "getDeviceType") { miLinkDeviceType() }
         hookBluetoothDeviceResult("com.miui.headset.runtime.ProfileContext", "getBatteryLevel") { miLinkBatteryLevels() }
@@ -134,6 +136,103 @@ object MiLinkServiceHook : HookContext() {
         hookHeadsetInfoNoArg("component8") { miLinkSwitchState() }
         hookFusionHeadsetCardCapabilities()
         hookFusionHeadsetOverviewIcon()
+    }
+
+    /**
+     * Patch the value object itself in addition to its getters. MiLink sends HeadsetInfo through
+     * Parcelable/JSON paths that read the backing fields directly, so getter-only hooks leave
+     * remote hosts with stale Xiaomi SDK values. A constructor hook keeps the original address,
+     * name, volume and wired state while projecting the snapshot-owned identity and controls.
+     */
+    private fun hookHeadsetInfoConstruction() {
+        runCatching {
+            hookConstructorAfter(findConstructorByParamCount(
+                "com.miui.headset.api.HeadsetInfo",
+                10,
+            )) {
+                val address = args[0] as? String ?: return@hookConstructorAfter
+                val name = args[1] as? String
+                val state = HyperOsHeadphoneAdapter.state
+                if (!state.connected || state.deviceId == null || !state.supportsAddress(address)) {
+                    return@hookConstructorAfter
+                }
+                currentAddress = address
+                currentName = name ?: currentName
+                runCatching {
+                    setObjectField(instance, "deviceId", miLinkDeviceId())
+                    setObjectField(instance, "powers", miLinkBatteryLevels())
+                    setObjectField(instance, "mode", miLinkRuntimeAncState(currentAnc))
+                    setObjectField(instance, "type", miLinkDeviceType())
+                    setObjectField(instance, "switchState", miLinkSwitchState())
+                    setObjectField(instance, "audioEffectState", miLinkAudioEffectState())
+                }.onFailure {
+                    Log.w(TAG, "project HeadsetInfo backing fields failed", it)
+                }
+            }
+        }.onFailure { Log.w(TAG, "hook HeadsetInfo constructor skipped", it) }
+    }
+
+    /**
+     * MiLink ultimately delegates its headset-card click to the MxBluetooth SDK. Third-party
+     * devices do not have the Xiaomi support record required by that SDK, so route only the
+     * exact active snapshot device to the module detail popup. If the module activity cannot be
+     * started, leave the Hook result untouched and let the ROM implementation provide its normal
+     * fallback. Native Xiaomi devices and every non-target address always keep the original path.
+     */
+    private fun hookSwitchToHeadsetActivity() {
+        listOf(
+            "com.xiaomi.mxbluetoothsdk.manager.MxBluetoothManager",
+            "com.xiaomi.mxbluetoothsdk.service.MxBluetoothService",
+        ).forEach { className ->
+            runCatching {
+                hookBefore(findMethod(
+                    className,
+                    "switchToHeadsetActivity",
+                    BluetoothDevice::class.java,
+                )) {
+                    val device = args[0] as? BluetoothDevice ?: return@hookBefore
+                    if (!isExactSnapshotDevice(device)) return@hookBefore
+                    captureRuntimeContext(instance)
+                    if (openModuleHeadsetActivity(device)) {
+                        this.result = null
+                    }
+                }
+            }.onFailure {
+                Log.w(TAG, "hook $className.switchToHeadsetActivity skipped", it)
+            }
+        }
+    }
+
+    private fun isExactSnapshotDevice(device: BluetoothDevice): Boolean {
+        val state = HyperOsHeadphoneAdapter.state
+        val address = runCatching { device.address }.getOrNull()
+        if (!state.connected || state.deviceId == null || !state.supportsAddress(address)) return false
+        currentAddress = address
+        currentName = runCatching { device.alias ?: device.name }.getOrNull() ?: currentName
+        return true
+    }
+
+    private fun openModuleHeadsetActivity(device: BluetoothDevice): Boolean {
+        val launchContext = context ?: return false
+        val deviceName = runCatching { device.alias ?: device.name }.getOrNull()
+        return runCatching {
+            launchContext.startActivity(Intent(ACTION_SHOW_PODS_UI).apply {
+                setClassName(BuildConfig.APPLICATION_ID, POPUP_ACTIVITY_CLASS)
+                putExtra(EXTRA_FORCE_MODULE_POPUP, true)
+                putExtra(BluetoothDevice.EXTRA_DEVICE, device)
+                putExtra("bluetoothaddress", device.address)
+                putExtra("device_name", deviceName)
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+            })
+            Log.d(TAG, "MiLink headset detail routed to module popup")
+            true
+        }.onFailure {
+            Log.w(TAG, "module headset detail unavailable; keeping ROM path", it)
+        }.getOrDefault(false)
     }
 
     private fun hookFusionHeadsetCardCapabilities() {
@@ -494,6 +593,7 @@ object MiLinkServiceHook : HookContext() {
 
     internal fun captureRuntimeContext(owner: Any?) {
         val ownerContext = runCatching { getObjectField(owner, "context") as? Context }.getOrNull()
+            ?: runCatching { getObjectField(owner, "mContext") as? Context }.getOrNull()
             ?: runCatching { getObjectField(lastProfileContext, "context") as? Context }.getOrNull()
             ?: runCatching { getObjectField(lastAncBatteryController, "context") as? Context }.getOrNull()
             ?: return
@@ -603,4 +703,8 @@ object MiLinkServiceHook : HookContext() {
             )
         )
     }
+
+    private const val ACTION_SHOW_PODS_UI = "chen.action.oppopods.show_pods_ui"
+    private const val POPUP_ACTIVITY_CLASS = "moe.chenxy.oppopods.PopupActivity"
+    private const val EXTRA_FORCE_MODULE_POPUP = "moe.chenxy.oppopods.extra.FORCE_MODULE_POPUP"
 }

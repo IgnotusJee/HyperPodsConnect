@@ -14,6 +14,11 @@ data class SonyNoiseControlState(
     internal val vendorNoiseValue: Int? = null,
 )
 
+data class SonyNoiseControlCapability(
+    val ambientLevelRange: IntRange,
+    val ambientSoundModes: Set<SonyAmbientSoundMode>,
+)
+
 enum class SonyValueChangeStatus(val code: Int) {
     UNDER_CHANGING(0x00),
     CHANGED(0x01),
@@ -37,8 +42,66 @@ object SonyNoiseControlFeature {
     const val AMBIENT_LEVEL_MAX = 20
     private const val PARAMETER_ID = 0x17
 
+    fun queryCapability(): ByteArray =
+        byteArrayOf(SonyCommand.NCASM_GET_CAPABILITY.toByte(), PARAMETER_ID.toByte())
+
+    fun queryStatus(): ByteArray =
+        byteArrayOf(SonyCommand.NCASM_GET_STATUS.toByte(), PARAMETER_ID.toByte())
+
     fun query(): ByteArray =
         byteArrayOf(SonyCommand.NCASM_GET_PARAM.toByte(), PARAMETER_ID.toByte())
+
+    fun parseCapability(message: SonyMdrMessage): SonyNoiseControlCapability? {
+        if (
+            message.table != SonyCommandTable.TABLE1 ||
+            message.command != SonyCommand.NCASM_RET_CAPABILITY
+        ) return null
+        val bytes = message.payload
+        if (
+            bytes.size < 7 ||
+            (bytes[1].toInt() and 0xFF) != PARAMETER_ID
+        ) return null
+        val count = bytes[2].toInt() and 0xFF
+        if (count == 0 || bytes.size != 3 + count * 4) return null
+
+        val modes = linkedSetOf<SonyAmbientSoundMode>()
+        var commonMin = AMBIENT_LEVEL_MIN
+        var commonMax = AMBIENT_LEVEL_MAX
+        repeat(count) { index ->
+            val offset = 3 + index * 4
+            val mode = SonyAmbientSoundMode.entries.firstOrNull {
+                it.code == (bytes[offset].toInt() and 0xFF)
+            } ?: return null
+            val minimum = bytes[offset + 1].toInt() and 0xFF
+            val maximum = bytes[offset + 2].toInt() and 0xFF
+            val step = bytes[offset + 3].toInt() and 0xFF
+            if (minimum < AMBIENT_LEVEL_MIN || maximum > AMBIENT_LEVEL_MAX || minimum > maximum || step == 0) {
+                return null
+            }
+            modes += mode
+            commonMin = maxOf(commonMin, minimum)
+            commonMax = minOf(commonMax, maximum)
+        }
+        if (commonMin > commonMax) return null
+        return SonyNoiseControlCapability(commonMin..commonMax, modes)
+    }
+
+    fun parseStatusEnabled(message: SonyMdrMessage): Boolean? {
+        if (
+            message.table != SonyCommandTable.TABLE1 ||
+            message.command != SonyCommand.NCASM_RET_STATUS
+        ) return null
+        val bytes = message.payload
+        if (
+            bytes.size != 3 ||
+            (bytes[1].toInt() and 0xFF) != PARAMETER_ID
+        ) return null
+        return when (bytes[2].toInt() and 0xFF) {
+            0x00 -> true
+            0x01 -> false
+            else -> null
+        }
+    }
 
     fun set(mode: NoiseControlMode, current: SonyNoiseControlState): ByteArray? {
         val enabled: Int
@@ -143,4 +206,14 @@ object SonyNoiseControlFeature {
 
     fun matches(message: SonyMdrMessage): Boolean =
         message.payload.getOrNull(1)?.toInt()?.and(0xFF) == PARAMETER_ID
+
+    fun capabilityMatches(message: SonyMdrMessage): Boolean =
+        message.table == SonyCommandTable.TABLE1 &&
+            message.command == SonyCommand.NCASM_RET_CAPABILITY &&
+            matches(message)
+
+    fun statusMatches(message: SonyMdrMessage): Boolean =
+        message.table == SonyCommandTable.TABLE1 &&
+            message.command == SonyCommand.NCASM_RET_STATUS &&
+            matches(message)
 }

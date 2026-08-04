@@ -115,6 +115,11 @@ HyperOS 设置页真机回归。Phase 15 已闭环。
 
 ## 5. Phase 16：MiLink 状态桥与耳机弹窗
 
+执行记录见 [`PHASE16_MILINK_POPUP.md`](PHASE16_MILINK_POPUP.md)。16A 已完成完整
+`HeadsetInfo` backing-field 投影、snapshot 属性通知和精确地址的 `switchToHeadsetActivity` 模块入口，
+16B 已完成自动连接边沿 coordinator、精确 snapshot 弹窗门禁和无重试通知降级。当前等待
+OPPO/Sony/小米第一方真机矩阵，Phase 16 未闭环。
+
 详细静态论证见
 [`../reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md`](../reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md)。
 

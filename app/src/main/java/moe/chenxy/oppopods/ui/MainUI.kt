@@ -177,6 +177,7 @@ fun MainUI(
     val fakeDeviceId = remember { mutableStateOf(appConfig.fakeDeviceId) }
     val islandMode = remember { mutableStateOf(appConfig.islandMode) }
     val islandShowTimings = remember { mutableStateOf(appConfig.islandShowTimings) }
+    val connectionPopupEnabled = remember { mutableStateOf(appConfig.connectionPopupEnabled) }
     val spatialAudioMode = remember { mutableStateOf(SpatialAudioMode.OFF) }
     val spatialSoundSwitch = remember { mutableStateOf(false) }
     val eqPresetId = remember { mutableStateOf<String?>(null) }
@@ -713,6 +714,12 @@ fun MainUI(
                 onIslandShowTimingsChange = {
                     islandShowTimings.value = it
                     ConfigManager.updateIslandShowTimings(prefs, xposedService, it)
+                    broadcastConfigChanged(context, "com.android.bluetooth")
+                },
+                connectionPopupEnabled = connectionPopupEnabled,
+                onConnectionPopupEnabledChange = {
+                    connectionPopupEnabled.value = it
+                    ConfigManager.updateConnectionPopupEnabled(prefs, xposedService, it)
                     broadcastConfigChanged(context, "com.android.bluetooth")
                 },
                 appLanguage = appLanguage,

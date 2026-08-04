@@ -31,7 +31,9 @@ internal class SonyAutoPlayGattDeviceResolver(
         connectedDevices: List<BluetoothDevice>,
         spec: TransportSpec.Gatt,
     ): BluetoothDevice? {
-        val fallback = connectedDevices.firstOrNull() ?: return null
+        val fallback = connectedDevices.getOrNull(
+            selectSonyFallbackIndex(connectedDevices.map(BluetoothDevice::getType)),
+        ) ?: return null
         if (!spec.serviceUuid.equals(AUTO_PLAY_SERVICE_UUID, ignoreCase = true)) return fallback
         val activeScanner = scanner ?: return fallback
 
@@ -79,7 +81,11 @@ internal class SonyAutoPlayGattDeviceResolver(
             }
         }
         if (discovered == null) {
-            Log.d(TAG, "Sony Auto Play advertisement not connectable; using bonded endpoint")
+            Log.d(
+                TAG,
+                "Sony Auto Play advertisement not connectable; using bonded endpoint " +
+                    "type=${fallback.type}",
+            )
         } else {
             Log.d(TAG, "Sony Auto Play advertisement resolved")
         }
@@ -94,6 +100,11 @@ internal class SonyAutoPlayGattDeviceResolver(
         const val CONNECTABLE = 0
         const val DEFAULT_DISCOVERY_TIMEOUT_MS = 3_000L
     }
+}
+
+internal fun selectSonyFallbackIndex(deviceTypes: List<Int>): Int {
+    val dualIndex = deviceTypes.indexOf(BluetoothDevice.DEVICE_TYPE_DUAL)
+    return if (dualIndex >= 0) dualIndex else 0
 }
 
 internal fun sonyAutoPlayUniqueId(address: String): Int {

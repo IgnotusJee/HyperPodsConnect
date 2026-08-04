@@ -27,6 +27,7 @@ import moe.chenxy.headphones.core.feature.WearComponent
 import moe.chenxy.headphones.core.feature.WearState
 import moe.chenxy.headphones.core.operation.FailureReason
 import moe.chenxy.headphones.core.operation.FeatureCommand
+import moe.chenxy.headphones.core.operation.OperationPhase
 import moe.chenxy.headphones.core.session.DisconnectCause
 import moe.chenxy.headphones.core.session.SessionState
 import moe.chenxy.headphones.core.transport.ByteTransport
@@ -251,6 +252,18 @@ class SonySessionTest {
             assertEquals(NoiseControlMode.OFF, session.state.value.noiseControl.confirmed)
             assertEquals(10, session.state.value.ambientSoundLevel.confirmed)
             assertEquals(false, session.state.value.transparencyVocalEnhancement.confirmed)
+            val capabilityIndex = transport.commandWrites.indexOfFirst {
+                it.first().toInt() and 0xFF == SonyCommand.NCASM_GET_CAPABILITY
+            }
+            val statusIndex = transport.commandWrites.indexOfFirst {
+                it.first().toInt() and 0xFF == SonyCommand.NCASM_GET_STATUS
+            }
+            val parameterIndex = transport.commandWrites.indexOfFirst {
+                it.first().toInt() and 0xFF == SonyCommand.NCASM_GET_PARAM
+            }
+            assertTrue(capabilityIndex >= 0)
+            assertTrue(statusIndex > capabilityIndex)
+            assertTrue(parameterIndex > statusIndex)
 
             val enable = session.execute(
                 FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
@@ -264,7 +277,7 @@ class SonySessionTest {
                 }.toList(),
             )
             assertEquals(
-                SonyCommand.NCASM_GET_PARAM,
+                SonyCommand.NCASM_SET_PARAM,
                 transport.commandWrites.last().first().toInt() and 0xFF,
             )
 
@@ -330,7 +343,7 @@ class SonySessionTest {
                 }.toList(),
             )
             assertEquals(
-                SonyCommand.NCASM_GET_PARAM,
+                SonyCommand.NCASM_SET_PARAM,
                 transport.commandWrites.last().first().toInt() and 0xFF,
             )
 
@@ -863,7 +876,7 @@ class SonySessionTest {
     }
 
     @Test
-    fun `missing NCASM notification falls back to explicit GET readback`() = runBlocking {
+    fun `missing NCASM notification falls back to explicit matching readback`() = runBlocking {
         val transport = FakeSonyTransport(
             kind = TransportKind.BLE_GATT,
             model = "LinkBuds S",
@@ -895,22 +908,8 @@ class SonySessionTest {
         )
 
         assertTrue(result.succeeded)
+        assertEquals(OperationPhase.READ_BACK_CONFIRMED, result.phase)
         assertEquals(NoiseControlMode.NOISE_CANCELLATION, session.state.value.noiseControl.confirmed)
-        assertEquals(
-            SonyCommand.NCASM_GET_PARAM,
-            transport.commandWrites.last().first().toInt() and 0xFF,
-        )
-
-        assertTrue(
-            session.execute(
-                FeatureCommand.SetNoiseControl(NoiseControlMode.TRANSPARENCY),
-            ).succeeded,
-        )
-        val voiceResult = session.execute(
-            FeatureCommand.SetTransparencyVocalEnhancement(true),
-        )
-        assertTrue(voiceResult.succeeded)
-        assertEquals(true, session.state.value.transparencyVocalEnhancement.confirmed)
         assertEquals(
             SonyCommand.NCASM_GET_PARAM,
             transport.commandWrites.last().first().toInt() and 0xFF,
@@ -1147,8 +1146,15 @@ private class FakeSonyTransport(
                     0x00, 0x14, 0x01, 0x14,
                 )
             } else {
-                null
+                byteArrayOf(
+                    SonyCommand.NCASM_RET_CAPABILITY.toByte(),
+                    0x17, 0x02,
+                    0x00, 0x01, 0x14, 0x01,
+                    0x01, 0x01, 0x14, 0x01,
+                )
             }
+        SonyCommand.NCASM_GET_STATUS ->
+            byteArrayOf(SonyCommand.NCASM_RET_STATUS.toByte(), request[1], 0x00)
         SonyCommand.NCASM_GET_PARAM ->
             if (protocolGeneration == SonyProtocolGeneration.V1) {
                 byteArrayOf(SonyCommand.NCASM_RET_PARAM.toByte()) + v1NoiseControl

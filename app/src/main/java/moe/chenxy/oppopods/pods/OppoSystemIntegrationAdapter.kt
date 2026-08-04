@@ -2,12 +2,15 @@ package moe.chenxy.oppopods.pods
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
+import android.media.AudioManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.os.SystemClock
+import android.os.PowerManager
+import android.os.UserManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -80,6 +83,7 @@ object OppoSystemIntegrationAdapter {
     private val lifecycleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var lastEngineState = HeadphoneState()
     private var readyGeneration = -1L
+    private val connectedPopupCoordinator = ConnectedPopupCoordinator()
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -241,6 +245,7 @@ object OppoSystemIntegrationAdapter {
                     RfcommLog.i(mContext, TAG, "session ready generation=${snapshot.generationId}")
                     if (autoGameModeEnabled) lifecycleScope.launch { enableGameModeOnConnect() }
                 }
+                maybeShowConnectedPopup(snapshot, enteringReady)
             }
             is SessionState.Reconnecting -> Unit
             is SessionState.Failed -> {
@@ -347,6 +352,55 @@ object OppoSystemIntegrationAdapter {
         currentVendorId = null
         canCycleNoiseControl = false
         mContext = null
+    }
+
+    private fun maybeShowConnectedPopup(snapshot: HeadphoneSnapshot, enteringReady: Boolean) {
+        val context = mContext ?: return
+        val candidate = connectedPopupCoordinator.claim(
+            enabled = ConfigManager.connectionPopupEnabled(),
+            transportConnected = isConnected,
+            protocolReady = snapshot.connection is SessionState.Ready,
+            readyEdge = enteringReady,
+            generationId = snapshot.generationId,
+            address = mDevice.address,
+            deviceId = snapshot.deviceId.value,
+            batteryLevels = snapshot.state.batteries.values.map(BatteryState::level),
+            nowMs = SystemClock.elapsedRealtime(),
+        ) ?: return
+
+        if (!isConnectedPopupEnvironmentEligible(context)) {
+            Log.d(TAG, "connected popup skipped by foreground environment gate")
+            return
+        }
+
+        val intent = Intent().apply {
+            setClassName(BuildConfig.APPLICATION_ID, "${BuildConfig.APPLICATION_ID}.PopupActivity")
+            putExtra("android.bluetooth.device.extra.DEVICE", mDevice)
+            putExtra(ConnectedPopupContract.EXTRA_FORCE_MODULE_POPUP, true)
+            putExtra(ConnectedPopupContract.EXTRA_CONNECTION_EDGE_POPUP, true)
+            putExtra(ConnectedPopupContract.EXTRA_EXPECTED_GENERATION, candidate.generationId)
+            putExtra(ConnectedPopupContract.EXTRA_EXPECTED_EMITTED_AT, snapshot.emittedAtMillis)
+            putExtra(ConnectedPopupContract.EXTRA_EXPECTED_DEVICE_ID, candidate.deviceId)
+            putExtra(ConnectedPopupContract.EXTRA_EXPECTED_ADDRESS, candidate.address)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { context.startActivity(intent) }
+            .onSuccess {
+                Log.d(TAG, "connected popup requested generation=${candidate.generationId}")
+                RfcommLog.i(context, TAG, "connected popup requested generation=${candidate.generationId}")
+            }
+            .onFailure { error ->
+                Log.w(TAG, "connected popup launch failed; notification remains available: ${error.message}")
+                RfcommLog.w(context, TAG, "connected popup launch failed: ${error.message}")
+            }
+    }
+
+    private fun isConnectedPopupEnvironmentEligible(context: Context): Boolean {
+        val interactive = context.getSystemService(PowerManager::class.java)?.isInteractive == true
+        val unlocked = context.getSystemService(UserManager::class.java)?.isUserUnlocked == true
+        val audioMode = context.getSystemService(AudioManager::class.java)?.mode ?: AudioManager.MODE_NORMAL
+        val inCall = audioMode == AudioManager.MODE_IN_CALL || audioMode == AudioManager.MODE_IN_COMMUNICATION
+        return interactive && unlocked && !inCall
     }
 
     fun isCurrentDevice(device: BluetoothDevice): Boolean =

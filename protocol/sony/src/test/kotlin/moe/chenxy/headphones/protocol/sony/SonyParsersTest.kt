@@ -422,6 +422,32 @@ class SonyParsersTest {
 
     @Test
     fun `parses captured LinkBuds S NCASM readback and builds exact reversible writes`() {
+        assertEquals(
+            byteArrayOf(0x60, 0x17).toList(),
+            SonyNoiseControlFeature.queryCapability().toList(),
+        )
+        assertEquals(
+            byteArrayOf(0x62, 0x17).toList(),
+            SonyNoiseControlFeature.queryStatus().toList(),
+        )
+        val capability = SonyNoiseControlFeature.parseCapability(
+            message(
+                byteArrayOf(
+                    0x61, 0x17, 0x02,
+                    0x00, 0x01, 0x14, 0x01,
+                    0x01, 0x01, 0x14, 0x01,
+                ),
+            ),
+        )!!
+        assertEquals(1..20, capability.ambientLevelRange)
+        assertEquals(SonyAmbientSoundMode.entries.toSet(), capability.ambientSoundModes)
+        assertEquals(
+            true,
+            SonyNoiseControlFeature.parseStatusEnabled(
+                message(byteArrayOf(0x63, 0x17, 0x00)),
+            ),
+        )
+
         val off = SonyNoiseControlFeature.parse(
             message(byteArrayOf(0x67, 0x17, 0x01, 0x00, 0x00, 0x00, 0x0A)),
         )!!

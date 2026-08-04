@@ -70,6 +70,8 @@ object SonyCommand {
 
     const val NCASM_GET_CAPABILITY = 0x60
     const val NCASM_RET_CAPABILITY = 0x61
+    const val NCASM_GET_STATUS = 0x62
+    const val NCASM_RET_STATUS = 0x63
     const val NCASM_GET_PARAM = 0x66
     const val NCASM_RET_PARAM = 0x67
     const val NCASM_SET_PARAM = 0x68

@@ -43,6 +43,8 @@ fun SettingsPage(
     onIslandModeChange: (Int) -> Unit = {},
     islandShowTimings: MutableState<Set<Int>> = mutableStateOf(emptySet()),
     onIslandShowTimingsChange: (Set<Int>) -> Unit = {},
+    connectionPopupEnabled: MutableState<Boolean> = mutableStateOf(true),
+    onConnectionPopupEnabledChange: (Boolean) -> Unit = {},
     appLanguage: MutableState<Int> = mutableStateOf(AppLocale.SYSTEM),
     onAppLanguageChange: (Int) -> Unit = {},
     autoGameMode: MutableState<Boolean> = mutableStateOf(false),
@@ -266,6 +268,12 @@ fun SettingsPage(
                         collapseOnSelection = false,
                     )
                 }
+                SwitchPreference(
+                    title = stringResource(R.string.connection_popup),
+                    summary = stringResource(R.string.connection_popup_summary),
+                    checked = connectionPopupEnabled.value,
+                    onCheckedChange = onConnectionPopupEnabledChange,
+                )
                 SwitchPreference(
                     title = stringResource(R.string.auto_game_mode),
                     checked = autoGameMode.value,

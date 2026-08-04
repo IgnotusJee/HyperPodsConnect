@@ -172,6 +172,52 @@ class Phase5ArchitectureTest {
     }
 
     @Test
+    fun `MiLink headset activity routes only the exact snapshot device with ROM fallback`() {
+        val milink = source(
+            "src/main/java/moe/chenxy/oppopods/hook/milink/MiLinkServiceHook.kt",
+        )
+        val popup = source("src/main/java/moe/chenxy/oppopods/PopupActivity.kt")
+        assumeTrue(milink != null)
+        assumeTrue(popup != null)
+
+        assertTrue(milink!!.contains("hookSwitchToHeadsetActivity()"))
+        assertTrue(milink.contains("hookHeadsetInfoConstruction()"))
+        assertTrue(milink.contains("setObjectField(instance, \"deviceId\""))
+        assertTrue(milink.contains("setObjectField(instance, \"powers\""))
+        assertTrue(milink.contains("setObjectField(instance, \"audioEffectState\""))
+        assertTrue(milink.contains("if (!isExactSnapshotDevice(device)) return@hookBefore"))
+        assertTrue(milink.contains("state.deviceId == null || !state.supportsAddress(address)"))
+        assertTrue(milink.contains("if (openModuleHeadsetActivity(device))"))
+        assertTrue(milink.contains("this.result = null"))
+        assertTrue(milink.contains("getObjectField(owner, \"mContext\")"))
+        assertTrue(milink.contains("putExtra(EXTRA_FORCE_MODULE_POPUP, true)"))
+        assertTrue(popup!!.contains("!forceModulePopup && appConfig.notificationClickAction"))
+    }
+
+    @Test
+    fun `connected popup consumes an exact ready snapshot and never falls back to stale UI`() {
+        val adapter = source("src/main/java/moe/chenxy/oppopods/pods/OppoSystemIntegrationAdapter.kt")
+        val coordinator = source("src/main/java/moe/chenxy/oppopods/pods/ConnectedPopupCoordinator.kt")
+        val popup = source("src/main/java/moe/chenxy/oppopods/PopupActivity.kt")
+        assumeTrue(adapter != null)
+        assumeTrue(coordinator != null)
+        assumeTrue(popup != null)
+
+        assertTrue(adapter!!.contains("maybeShowConnectedPopup(snapshot, enteringReady)"))
+        assertTrue(adapter.contains("readyEdge = enteringReady"))
+        assertTrue(adapter.contains("snapshot.state.batteries.values.map(BatteryState::level)"))
+        assertTrue(adapter.contains("isConnectedPopupEnvironmentEligible(context)"))
+        assertTrue(coordinator!!.contains("handledKey = key"))
+        assertTrue(coordinator.contains("batteryLevels.none { it in 1..100 }"))
+        assertTrue(popup!!.contains("state.generationId == expectedGeneration"))
+        assertTrue(popup.contains("state.emittedAtMillis >= expectedEmittedAtMillis"))
+        assertTrue(popup.contains("state.deviceId == expectedDeviceId"))
+        assertTrue(popup.contains("state.supportsAddress(expectedAddress)"))
+        assertTrue(popup.contains("if (connectionEdgePopup)"))
+        assertTrue(popup.contains("onUnavailable()"))
+    }
+
+    @Test
     fun `default runtime logs do not format identity bearing addresses`() {
         val runtime = source(
             "src/main/java/moe/chenxy/oppopods/runtime/bluetoothprocess/" +

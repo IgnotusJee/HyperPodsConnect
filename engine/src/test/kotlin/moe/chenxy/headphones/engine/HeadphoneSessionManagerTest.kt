@@ -156,6 +156,22 @@ class HeadphoneSessionManagerTest {
     }
 
     @Test
+    fun `snapshot ordering remains strict when callbacks share a clock millisecond`() = runTest {
+        val provider = FakeProvider()
+        val manager = manager(provider, clock = { 1_000L })
+        manager.connect(candidate("11:22:33:44:55:66"), unusedFactory)
+        runCurrent()
+        val beforeOperation = manager.snapshot.value!!.emittedAtMillis
+
+        provider.sessions.single().emitOperation("write-same-millisecond")
+        runCurrent()
+
+        val afterOperation = manager.snapshot.value!!
+        assertTrue(afterOperation.emittedAtMillis > beforeOperation)
+        assertEquals("write-same-millisecond", afterOperation.lastOperation?.requestId?.value)
+    }
+
+    @Test
     fun `disconnect retains last state as stale and prevents reconnect`() = runTest {
         val provider = FakeProvider()
         val manager = manager(provider)
@@ -246,11 +262,15 @@ class HeadphoneSessionManagerTest {
         assertTrue(manager.snapshot.value?.connection is SessionState.Ready)
     }
 
-    private fun kotlinx.coroutines.test.TestScope.manager(provider: FakeProvider) =
+    private fun kotlinx.coroutines.test.TestScope.manager(
+        provider: FakeProvider,
+        clock: () -> Long = System::currentTimeMillis,
+    ) =
         HeadphoneSessionManager(
             DriverRegistry(listOf(provider)),
             backgroundScope,
             reconnectPolicy = ReconnectPolicy(maxAttempts = 0),
+            clock = clock,
         )
 
     private fun candidate(address: String) = DeviceCandidate(

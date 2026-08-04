@@ -143,7 +143,7 @@ class HeadphoneSessionManager(
         _snapshot.value = previous.copy(
             connection = SessionState.Idle(previous.deviceId, previous.generationId),
             state = previous.state.markAllStale(),
-            emittedAtMillis = clock(),
+            emittedAtMillis = nextEmissionMillis(previous),
         )
     }
 
@@ -259,10 +259,18 @@ class HeadphoneSessionManager(
                 profile = profile?.value ?: current.profile,
                 state = state ?: current.state,
                 lastOperation = lastOperation?.value ?: current.lastOperation,
-                emittedAtMillis = clock(),
+                emittedAtMillis = nextEmissionMillis(current),
             )
         }
     }
+
+    /**
+     * IPC consumers use this field as the ordering key within one generation.
+     * Multiple state and operation callbacks can be collected in the same wall-clock
+     * millisecond, so a raw clock value is not sufficient to distinguish them.
+     */
+    private fun nextEmissionMillis(current: HeadphoneSnapshot): Long =
+        maxOf(clock(), current.emittedAtMillis + 1)
 
     private fun scheduleReconnect(holder: ActiveSession, cause: DisconnectCause) {
         if (!isCurrent(holder) || reconnectJob?.isActive == true) return

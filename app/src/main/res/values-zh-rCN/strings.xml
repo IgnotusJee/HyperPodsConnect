@@ -41,6 +41,8 @@
     <string name="game_mode_implementation_standard">标准</string>
     <string name="game_mode_implementation_compatible">兼容</string>
     <string name="notification_click_action">点击通知时行为</string>
+    <string name="connection_popup">连接弹窗</string>
+    <string name="connection_popup_summary">耳机就绪时显示一次模块弹窗</string>
     <string name="notification_click_action_summary">选择点击耳机通知时打开的位置</string>
     <string name="more_click_action">点击更多时行为</string>
     <string name="more_click_action_summary">选择点击模块弹窗“更多”按钮时打开的位置</string>

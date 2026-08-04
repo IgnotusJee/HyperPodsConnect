@@ -40,6 +40,8 @@
     <string name="game_mode_implementation_standard">Standard</string>
     <string name="game_mode_implementation_compatible">Compatible</string>
     <string name="notification_click_action">Notification tap behavior</string>
+    <string name="connection_popup">Connection popup</string>
+    <string name="connection_popup_summary">Show the module popup once when a headset becomes ready</string>
     <string name="notification_click_action_summary">Choose where tapping the headset notification opens</string>
     <string name="more_click_action">\"More\" button behavior</string>
     <string name="more_click_action_summary">Choose where tapping \"More\" in the module popup opens</string>

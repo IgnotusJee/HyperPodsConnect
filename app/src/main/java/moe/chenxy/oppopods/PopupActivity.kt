@@ -39,6 +39,7 @@ import moe.chenxy.oppopods.config.ConfigManager
 import moe.chenxy.oppopods.ipc.HeadphoneCommandClient
 import moe.chenxy.oppopods.ipc.HeadphoneSnapshotReceiver
 import moe.chenxy.oppopods.ipc.sendIdentitySharedBroadcast
+import moe.chenxy.oppopods.pods.ConnectedPopupContract
 import moe.chenxy.oppopods.ui.AppLocale
 import moe.chenxy.oppopods.ui.AppTheme
 import moe.chenxy.oppopods.ui.components.AncSwitch
@@ -71,11 +72,18 @@ class PopupActivity : ComponentActivity() {
         val prefs = getSharedPreferences(ConfigManager.PREFS_NAME, Context.MODE_PRIVATE)
         val appConfig = ConfigManager.refreshFromPrefs(prefs)
         val bluetoothDevice = intent.parcelableDevice("android.bluetooth.device.extra.DEVICE")
-        if (appConfig.notificationClickAction != ConfigManager.NOTIFICATION_CLICK_MODULE_POPUP) {
+        val forceModulePopup = intent.getBooleanExtra(ConnectedPopupContract.EXTRA_FORCE_MODULE_POPUP, false)
+        val connectionEdgePopup = intent.getBooleanExtra(ConnectedPopupContract.EXTRA_CONNECTION_EDGE_POPUP, false)
+        val expectedGeneration = intent.getLongExtra(ConnectedPopupContract.EXTRA_EXPECTED_GENERATION, -1L)
+        val expectedEmittedAtMillis = intent.getLongExtra(ConnectedPopupContract.EXTRA_EXPECTED_EMITTED_AT, -1L)
+        val expectedDeviceId = intent.getStringExtra(ConnectedPopupContract.EXTRA_EXPECTED_DEVICE_ID)
+        val expectedAddress = intent.getStringExtra(ConnectedPopupContract.EXTRA_EXPECTED_ADDRESS)
+        if (!forceModulePopup && appConfig.notificationClickAction != ConfigManager.NOTIFICATION_CLICK_MODULE_POPUP) {
             openNotificationTarget(appConfig.notificationClickAction, bluetoothDevice)
             finish()
             return
         }
+        if (connectionEdgePopup) setShowWhenLocked(true)
 
         setContent {
             val colorSchemeMode = when (prefs.getInt("theme_mode", 0)) {
@@ -85,12 +93,18 @@ class PopupActivity : ComponentActivity() {
             }
             AppTheme(colorSchemeMode = colorSchemeMode, accentMode = prefs.getInt("accent_mode", 0)) {
                 PopupContent(
+                    connectionEdgePopup = connectionEdgePopup,
+                    expectedGeneration = expectedGeneration,
+                    expectedEmittedAtMillis = expectedEmittedAtMillis,
+                    expectedDeviceId = expectedDeviceId,
+                    expectedAddress = expectedAddress,
                     onMore = {
                         val latestConfig = ConfigManager.refreshFromPrefs(prefs)
                         openMoreTarget(latestConfig.moreClickAction, bluetoothDevice)
                         finish()
                     },
-                    onDone = { finish() }
+                    onDone = { finish() },
+                    onUnavailable = { finish() },
                 )
             }
         }
@@ -154,7 +168,16 @@ class PopupActivity : ComponentActivity() {
 }
 
 @Composable
-private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
+private fun PopupContent(
+    connectionEdgePopup: Boolean,
+    expectedGeneration: Long,
+    expectedEmittedAtMillis: Long,
+    expectedDeviceId: String?,
+    expectedAddress: String?,
+    onMore: () -> Unit,
+    onDone: () -> Unit,
+    onUnavailable: () -> Unit,
+) {
     val context = LocalContext.current
     val showDialog = remember { mutableStateOf(false) }
     val headphoneUiState = HeadphoneUiStore.state.collectAsState().value
@@ -178,8 +201,15 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
             ?.options?.any { it.value == "ADAPTIVE" } == true
     LaunchedEffect(headphoneUiState) {
         val state = headphoneUiState
+        val matchesExpectedSnapshot =
+            state.connected &&
+                state.generationId == expectedGeneration &&
+                state.emittedAtMillis >= expectedEmittedAtMillis &&
+                state.deviceId == expectedDeviceId &&
+                state.supportsAddress(expectedAddress)
+        if (connectionEdgePopup && !matchesExpectedSnapshot) return@LaunchedEffect
         deviceName.value = state.title
-        showDialog.value = state.connected || showDialog.value
+        showDialog.value = if (connectionEdgePopup) matchesExpectedSnapshot else state.connected || showDialog.value
         fun battery(component: String): PodParams? = state.batteries[component]?.let {
             PodParams(it.level, it.charging, true, 0)
         }
@@ -207,11 +237,24 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
         })
     }
 
-    // Timeout fallback: show dialog even if no response within 500ms
+    // Manual opens retain the historical timeout fallback. An automatic connection popup must
+    // match the exact generation/address snapshot or close without presenting stale state.
     // Periodic refresh: poll earbuds every 15s while popup is open
-    LaunchedEffect(Unit) {
-        delay(500)
-        if (!showDialog.value) showDialog.value = true
+    LaunchedEffect(
+        connectionEdgePopup,
+        expectedGeneration,
+        expectedEmittedAtMillis,
+        expectedDeviceId,
+        expectedAddress,
+    ) {
+        delay(if (connectionEdgePopup) 2_000 else 500)
+        if (!showDialog.value) {
+            if (connectionEdgePopup) {
+                onUnavailable()
+                return@LaunchedEffect
+            }
+            showDialog.value = true
+        }
 
         while (true) {
             delay(15_000)

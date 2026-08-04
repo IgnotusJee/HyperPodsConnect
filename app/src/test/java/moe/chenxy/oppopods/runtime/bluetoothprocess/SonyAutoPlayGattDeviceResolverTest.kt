@@ -1,10 +1,26 @@
 package moe.chenxy.oppopods.runtime.bluetoothprocess
 
+import android.bluetooth.BluetoothDevice
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SonyAutoPlayGattDeviceResolverTest {
+    @Test
+    fun `prefers dual Sony identity over rotating BLE group lead`() {
+        assertEquals(
+            1,
+            selectSonyFallbackIndex(
+                listOf(BluetoothDevice.DEVICE_TYPE_LE, BluetoothDevice.DEVICE_TYPE_DUAL),
+            ),
+        )
+        assertEquals(
+            0,
+            selectSonyFallbackIndex(listOf(BluetoothDevice.DEVICE_TYPE_LE)),
+        )
+    }
+
     @Test
     fun `matches official Sony discovery advertisement to either LE Audio member`() {
         val advertisement = ByteArray(17).apply {
