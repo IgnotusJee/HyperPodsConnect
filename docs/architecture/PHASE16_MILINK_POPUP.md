@@ -13,14 +13,15 @@ Phase 15 与 Phase 16 之间已经交付的通用焦点通知、模块超级岛�
 
 ### 已实现
 
-- `ProfileContext`、`AncBatteryController` 与 MxBluetooth SDK 的身份、电量、ANC、空间音频读取继续只对
-  当前 snapshot 的精确地址生效；
+- `ProfileContext`、`AncBatteryController` 与 MxBluetooth SDK 的身份、电量、ANC 读取继续只对当前
+  snapshot 的精确地址生效；空间音频按实机 APK 的二值
+  `getAudioSpatialEffectState(BluetoothDevice)` / `setAudioEffectState(String,int)` 契约接入；
 - `HeadsetInfo` 的十参数构造结果会投影 snapshot 的 `deviceId`、六项电量、ANC、设备类型、开关和
   音效状态。这里修改值对象的 backing fields，而不只 Hook getter，保证 Parcelable/JSON 跨 host
   分发也读取同一状态；地址、名称、音量和 wired state 保留 ROM 原值；
 - snapshot 电量、ANC 或空间音频变化会分别触发 MiLink 的 4/8/9 属性通知，不建立第二条蓝牙连接；
-- `MxBluetoothManager`/`MxBluetoothService.switchToHeadsetActivity(BluetoothDevice)` 对精确目标设备
-  打开模块 `PopupActivity`。该入口使用强制模块弹窗标志，不受“通知点击去向”配置影响；
+- `ProfileContext.switchToHeadsetActivity(BluetoothDevice)` 对精确目标设备打开模块 `PopupActivity`。
+  该入口使用强制模块弹窗标志，不受“通知点击去向”配置影响；
 - 模块 Activity 启动失败时不吞掉 Hook，继续执行 ROM 原路径。小米第一方耳机、普通蓝牙设备和非当前
   地址从不进入模块分支；
 - ANC 与空间音频写操作仍转换为版本化 `FeatureCommand`，最终显示值由 snapshot readback 覆盖。
@@ -61,7 +62,16 @@ Phase 15 与 Phase 16 之间已经交付的通用焦点通知、模块超级岛�
 - ANC/空间音频至少各执行一次最小可逆修改，日志必须到达 `DEVICE_ACCEPTED` 和
   `READ_BACK_CONFIRMED`，随后恢复原值；
 - 同时连接或切换到小米第一方耳机与普通蓝牙设备，确认原 `switchToHeadsetActivity` 未被吞掉；
-- 人为制造模块 Activity 不可用或目标签名缺失场景，确认 MiLink 进程存活且 ROM 路径/安全跳过生效。
+- 人为制造模块 Activity 不可用或单个契约组签名缺失场景，确认仅该组输出一次 `DISABLED`，MiLink
+  进程存活且 ROM 原路径生效。
+
+### 2026-08-04 ROM 契约校正
+
+本轮从当前手机重新拉取 MiLink、BluetoothExtension、Bluetooth、Settings 与 MiuiSystemUI APK，并以
+反编译结果替换了此前“缺失 API 可在任意 MiLink 子进程逐项跳过”的结论。Hook 现在只进入 MiLink
+`:core`/`:ui`，使用独立契约组失败关闭；不存在的 spatial/model callback、旧官方岛请求字段、旧 Binder
+类名和 Hook 私有状态偏好文件均已删除。详细版本、哈希和签名见
+[HyperOS 3 ROM API 逆向基线](../reverse-engineering/HYPEROS3_ROM_API_ANALYSIS.md)。
 
 ## 3. 16B：已连接模块弹窗
 

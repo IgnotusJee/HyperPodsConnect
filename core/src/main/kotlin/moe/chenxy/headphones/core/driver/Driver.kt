@@ -11,6 +11,7 @@ import moe.chenxy.headphones.core.feature.HeadphoneState
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.headphones.core.operation.OperationEvent
 import moe.chenxy.headphones.core.operation.OperationResult
+import moe.chenxy.headphones.core.operation.RequestId
 import moe.chenxy.headphones.core.session.DisconnectCause
 import moe.chenxy.headphones.core.session.SessionState
 import moe.chenxy.headphones.core.transport.TransportFactory
@@ -45,7 +46,7 @@ interface HeadphoneSession {
 
     suspend fun refresh(featureIds: Set<FeatureId> = emptySet())
 
-    suspend fun execute(command: FeatureCommand): OperationResult
+    suspend fun execute(command: FeatureCommand, requestId: RequestId? = null): OperationResult
 
     suspend fun disconnect(cause: DisconnectCause = DisconnectCause.REQUESTED)
 }

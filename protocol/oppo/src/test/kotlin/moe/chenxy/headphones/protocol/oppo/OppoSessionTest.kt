@@ -31,6 +31,7 @@ import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.headphones.core.operation.FailureReason
 import moe.chenxy.headphones.core.operation.OperationEvent
 import moe.chenxy.headphones.core.operation.OperationPhase
+import moe.chenxy.headphones.core.operation.RequestId
 import moe.chenxy.headphones.core.session.DisconnectCause
 import moe.chenxy.headphones.core.session.SessionState
 import moe.chenxy.headphones.core.transport.ByteTransport
@@ -162,6 +163,58 @@ class OppoSessionTest {
             moe.chenxy.headphones.core.feature.SpatialAudioMode.OFF,
             session.state.value.spatialAudio.confirmed,
         )
+        session.disconnect()
+    }
+
+    @Test
+    fun `set response echo still requires an explicit equalizer readback`() = runBlocking {
+        val transport = FakeOppoTransport(echoEqWrites = true)
+        val session = session(transport)
+        session.connect()
+        val initialQueries = transport.requests.count { it.command == OppoCommand.QUERY_EQ }
+
+        val result = session.execute(
+            FeatureCommand.SetEqualizerPreset(EqualizerPreset("oppo:1")),
+        )
+
+        assertEquals(OperationPhase.READ_BACK_CONFIRMED, result.phase)
+        assertEquals("oppo:1", session.state.value.equalizer.confirmed?.id)
+        assertEquals(ValueSource.READ_BACK, session.state.value.equalizer.source)
+        assertEquals(
+            initialQueries + 1,
+            transport.requests.count { it.command == OppoCommand.QUERY_EQ },
+        )
+        session.disconnect()
+    }
+
+    @Test
+    fun `caller request id owns the complete operation sequence and internal ids remain unique`() = runBlocking {
+        val transport = FakeOppoTransport(confirmAncWrites = true)
+        val session = session(transport)
+        session.connect()
+        val events = CopyOnWriteArrayList<OperationEvent>()
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+            session.operations.collect(events::add)
+        }
+        val callerId = RequestId("ipc-oppo-42")
+
+        val result = session.execute(
+            FeatureCommand.SetNoiseControl(NoiseControlMode.NOISE_CANCELLATION),
+            callerId,
+        )
+        yield()
+        val callerEvents = events.toList()
+        val internalResult = session.execute(
+            FeatureCommand.SetNoiseControl(NoiseControlMode.OFF),
+        )
+
+        assertEquals(callerId, result.requestId)
+        assertEquals(OperationPhase.READ_BACK_CONFIRMED, result.phase)
+        assertTrue(callerEvents.isNotEmpty())
+        assertTrue(callerEvents.all { it.requestId == callerId })
+        assertEquals(result.phase, callerEvents.last().phase)
+        assertTrue(internalResult.requestId != callerId)
+        collector.cancel()
         session.disconnect()
     }
 
@@ -353,6 +406,7 @@ private class FakeOppoTransport(
     private val confirmAncWrites: Boolean = false,
     private val rejectAncWrites: Boolean = false,
     private val customEqSupported: Boolean = false,
+    private val echoEqWrites: Boolean = false,
     customEqInitiallyPresent: Boolean = true,
 ) : ByteTransport {
     override val kind: TransportKind = TransportKind.CLASSIC_SPP
@@ -363,6 +417,7 @@ private class FakeOppoTransport(
     override val maxWriteSize: StateFlow<Int> = MutableStateFlow(512).asStateFlow()
 
     private var ancValue = 0x01
+    private var eqValue = 0
     private var customEqFrequencies = mutableListOf(62, 250, 1_000, 4_000, 8_000, 16_000)
     private var customEqGains = mutableListOf(0, 1, -1, 2, -2, 3)
     private var customEqName = "Custom 1"
@@ -389,7 +444,7 @@ private class FakeOppoTransport(
             OppoCommand.QUERY_NOTIFICATION_SUPPORT -> byteArrayOf(0, 3, 1, 2, 3)
             OppoCommand.QUERY_BATTERY -> byteArrayOf(0, 1, 1, 76)
             OppoCommand.QUERY_ANC -> byteArrayOf(0, 1, 1, ancValue.toByte())
-            OppoCommand.QUERY_EQ -> byteArrayOf(0, 0)
+            OppoCommand.QUERY_EQ -> byteArrayOf(0, eqValue.toByte())
             OppoCommand.QUERY_CUSTOM_EQ -> if (customEqSupported) customEqResponse() else null
             OppoCommand.QUERY_BATCH_STATUS -> byteArrayOf(
                 0,
@@ -418,7 +473,14 @@ private class FakeOppoTransport(
                     byteArrayOf(0)
                 }
             }
-            OppoCommand.SET_EQ,
+            OppoCommand.SET_EQ -> {
+                if (echoEqWrites && request.payload.isNotEmpty()) {
+                    eqValue = request.payload[0].toInt() and 0xFF
+                    byteArrayOf(0, eqValue.toByte())
+                } else {
+                    byteArrayOf(0)
+                }
+            }
             OppoCommand.SET_SWITCH_FEATURE,
             OppoCommand.SET_SPATIAL_AUDIO,
             -> byteArrayOf(0)

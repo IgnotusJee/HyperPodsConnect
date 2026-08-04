@@ -153,8 +153,8 @@ data class FeatureValue<T>(
  *
  * Batteries and wear are maps rather than fixed left/right/case fields so a
  * headband, a neckband, or a set that reports only two components can be
- * expressed without inventing entries. A real Air5s does exactly that: it
- * reports two components while in use and three once the case is involved.
+ * expressed without inventing entries, including sets that report two
+ * components while in use and three once the case is involved.
  */
 data class HeadphoneState(
     val batteries: Map<BatteryComponent, BatteryState> = emptyMap(),
@@ -171,6 +171,8 @@ data class HeadphoneState(
     val spatialSoundSwitch: FeatureValue<Boolean> = FeatureValue.empty(),
     val dualDeviceConnection: FeatureValue<Boolean> = FeatureValue.empty(),
     val firmware: String? = null,
+    /** Opaque driver-reported color identifier used by artwork providers. */
+    val deviceColorId: String? = null,
     val vendorStates: Map<String, String> = emptyMap(),
 ) {
     /** Marks every value stale on disconnect without discarding what we knew. */

@@ -2,6 +2,7 @@ package moe.chenxy.headphones.protocol.sony
 
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +10,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.withTimeout
 import moe.chenxy.headphones.core.device.DeviceCandidate
 import moe.chenxy.headphones.core.device.DeviceId
@@ -28,6 +31,8 @@ import moe.chenxy.headphones.core.feature.WearState
 import moe.chenxy.headphones.core.operation.FailureReason
 import moe.chenxy.headphones.core.operation.FeatureCommand
 import moe.chenxy.headphones.core.operation.OperationPhase
+import moe.chenxy.headphones.core.operation.OperationEvent
+import moe.chenxy.headphones.core.operation.RequestId
 import moe.chenxy.headphones.core.session.DisconnectCause
 import moe.chenxy.headphones.core.session.SessionState
 import moe.chenxy.headphones.core.transport.ByteTransport
@@ -496,6 +501,58 @@ class SonySessionTest {
         )
         assertEquals(FailureReason.VALUE_OUT_OF_RANGE, invalid.failure)
         assertEquals(writesBeforeInvalid, transport.commandWrites.size)
+        session.disconnect()
+    }
+
+    @Test
+    fun `caller request id owns the complete Sony sequence and internal ids remain unique`() = runBlocking {
+        val transport = FakeSonyTransport(
+            kind = TransportKind.BLE_GATT,
+            model = "LinkBuds S",
+            firmware = "4.2.1",
+            supportFunctions = intArrayOf(0x17FF, 0x20FF),
+        )
+        val linkBuds = candidate(
+            advertisedUuids = emptySet(),
+            availableTransports = setOf(TransportKind.BLE_GATT),
+        ).copy(displayName = "LinkBuds S")
+        val session = SonySession(
+            DriverSessionContext(
+                linkBuds,
+                object : TransportFactory {
+                    override suspend fun create(
+                        device: DeviceIdentity,
+                        spec: TransportSpec,
+                    ): ByteTransport = transport
+                },
+            ),
+            responseTimeoutMillis = 300,
+            transportSettleDelayMillis = 0,
+        )
+        session.connect()
+        val events = CopyOnWriteArrayList<OperationEvent>()
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+            session.operations.collect(events::add)
+        }
+        val callerId = RequestId("ipc-sony-42")
+
+        val result = session.execute(
+            FeatureCommand.SetEqualizerPreset(EqualizerPreset(SonyEqualizerFeature.SPEECH_ID)),
+            callerId,
+        )
+        yield()
+        val callerEvents = events.toList()
+        val internalResult = session.execute(
+            FeatureCommand.SetEqualizerPreset(EqualizerPreset(SonyEqualizerFeature.BASS_BOOST_ID)),
+        )
+
+        assertEquals(callerId, result.requestId)
+        assertTrue(result.phase.isTerminal)
+        assertTrue(callerEvents.isNotEmpty())
+        assertTrue(callerEvents.all { it.requestId == callerId })
+        assertEquals(result.phase, callerEvents.last().phase)
+        assertTrue(internalResult.requestId != callerId)
+        collector.cancel()
         session.disconnect()
     }
 

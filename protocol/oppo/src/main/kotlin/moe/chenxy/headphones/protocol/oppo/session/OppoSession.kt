@@ -247,21 +247,22 @@ class OppoSession(
         }
     }
 
-    override suspend fun execute(command: FeatureCommand): OperationResult {
+    override suspend fun execute(
+        command: FeatureCommand,
+        requestId: RequestId?,
+    ): OperationResult {
+        val id = requestId ?: nextRequestId()
         if (command is FeatureCommand.RefreshAll) {
             refresh()
-            val id = nextRequestId()
             return OperationResult(id, OperationPhase.READ_BACK_CONFIRMED)
         }
         if (command is FeatureCommand.Refresh) {
             refresh(setOf(command.featureId))
-            val id = nextRequestId()
             return OperationResult(id, OperationPhase.READ_BACK_CONFIRMED)
         }
 
-        val requestId = nextRequestId()
         if (!_connection.value.isProtocolReady) {
-            return terminalFailure(requestId, command, FailureReason.NOT_CONNECTED, "session is not ready")
+            return terminalFailure(id, command, FailureReason.NOT_CONNECTED, "session is not ready")
         }
         val capability = _profile.value?.capability(command.featureId)
         if (capability?.isWritable != true) {
@@ -270,34 +271,34 @@ class OppoSession(
             } else {
                 FailureReason.NOT_WRITABLE
             }
-            return terminalFailure(requestId, command, reason, "feature is not writable")
+            return terminalFailure(id, command, reason, "feature is not writable")
         }
         if (!isValueSupported(command)) {
             return terminalFailure(
-                requestId,
+                id,
                 command,
                 FailureReason.NOT_SUPPORTED,
                 "value is not supported by the compatibility profile",
             )
         }
         val packets = packetsFor(command)
-            ?: return terminalFailure(requestId, command, FailureReason.VALUE_OUT_OF_RANGE, "invalid value")
+            ?: return terminalFailure(id, command, FailureReason.VALUE_OUT_OF_RANGE, "invalid value")
 
         return operationMutex.withLock {
             apply(StateUpdate.LocalPending(command, clock()))
-            emit(requestId, command, OperationPhase.QUEUED)
+            emit(id, command, OperationPhase.QUEUED)
 
             for (packet in packets) {
-                emit(requestId, command, OperationPhase.SENT)
+                emit(id, command, OperationPhase.SENT)
                 val response = sendAndAwait(
                     packet,
                     expectedCommand = OppoCommand.responseOf(commandOf(packet) ?: -1),
-                    onWritten = { emit(requestId, command, OperationPhase.TRANSPORT_ACKNOWLEDGED) },
+                    onWritten = { emit(id, command, OperationPhase.TRANSPORT_ACKNOWLEDGED) },
                 )
                 if (response == null) {
                     abandon(command.featureId)
                     return@withLock terminalFailure(
-                        requestId,
+                        id,
                         command,
                         FailureReason.TIMEOUT,
                         "device acknowledgement timed out",
@@ -308,22 +309,22 @@ class OppoSession(
                     apply(StateUpdate.WriteAcknowledged(command.featureId, false, clock()))
                     abandon(command.featureId)
                     return@withLock terminalFailure(
-                        requestId,
+                        id,
                         command,
                         FailureReason.DEVICE_REJECTED,
                         "device rejected status=${response.status}",
                     )
                 }
                 apply(StateUpdate.WriteAcknowledged(command.featureId, true, clock()))
-                emit(requestId, command, OperationPhase.DEVICE_ACCEPTED)
-            }
-
-            if (isConfirmed(command)) {
-                emit(requestId, command, OperationPhase.STATE_CONFIRMED)
-                return@withLock OperationResult(requestId, OperationPhase.STATE_CONFIRMED)
+                emit(id, command, OperationPhase.DEVICE_ACCEPTED)
             }
 
             val readbacks = readbackPackets(command)
+            if (readbacks.isEmpty() && isConfirmed(command)) {
+                emit(id, command, OperationPhase.STATE_CONFIRMED)
+                return@withLock OperationResult(id, OperationPhase.STATE_CONFIRMED)
+            }
+
             if (readbacks.isNotEmpty()) {
                 readbackFeature = command.featureId
                 try {
@@ -340,12 +341,17 @@ class OppoSession(
             }
 
             if (isConfirmed(command)) {
-                emit(requestId, command, OperationPhase.READ_BACK_CONFIRMED)
-                OperationResult(requestId, OperationPhase.READ_BACK_CONFIRMED)
+                val phase = if (readbacks.isNotEmpty()) {
+                    OperationPhase.READ_BACK_CONFIRMED
+                } else {
+                    OperationPhase.STATE_CONFIRMED
+                }
+                emit(id, command, phase)
+                OperationResult(id, phase)
             } else {
                 abandon(command.featureId)
                 terminalFailure(
-                    requestId,
+                    id,
                     command,
                     FailureReason.TIMEOUT,
                     "accepted write was not confirmed by readback",

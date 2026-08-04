@@ -82,6 +82,34 @@ class CapabilityTest {
     }
 
     @Test
+    fun `boolean capabilities normalize to stable lowercase values`() {
+        BOOLEAN_FEATURE_IDS.forEach { featureId ->
+            assertEquals(
+                listOf("false", "true"),
+                capability(featureId, evidence = EvidenceLevel.VERIFIED)
+                    .copy(allowedValues = setOf("0", "1"))
+                    .normalizedAllowedValues()
+                    .toList(),
+            )
+        }
+    }
+
+    @Test
+    fun `normalization preserves driver values for non boolean features`() {
+        val equalizer = capability(
+            FeatureId.EQUALIZER,
+            evidence = EvidenceLevel.VERIFIED,
+        ).copy(allowedValues = linkedSetOf("flat", "speech"))
+
+        assertEquals(listOf("flat", "speech"), equalizer.normalizedAllowedValues().toList())
+        assertTrue(
+            capability(FeatureId.EQUALIZER, evidence = EvidenceLevel.VERIFIED)
+                .normalizedAllowedValues()
+                .isEmpty(),
+        )
+    }
+
+    @Test
     fun `equalizer curve spec rejects wrong slot shape range and step`() {
         val spec = EqualizerCurveSpec(
             bands = listOf(

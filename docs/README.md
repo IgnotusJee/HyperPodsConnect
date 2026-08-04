@@ -17,6 +17,7 @@
 | Phase 14 多厂商自定义 EQ 执行记录 | [architecture/PHASE14_CUSTOM_EQ.md](architecture/PHASE14_CUSTOM_EQ.md) |
 | Phase 15 官方设备图片执行记录 | [architecture/PHASE15_DEVICE_ARTWORK.md](architecture/PHASE15_DEVICE_ARTWORK.md) |
 | Phase 16 MiLink 状态桥与耳机弹窗执行记录 | [architecture/PHASE16_MILINK_POPUP.md](architecture/PHASE16_MILINK_POPUP.md) |
+| HyperOS 3 ROM API 逆向基线 | [reverse-engineering/HYPEROS3_ROM_API_ANALYSIS.md](reverse-engineering/HYPEROS3_ROM_API_ANALYSIS.md) |
 | Sony 佩戴检测的能力与通道门禁 | [architecture/SONY_WEARING_DETECTION.md](architecture/SONY_WEARING_DETECTION.md) |
 | 通用耳机超级岛与焦点通知 | [architecture/UNIVERSAL_HEADPHONE_NOTIFICATIONS.md](architecture/UNIVERSAL_HEADPHONE_NOTIFICATIONS.md) |
 | 小米原生/OPPO 官方弹窗机制与 Hook 可行性 | [reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md](reverse-engineering/MI_OPPO_POPUP_FEASIBILITY.md) |
@@ -58,14 +59,15 @@ TWS/单电池拓扑、实际电量槽和可写 capability 渲染，不再要求 
 模块，编译期即无法触及 Android、Xposed 与 Compose。蓝牙进程中的
 `BluetoothProcessRuntimeHost` 是唯一真实会话 authority，由 `:engine` 的
 `HeadphoneSessionManager` 管理 driver、generation、重连和统一 snapshot。
-`OppoSystemIntegrationAdapter` 只负责剩余旧广播与 HyperOS 系统副作用；App、MiLink 和
-小米蓝牙进程通过版本化 IPC 恢复相同快照，不会各自建立蓝牙会话。
+`HeadphonePresentationController` 与 `HeadphoneSessionCoordinator` 负责品牌无关的展示
+门禁及 Android/HyperOS 系统副作用；App、MiLink 和小米蓝牙进程通过版本化 IPC 恢复
+相同快照，不会各自建立蓝牙会话。
 App 页面由 `HeadphoneUiStateStore` 按 capability 动态渲染，HyperOS hook 通过
 `HyperOsHeadphoneAdapter` 使用通用状态和 `FeatureCommand`，不再维护 OPPO 地址表或
 在 UI 中解释厂商 preset。
 旧的 ANC、低延迟、透明人声增强、空间音频、EQ 和双设备“写广播”入口已删除；这些写操作
-只能走版本化 `FeatureCommand`。保留的 `chen.action.oppopods.*` 字符串仅用于安装升级和
-既有 LSPosed/跨进程兼容，不再作为新增功能的扩展接口。
+只能走版本化 `FeatureCommand`。应用已迁移到全新身份 `org.hyperpods.connect`；旧包数据、
+旧 action、旧 Provider authority 与旧 LSPosed 入口均不兼容。
 连接、电量、佩戴和逐功能状态不再由 adapter 二次广播，跨进程状态统一来自版本化
 snapshot；智能 ANC 当前强度也已进入通用 `noiseControlActiveMode` 状态链。
 `:transport:android` 同时提供 SPP 与通用 GATT byte transport；GATT 的 UUID、MTU

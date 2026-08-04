@@ -1,6 +1,7 @@
 package moe.chenxy.headphones.engine
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -172,6 +173,88 @@ class HeadphoneSessionManagerTest {
     }
 
     @Test
+    fun `caller request id reaches session result operation and snapshot`() = runTest {
+        val provider = FakeProvider()
+        val manager = manager(provider)
+        manager.connect(candidate("11:22:33:44:55:66"), unusedFactory)
+        val requestId = RequestId("ipc-request-42")
+
+        val result = manager.execute(FeatureCommand.SetLowLatency(true), requestId)
+        runCurrent()
+
+        assertEquals(requestId, provider.sessions.single().lastExecuteRequestId)
+        assertEquals(requestId, result.requestId)
+        assertEquals(requestId, manager.snapshot.value?.lastOperation?.requestId)
+        assertEquals(OperationPhase.READ_BACK_CONFIRMED, manager.snapshot.value?.lastOperation?.phase)
+    }
+
+    @Test
+    fun `unavailable session failure preserves caller request id`() = runTest {
+        val manager = manager(FakeProvider())
+        val requestId = RequestId("ipc-no-session")
+
+        val result = manager.execute(FeatureCommand.SetLowLatency(true), requestId)
+
+        assertEquals(requestId, result.requestId)
+        assertEquals(moe.chenxy.headphones.core.operation.FailureReason.NOT_CONNECTED, result.failure)
+    }
+
+    @Test
+    fun `driver rejection timeout and cancellation preserve caller request ids`() = runTest {
+        val provider = FakeProvider()
+        val manager = manager(provider)
+        manager.connect(candidate("11:22:33:44:55:66"), unusedFactory)
+        val session = provider.sessions.single()
+        val outcomes = listOf(
+            OperationPhase.FAILED to moe.chenxy.headphones.core.operation.FailureReason.DEVICE_REJECTED,
+            OperationPhase.TIMED_OUT to moe.chenxy.headphones.core.operation.FailureReason.TIMEOUT,
+            OperationPhase.CANCELLED to moe.chenxy.headphones.core.operation.FailureReason.CANCELLED,
+        )
+
+        outcomes.forEachIndexed { index, (phase, failure) ->
+            val requestId = RequestId("ipc-terminal-$index")
+            session.nextExecutePhase = phase
+            session.nextExecuteFailure = failure
+
+            val result = manager.execute(FeatureCommand.SetLowLatency(true), requestId)
+            runCurrent()
+
+            assertEquals(requestId, result.requestId)
+            assertEquals(phase, result.phase)
+            assertEquals(failure, result.failure)
+            assertEquals(requestId, manager.snapshot.value?.lastOperation?.requestId)
+            assertEquals(phase, manager.snapshot.value?.lastOperation?.phase)
+        }
+    }
+
+    @Test
+    fun `superseded generation preserves id and cannot publish its late terminal event`() = runTest {
+        val provider = FakeProvider()
+        val manager = manager(provider)
+        manager.connect(candidate("11:22:33:44:55:66"), unusedFactory)
+        val old = provider.sessions.single()
+        old.executeStarted = CompletableDeferred()
+        old.executeGate = CompletableDeferred()
+        val requestId = RequestId("ipc-old-generation")
+
+        val pending = async {
+            manager.execute(FeatureCommand.SetLowLatency(true), requestId)
+        }
+        old.executeStarted!!.await()
+        manager.connect(candidate("AA:BB:CC:DD:EE:FF"), unusedFactory)
+        old.executeGate!!.complete(Unit)
+        val result = pending.await()
+        runCurrent()
+
+        assertEquals(requestId, result.requestId)
+        assertEquals(
+            moe.chenxy.headphones.core.operation.FailureReason.GENERATION_INVALIDATED,
+            result.failure,
+        )
+        assertNull(manager.snapshot.value?.lastOperation)
+    }
+
+    @Test
     fun `disconnect retains last state as stale and prevents reconnect`() = runTest {
         val provider = FakeProvider()
         val manager = manager(provider)
@@ -331,6 +414,11 @@ private class FakeSession(
     private val _operations = MutableSharedFlow<OperationEvent>(extraBufferCapacity = 8)
     override val operations: Flow<OperationEvent> = _operations.asSharedFlow()
     var disconnectCause: DisconnectCause? = null
+    var lastExecuteRequestId: RequestId? = null
+    var executeStarted: CompletableDeferred<Unit>? = null
+    var executeGate: CompletableDeferred<Unit>? = null
+    var nextExecutePhase = OperationPhase.READ_BACK_CONFIRMED
+    var nextExecuteFailure: moe.chenxy.headphones.core.operation.FailureReason? = null
 
     override suspend fun connect() {
         _connection.value = if (connectFailure == null) {
@@ -347,8 +435,23 @@ private class FakeSession(
 
     override suspend fun refresh(featureIds: Set<FeatureId>) = Unit
 
-    override suspend fun execute(command: FeatureCommand) =
-        OperationResult(RequestId("fake"), OperationPhase.READ_BACK_CONFIRMED)
+    override suspend fun execute(command: FeatureCommand, requestId: RequestId?): OperationResult {
+        val id = requestId ?: RequestId("fake")
+        lastExecuteRequestId = id
+        executeStarted?.complete(Unit)
+        executeGate?.await()
+        _operations.emit(
+            OperationEvent(
+                id,
+                command,
+                nextExecutePhase,
+                1,
+                1,
+                nextExecuteFailure,
+            ),
+        )
+        return OperationResult(id, nextExecutePhase, nextExecuteFailure)
+    }
 
     override suspend fun disconnect(cause: DisconnectCause) {
         disconnectCause = cause

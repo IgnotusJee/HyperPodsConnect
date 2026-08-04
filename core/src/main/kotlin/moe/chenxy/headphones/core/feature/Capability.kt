@@ -19,6 +19,17 @@ enum class FeatureId {
     FIRMWARE_VERSION,
 }
 
+/** Boolean features share one stable, presentation-safe wire contract. */
+val BOOLEAN_FEATURE_IDS: Set<FeatureId> = setOf(
+    FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
+    FeatureId.LOW_LATENCY,
+    FeatureId.SPATIAL_SOUND_SWITCH,
+    FeatureId.DUAL_DEVICE_CONNECTION,
+)
+
+/** Keep insertion order because IPC and UI projections expose this list verbatim. */
+val BOOLEAN_ALLOWED_VALUES: Set<String> = linkedSetOf("false", "true")
+
 /**
  * How well a capability is known.
  *
@@ -78,6 +89,17 @@ data class FeatureCapability(
     val isReadable: Boolean
         get() = canRead && evidence != EvidenceLevel.REFUTED
 }
+
+/**
+ * Normalizes old archived profiles and future incomplete drivers at the
+ * presentation boundary without changing the driver's authority for enums.
+ */
+fun FeatureCapability.normalizedAllowedValues(): Set<String> =
+    if (featureId in BOOLEAN_FEATURE_IDS) {
+        BOOLEAN_ALLOWED_VALUES
+    } else {
+        allowedValues
+    }
 
 enum class DeviceTopology { EARBUDS_WITH_CASE, EARBUDS_NO_CASE, HEADBAND, NECKBAND, UNKNOWN }
 

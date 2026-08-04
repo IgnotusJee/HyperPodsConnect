@@ -1,74 +1,79 @@
-
 <div align="center">
 
-<img src="https://github.com/user-attachments/assets/e8a3df6b-6e67-485a-ae1c-018ac24e87d4" width="120" height="120" style="border-radius: 24px;" alt="HyperIsland Icon"/>
+<img src="https://github.com/user-attachments/assets/e8a3df6b-6e67-485a-ae1c-018ac24e87d4" width="120" height="120" style="border-radius: 24px;" alt="HyperPods Connect icon"/>
 
-# OPPOPods
+# HyperPods Connect
 
-**为 HyperOS 设备提供系统级多品牌耳机控制**
+**System-level multi-brand headphone control for HyperOS devices**
 
 [![GitHub Release](https://img.shields.io/github/v/release/1812z/OppoPods?style=flat-square&logo=github&color=black)](https://github.com/1812z/OppoPods/releases)
 ![Downloads](https://img.shields.io/github/downloads/1812z/OppoPods/total?style=flat-square)
 [![Platform](https://img.shields.io/badge/Platform-Android-green?style=flat-square&logo=android)](https://android.com)
 [![LSPosed](https://img.shields.io/badge/Framework-LSPosed-blueviolet?style=flat-square)](https://github.com/LSPosed/LSPosed)
-[![HyperOS](https://img.shields.io/badge/ROM-澎湃OS3-orange?style=flat-square)](https://hyperos.mi.com)
+[![HyperOS](https://img.shields.io/badge/ROM-HyperOS%203-orange?style=flat-square)](https://hyperos.mi.com)
 
-
-**[English](README_EN.md)** | **简体中文**
+**English** | **[简体中文](README_CN.md)**
 
 </div>
 
+HyperPods Connect is an Xposed module that provides system-level, multi-brand headphone control on Xiaomi HyperOS devices. Its presentation layer consumes a vendor-neutral driver capability model; OPPO and Sony drivers are currently bundled.
 
-为小米 HyperOS 设备提供系统级 OPPO 与 Sony 耳机控制的 Xposed 模块。
+### Headphone features
 
+- **Noise control** — Switch among Off, Noise Cancellation, Adaptive, and Transparency modes according to the capabilities reported by the connected device
+- **Low-latency mode** — Toggle low-latency audio and optionally enable it automatically on connection
+- **Battery display** — Show the battery level and charging state of the left earbud, right earbud, and charging case
+- **Sony support** — WH-1000XM4 2.5.1 and LinkBuds S 4.2.1 support battery, noise/ambient control, ambient level, voice enhancement, and official equalizer presets according to each device's capabilities
 
-### 耳机功能
+### HyperOS integration
 
-- **降噪控制** — 在关闭 / 降噪 / 自适应 / 通透模式之间切换
-- **游戏模式** — 低延迟音频开关，支持连接时自动开启
-- **电量显示** — 实时显示左耳、右耳、充电盒电量
-- **Sony 支持** — WH-1000XM4 2.5.1 支持电量、降噪/环境声/全关闭、环境声等级、
-  人声增强与官方均衡器预设；LinkBuds S 4.2.1 支持相应 GATT 控制
+- **Super Island** — Use either HyperOS's official Super Island or the module's built-in island
+- **Fusion Device Center** — Display and control supported headphones from the Control Center device card
+- **Settings integration** — Project supported headphone information into system Bluetooth settings
+- **Device transfer** — Preserve one-tap multi-device transfer in Fusion Device Center
+- **ROM presentation compatibility** — Keep the HyperOS presentation gate value isolated from real brands, models, and driver profiles
 
-### 澎湃集成
-- **超级岛** — 支持官方超级岛或模块内建超级岛
-- **融合设备中心** — 支持融合设备中心控制
-- **设置集成** — 支持系统蓝牙设置控制
-- **设备流转** — 支持融合设备中心内多设备一键流转
-- **型号伪装** — 伪装受支持的小米耳机
+### Module features
 
-### 模块功能
-- **快捷弹窗** — 点击通知或控制中心耳机卡片，弹出浮窗显示电量、降噪、游戏模式控制；点击「更多」进入完整页面
-- **快捷跳转** — 通知或控制中心耳机卡片，支持快速跳转欢律/模块设置/系统设置
+- **Quick popup** — Open a floating panel from the notification or Control Center card to view battery status and control supported features; tap **More** for the full panel
+- **Quick navigation** — Open the module or system Bluetooth settings from the notification and headphone card
+- **Capability-aware controls** — Hide unsupported features, disable read-only controls, and expose only values declared by the active driver
 
-### 系统要求
+### Requirements
 
-- 小米设备，运行 **HyperOS**（Android 15+）(超级岛仅支持OS3)
-- **LSPosed** API版本>=101
+- A Xiaomi device running **HyperOS** on Android 15 or later; the official Super Island integration requires HyperOS 3
+- **LSPosed API 101** or later
 
-### 使用
+### Installation and usage
 
-1. 安装 APK
-2. 在 LSPosed 中启用模块并勾选推荐作用域
-3. 软件右上角一键重启作用域
-4. 通过蓝牙连接受支持的 OPPO 或 Sony 耳机
+1. Uninstall the legacy `moe.chenxy.oppopods` package. HyperPods Connect uses the new `org.hyperpods.connect` application identity and does not migrate old settings.
+2. Install the full APK.
+3. Enable the module in LSPosed and select the recommended scopes.
+4. Restart the selected scope processes from the button in the top-right corner of the app.
+5. Connect a supported OPPO or Sony headphone through Bluetooth.
 
-### 下一阶段
+For development or local deployment, use:
 
-- **自定义 EQ** — 支持 Sony、OPPO 等设备按各自频段能力调整 EQ 曲线
-- **自动设备图片** — 参考官方 App，按产品与颜色精确解析并缓存耳机图片
-- **耳机弹窗** — 完善 MiLink 状态桥，参考小米第一方与 OPPO 官方弹窗实现系统级连接弹窗
+```powershell
+.\gradlew.bat :app:installDebug
+```
 
-详细目标、证据门禁与验收标准见
-[Phase 13–16 路线图](docs/architecture/PHASE13_16_NEXT_STAGE_ROADMAP.md)。
+Android Studio optimized deployment is not sufficient to update an LSPosed module. Restart the selected LSPosed scope processes after installing a new APK.
 
-### 致谢
+### Next stage
 
-- [HyperPods](https://github.com/Art-Chen/HyperPods) by Art_Chen — 原始项目
-- [Miuix](https://github.com/YuKongA/miuix) — HyperOS 风格 Compose UI 组件
-- [OPPOPods](https://github.com/Leaf-lsgtky/OppoPods) - by Leaf-lsgtky
+- **Custom EQ** — Adjust equalizer curves using the frequency bands exposed by each Sony, OPPO, or future vendor driver
+- **Automatic device artwork** — Resolve and cache product/color-specific headphone images from verified sources
+- **Presentation refinement** — Continue aligning the MiLink bridge, connection popup, and HyperOS presentation with vendor-neutral driver state
 
-### 许可证
+See the [Phase 13–16 roadmap](docs/architecture/PHASE13_16_NEXT_STAGE_ROADMAP.md) for detailed goals, evidence gates, and acceptance criteria.
+
+### Credits
+
+- [HyperPods](https://github.com/Art-Chen/HyperPods) by Art_Chen — original project
+- [Miuix](https://github.com/YuKongA/miuix) — HyperOS-style Compose UI components
+- [OPPOPods](https://github.com/Leaf-lsgtky/OppoPods) by Leaf-lsgtky
+
+### License
 
 GPL-3.0
-

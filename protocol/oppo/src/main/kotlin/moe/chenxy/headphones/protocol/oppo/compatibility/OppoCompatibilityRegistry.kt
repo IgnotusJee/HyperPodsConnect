@@ -4,6 +4,7 @@ import moe.chenxy.headphones.core.device.DeviceCandidate
 import moe.chenxy.headphones.core.device.TransportKind
 import moe.chenxy.headphones.core.device.VendorId
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
+import moe.chenxy.headphones.core.feature.BOOLEAN_ALLOWED_VALUES
 import moe.chenxy.headphones.core.feature.DeviceProfile
 import moe.chenxy.headphones.core.feature.DeviceTopology
 import moe.chenxy.headphones.core.feature.EvidenceLevel
@@ -135,7 +136,12 @@ object OppoCompatibilityRegistry {
             )
             put(
                 FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
-                capability(FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT, false, false),
+                capability(
+                    FeatureId.TRANSPARENCY_VOCAL_ENHANCEMENT,
+                    false,
+                    false,
+                    allowedValues = BOOLEAN_ALLOWED_VALUES,
+                ),
             )
             val equalizerValues = compatibility.equalizerValues
             put(
@@ -148,8 +154,24 @@ object OppoCompatibilityRegistry {
                     valueLabels = equalizerValues,
                 ),
             )
-            put(FeatureId.LOW_LATENCY, capability(FeatureId.LOW_LATENCY, false, false))
-            put(FeatureId.DUAL_DEVICE_CONNECTION, capability(FeatureId.DUAL_DEVICE_CONNECTION, false, false))
+            put(
+                FeatureId.LOW_LATENCY,
+                capability(
+                    FeatureId.LOW_LATENCY,
+                    false,
+                    false,
+                    allowedValues = BOOLEAN_ALLOWED_VALUES,
+                ),
+            )
+            put(
+                FeatureId.DUAL_DEVICE_CONNECTION,
+                capability(
+                    FeatureId.DUAL_DEVICE_CONNECTION,
+                    false,
+                    false,
+                    allowedValues = BOOLEAN_ALLOWED_VALUES,
+                ),
+            )
             put(
                 FeatureId.SPATIAL_AUDIO,
                 capability(
@@ -172,6 +194,7 @@ object OppoCompatibilityRegistry {
                     compatibility.spatialSoundSwitchSupported,
                     true,
                     advertised = compatibility.spatialSoundSwitchSupported,
+                    allowedValues = BOOLEAN_ALLOWED_VALUES,
                 ),
             )
             put(FeatureId.FIRMWARE_VERSION, capability(FeatureId.FIRMWARE_VERSION, false, false))

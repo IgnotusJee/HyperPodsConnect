@@ -109,15 +109,18 @@ class HeadphoneSessionManager(
         holder.session.refresh(featureIds)
     }
 
-    override suspend fun execute(command: FeatureCommand): OperationResult {
+    override suspend fun execute(
+        command: FeatureCommand,
+        requestId: RequestId?,
+    ): OperationResult {
         val holder = mutex.withLock { active }
         if (holder == null || !isCurrent(holder)) {
             return OperationResult.failed(
-                RequestId("engine-unavailable-${clock()}"),
+                requestId ?: RequestId("engine-unavailable-${clock()}"),
                 FailureReason.NOT_CONNECTED,
             )
         }
-        val result = holder.session.execute(command)
+        val result = holder.session.execute(command, requestId)
         return if (isCurrent(holder)) {
             result
         } else {

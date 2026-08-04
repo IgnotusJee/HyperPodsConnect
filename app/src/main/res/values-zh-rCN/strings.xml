@@ -48,7 +48,6 @@
     <string name="more_click_action_summary">选择点击模块弹窗“更多”按钮时打开的位置</string>
     <string name="notification_click_module_popup">模块弹窗</string>
     <string name="click_action_system_settings">系统设置</string>
-    <string name="click_action_heytap">欢律</string>
     <string name="click_action_module">模块</string>
     <string name="enabled">开启</string>
     <string name="off">关闭</string>
@@ -135,8 +134,8 @@
     <string name="island_show_timing_wearing">佩戴时</string>
     <string name="island_show_timing_removed">摘下时</string>
     <string name="island_show_timing_in_case">放回盒中时</string>
-    <string name="fake_device_id">伪装耳机型号</string>
-    <string name="fake_device_id_summary">留空时默认使用 01010607</string>
+    <string name="hyperos_presentation_type_id">官方岛兼容类型</string>
+    <string name="hyperos_presentation_type_id_summary">仅用于通过 HyperOS ROM 展示门禁，不代表耳机品牌或型号；留空使用 01010607。</string>
     <string name="notification_btn_disconnect">断开连接</string>
     <string name="notification_battery_single">电量 %1$d%%</string>
     <string name="notification_battery_left">左耳 %1$d%%</string>

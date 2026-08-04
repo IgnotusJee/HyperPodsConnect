@@ -15,11 +15,11 @@ apksign {
 }
 
 android {
-    namespace = "moe.chenxy.oppopods"
+    namespace = "org.hyperpods.connect"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "moe.chenxy.oppopods"
+        applicationId = "org.hyperpods.connect"
         minSdk = 35
         targetSdk = 36
         versionCode = 15

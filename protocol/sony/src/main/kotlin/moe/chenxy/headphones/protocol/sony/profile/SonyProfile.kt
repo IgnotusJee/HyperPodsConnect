@@ -4,6 +4,7 @@ import moe.chenxy.headphones.core.device.DeviceCandidate
 import moe.chenxy.headphones.core.device.TransportKind
 import moe.chenxy.headphones.core.device.VendorId
 import moe.chenxy.headphones.core.feature.BatteryComponent
+import moe.chenxy.headphones.core.feature.BOOLEAN_ALLOWED_VALUES
 import moe.chenxy.headphones.core.feature.CompatibilityLevel
 import moe.chenxy.headphones.core.feature.DeviceProfile
 import moe.chenxy.headphones.core.feature.DeviceTopology
@@ -115,7 +116,7 @@ object SonyProfile {
                 evidence = EvidenceLevel.VERIFIED,
                 availableOnTransports = setOf(initial.transport),
                 requiresReadback = true,
-                allowedValues = setOf("false", "true"),
+                allowedValues = BOOLEAN_ALLOWED_VALUES,
                 source = "Sony table1 NC/ASM NORMAL/VOICE modes verified",
             )
         }

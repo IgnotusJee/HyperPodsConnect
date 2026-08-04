@@ -258,6 +258,7 @@ class SonySession(
         supportInfo = support
         applyReport(DeviceReport.Firmware(firmware), ValueSource.QUERY_RESPONSE)
         _state.value = _state.value.copy(
+            deviceColorId = seriesAndColor?.let { "0x%02X".format(it.colorCode) },
             vendorStates = buildMap {
                 put("sony.transport", route.kind.name)
                 put("sony.protocol.generation", protocol.generation.name)
@@ -520,8 +521,11 @@ class SonySession(
         }
     }
 
-    override suspend fun execute(command: FeatureCommand): OperationResult {
-        val id = RequestId("sony-${requestCounter.incrementAndGet()}")
+    override suspend fun execute(
+        command: FeatureCommand,
+        requestId: RequestId?,
+    ): OperationResult {
+        val id = requestId ?: RequestId("sony-${requestCounter.incrementAndGet()}")
         if (command is FeatureCommand.RefreshAll) {
             refresh()
             return OperationResult(id, OperationPhase.READ_BACK_CONFIRMED)
